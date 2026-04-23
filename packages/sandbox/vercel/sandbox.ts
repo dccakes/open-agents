@@ -593,43 +593,29 @@ ${hostLine}${portLines}${runtimeEnvLine}`;
         : source.url;
       const branch = source.branch ?? "main";
 
-      // Use bash -c to ensure PATH is fully resolved and we get combined stdout+stderr.
-      // The Vercel SDK combines stdout/stderr into stdout(), so we use bash for full output.
+      // Use bash -c so PATH is fully resolved and stdout/stderr are combined.
+      // (The Vercel SDK merges both streams into stdout().)
       // Mask token in logs to avoid leaking credentials.
       const maskToken = (s: string) =>
         s.replace(/x-access-token:[^@]+@/g, "x-access-token:***@");
 
-      const bashSteps: Array<{ label: string; script: string; optional?: boolean }> = [
-        // Probe: show git availability and PATH for debugging
-        {
-          label: "git-env",
-          script: "which git 2>&1 || echo 'git not found in PATH'; git --version 2>&1 || echo 'git failed'; echo \"PATH=$PATH\"; ls /usr/bin/git /usr/local/bin/git 2>&1 || true",
-          optional: true,
-        },
-        // Install git if missing (yum-based Amazon Linux image)
-        {
-          label: "git-install-if-missing",
-          script: "git --version > /dev/null 2>&1 || yum install -y git 2>&1 || apt-get install -y git 2>&1 || echo 'WARNING: could not install git'",
-          optional: true,
-        },
-        { label: "git-init", script: "git init 2>&1" },
-        { label: "git-remote", script: `git remote add origin ${JSON.stringify(cloneUrl)} 2>&1` },
-        { label: "git-fetch", script: `GIT_TERMINAL_PROMPT=0 git fetch --depth=1 origin ${JSON.stringify(branch)} 2>&1` },
+      const gitSteps: Array<{ label: string; script: string }> = [
+        { label: "git-init",     script: "git init 2>&1" },
+        { label: "git-remote",   script: `git remote add origin ${JSON.stringify(cloneUrl)} 2>&1` },
+        { label: "git-fetch",    script: `GIT_TERMINAL_PROMPT=0 git fetch --depth=1 origin ${JSON.stringify(branch)} 2>&1` },
         { label: "git-checkout", script: `git checkout -b ${JSON.stringify(branch)} ${JSON.stringify(`origin/${branch}`)} 2>&1` },
       ];
 
-      for (const step of bashSteps) {
-        console.log(`[VercelSandbox] [${step.label}] Running: ${maskToken(step.script)}`);
+      for (const step of gitSteps) {
         const result = await sdk.runCommand({
           cmd: "bash",
           args: ["-c", step.script],
           cwd: workingDirectory,
         });
         const output = await result.stdout();
-        console.log(`[VercelSandbox] [${step.label}] exit=${result.exitCode} output=${maskToken(output.slice(0, 500))}`);
-        if (result.exitCode !== 0 && !step.optional) {
+        if (result.exitCode !== 0) {
           throw new Error(
-            `Failed to clone repository '${source.url}' (exit code ${result.exitCode}): ${maskToken(output)}`,
+            `Failed to clone repository '${source.url}' at step '${step.label}' (exit code ${result.exitCode}): ${maskToken(output)}`,
           );
         }
       }
