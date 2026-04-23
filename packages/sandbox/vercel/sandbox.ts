@@ -583,40 +583,55 @@ ${hostLine}${portLines}${runtimeEnvLine}`;
 
     const workingDirectory = DEFAULT_WORKING_DIRECTORY;
 
-    // TODO: `git clone ... .` requires the directory to be empty. If the base
-    // snapshot has files in /vercel/sandbox (dotfiles, tool configs, etc.), the
-    // clone will fail. Consider using git init + remote add + fetch + checkout
-    // instead, which works regardless of existing directory contents.
+    // Use git init + remote add + fetch + checkout instead of `git clone . `
+    // so it works even when /vercel/sandbox already has files from the base snapshot.
     if (source && (baseSnapshotId || !isCredentialBrokeringSupported())) {
-      // When credential brokering is disabled (Hobby plan), clone anonymously —
-      // embedding the token in the URL causes exit 128 if the token is
-      // invalid/expired even for public repos. The authenticated remote URL is
-      // set below for push operations.
-      const cloneUrl =
-        source.token && isCredentialBrokeringSupported()
-          ? (buildAuthenticatedGitHubUrl(source.url, source.token) ?? source.url)
-          : source.url;
-      const cloneArgs = ["clone"];
-      if (source.branch) {
-        cloneArgs.push("--branch", source.branch);
-      }
-      cloneArgs.push(cloneUrl, ".");
+      // On Hobby plan (brokering disabled), embed token directly in URL for private repos.
+      // On Pro plan with brokering, the network policy injects credentials transparently.
+      const cloneUrl = source.token
+        ? (buildAuthenticatedGitHubUrl(source.url, source.token) ?? source.url)
+        : source.url;
+      const branch = source.branch ?? "main";
 
-      console.log(`[VercelSandbox] Cloning ${source.url} (brokering=${isCredentialBrokeringSupported()}, hasToken=${!!source.token}, args=${JSON.stringify(cloneArgs)})`);
-      const cloneResult = await sdk.runCommand({
-        cmd: "git",
-        args: cloneArgs,
-        cwd: workingDirectory,
-      });
+      // Use bash -c to ensure PATH is fully resolved and we get combined stdout+stderr.
+      // The Vercel SDK combines stdout/stderr into stdout(), so we use bash for full output.
+      // Mask token in logs to avoid leaking credentials.
+      const maskToken = (s: string) =>
+        s.replace(/x-access-token:[^@]+@/g, "x-access-token:***@");
 
-      const cloneStdout = await cloneResult.stdout();
-      const cloneStderr = await cloneResult.stderr?.() ?? "";
-      console.log(`[VercelSandbox] Clone exit=${cloneResult.exitCode} stdout=${cloneStdout.slice(0, 500)} stderr=${cloneStderr.slice(0, 500)}`);
+      const bashSteps: Array<{ label: string; script: string; optional?: boolean }> = [
+        // Probe: show git availability and PATH for debugging
+        {
+          label: "git-env",
+          script: "which git 2>&1 || echo 'git not found in PATH'; git --version 2>&1 || echo 'git failed'; echo \"PATH=$PATH\"; ls /usr/bin/git /usr/local/bin/git 2>&1 || true",
+          optional: true,
+        },
+        // Install git if missing (yum-based Amazon Linux image)
+        {
+          label: "git-install-if-missing",
+          script: "git --version > /dev/null 2>&1 || yum install -y git 2>&1 || apt-get install -y git 2>&1 || echo 'WARNING: could not install git'",
+          optional: true,
+        },
+        { label: "git-init", script: "git init 2>&1" },
+        { label: "git-remote", script: `git remote add origin ${JSON.stringify(cloneUrl)} 2>&1` },
+        { label: "git-fetch", script: `GIT_TERMINAL_PROMPT=0 git fetch --depth=1 origin ${JSON.stringify(branch)} 2>&1` },
+        { label: "git-checkout", script: `git checkout -b ${JSON.stringify(branch)} ${JSON.stringify(`origin/${branch}`)} 2>&1` },
+      ];
 
-      if (cloneResult.exitCode !== 0) {
-        throw new Error(
-          `Failed to clone repository '${source.url}' (exit code ${cloneResult.exitCode}): ${cloneStderr || cloneStdout}`,
-        );
+      for (const step of bashSteps) {
+        console.log(`[VercelSandbox] [${step.label}] Running: ${maskToken(step.script)}`);
+        const result = await sdk.runCommand({
+          cmd: "bash",
+          args: ["-c", step.script],
+          cwd: workingDirectory,
+        });
+        const output = await result.stdout();
+        console.log(`[VercelSandbox] [${step.label}] exit=${result.exitCode} output=${maskToken(output.slice(0, 500))}`);
+        if (result.exitCode !== 0 && !step.optional) {
+          throw new Error(
+            `Failed to clone repository '${source.url}' (exit code ${result.exitCode}): ${maskToken(output)}`,
+          );
+        }
       }
     }
 
