@@ -43,7 +43,5 @@ export const DEFAULT_WORKING_DIRECTORY = "/vercel/sandbox";
  */
 export const DEFAULT_SANDBOX_BASE_SNAPSHOT_ID =
   process.env.VERCEL_SANDBOX_BASE_SNAPSHOT_ID ??
-  // Previous snapshot (bun + jq): "snap_MQ0NqdLL5qEXiYusgWL3K0yaMmql"
-  // Previous snapshot (bun + jq + agent-browser + chromium): "snap_C8tUFhwRXZky4MaFvTuwO7DH66wx"
-  // Current snapshot (bun + jq + agent-browser + chromium + code-server):
-  "snap_EjsphVxi07bFKrfojljJdIS41KHT";
+  // carvallo-io snapshot (bun + jq):
+  "snap_UKY5ZynoTp6asvvZZSFzJ7qWKeJq";

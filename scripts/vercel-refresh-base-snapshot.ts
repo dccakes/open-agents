@@ -12,12 +12,12 @@
 import {
   DEFAULT_BASE_SNAPSHOT_COMMAND_TIMEOUT_MS,
   refreshBaseSnapshot,
-} from "@open-agents/sandbox/vercel";
+} from "../packages/sandbox/vercel/index.ts";
 import {
   DEFAULT_SANDBOX_BASE_SNAPSHOT_ID,
   DEFAULT_SANDBOX_PORTS,
   DEFAULT_SANDBOX_TIMEOUT_MS,
-} from "../apps/web/lib/sandbox/config";
+} from "../apps/web/lib/sandbox/config.ts";
 
 const SANDBOX_BASE_SNAPSHOT_CONFIG_PATH = "apps/web/lib/sandbox/config.ts";
 
