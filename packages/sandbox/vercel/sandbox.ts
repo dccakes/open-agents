@@ -588,9 +588,14 @@ ${hostLine}${portLines}${runtimeEnvLine}`;
     // clone will fail. Consider using git init + remote add + fetch + checkout
     // instead, which works regardless of existing directory contents.
     if (source && (baseSnapshotId || !isCredentialBrokeringSupported())) {
-      const cloneUrl = source.token
-        ? (buildAuthenticatedGitHubUrl(source.url, source.token) ?? source.url)
-        : source.url;
+      // When credential brokering is disabled (Hobby plan), clone anonymously —
+      // embedding the token in the URL causes exit 128 if the token is
+      // invalid/expired even for public repos. The authenticated remote URL is
+      // set below for push operations.
+      const cloneUrl =
+        source.token && isCredentialBrokeringSupported()
+          ? (buildAuthenticatedGitHubUrl(source.url, source.token) ?? source.url)
+          : source.url;
       const cloneArgs = ["clone"];
       if (source.branch) {
         cloneArgs.push("--branch", source.branch);
