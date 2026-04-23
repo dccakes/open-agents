@@ -123,6 +123,22 @@ export const auth = betterAuth({
     },
   },
 
+  databaseHooks: {
+    user: {
+      create: {
+        before: async (user) => {
+          if (!user.username) {
+            const base = (user.email?.split("@")[0] ?? nanoid(8))
+              .toLowerCase()
+              .replace(/[^a-z0-9_-]/g, "");
+            return { data: { ...user, username: base || nanoid(8) } };
+          }
+          return { data: user };
+        },
+      },
+    },
+  },
+
   advanced: {
     database: {
       generateId: () => nanoid(),
