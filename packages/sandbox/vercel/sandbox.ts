@@ -553,28 +553,30 @@ ${hostLine}${portLines}${runtimeEnvLine}`;
         source: { type: "snapshot", snapshotId: baseSnapshotId },
       });
     } else if (source) {
-      // When credential brokering is disabled, don't pass username/password to
-      // the SDK git source — it uses Vercel's git proxy which requires network
-      // policy transformations (Pro plan). Instead clone anonymously here and
-      // embed the token in the URL for the post-clone remote set-url below.
-      const useTokenInSdkSource =
-        source.token && isCredentialBrokeringSupported();
-      sdk = await VercelSandboxSDK.create({
-        ...createBaseConfig,
-        source: useTokenInSdkSource
-          ? {
-              type: "git",
-              url: source.url,
-              username: "x-access-token",
-              password: source.token,
-              ...(source.branch && { revision: source.branch }),
-            }
-          : {
-              type: "git",
-              url: source.url,
-              ...(source.branch && { revision: source.branch }),
-            },
-      });
+      if (isCredentialBrokeringSupported()) {
+        // Pro plan: use SDK git source with credential brokering via network policy
+        sdk = await VercelSandboxSDK.create({
+          ...createBaseConfig,
+          source: source.token
+            ? {
+                type: "git",
+                url: source.url,
+                username: "x-access-token",
+                password: source.token,
+                ...(source.branch && { revision: source.branch }),
+              }
+            : {
+                type: "git",
+                url: source.url,
+                ...(source.branch && { revision: source.branch }),
+              },
+        });
+      } else {
+        // Hobby plan: SDK git source uses Vercel's git proxy which requires
+        // network policy transformations (Pro plan). Boot an empty sandbox
+        // and clone manually inside the VM instead.
+        sdk = await VercelSandboxSDK.create(createBaseConfig);
+      }
     } else {
       sdk = await VercelSandboxSDK.create(createBaseConfig);
     }
@@ -585,7 +587,7 @@ ${hostLine}${portLines}${runtimeEnvLine}`;
     // snapshot has files in /vercel/sandbox (dotfiles, tool configs, etc.), the
     // clone will fail. Consider using git init + remote add + fetch + checkout
     // instead, which works regardless of existing directory contents.
-    if (source && baseSnapshotId) {
+    if (source && (baseSnapshotId || !isCredentialBrokeringSupported())) {
       const cloneUrl = source.token
         ? (buildAuthenticatedGitHubUrl(source.url, source.token) ?? source.url)
         : source.url;
