@@ -14,10 +14,9 @@ The following changes were made to work within Vercel's Hobby plan limits and sh
 - **Pro plan**: Remove the env var (or set to `true`) to re-enable automatic GitHub token injection into sandbox network requests
 - Without this, the GitHub token must be passed via git remote URL (less secure but functional)
 
-### Sandbox VM timeout (scripts/create-base-snapshot.ts)
-- **Current**: `timeout: 2_670_000` (44.5 min — Hobby plan max is 45 min)
-- **Pro plan**: Up to 5 hours (`DEFAULT_SANDBOX_TIMEOUT_MS = 5 * 60 * 60 * 1000`)
-- Switch back to using `DEFAULT_SANDBOX_TIMEOUT_MS` from `apps/web/lib/sandbox/config.ts`
+### Sandbox VM timeout (apps/web/lib/sandbox/config.ts)
+- **Current**: `DEFAULT_SANDBOX_TIMEOUT_MS = 2_670_000` (44.5 min — Hobby plan max is 45 min)
+- **Pro plan**: Set env var `VERCEL_SANDBOX_TIMEOUT_MS=18000000` (5 hours) in Vercel
 
 ### Base snapshot (apps/web/lib/sandbox/config.ts)
 - **Current**: `snap_UKY5ZynoTp6asvvZZSFzJ7qWKeJq` — minimal snapshot (bun + jq only)

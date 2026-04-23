@@ -36,7 +36,8 @@
         "REDIS_URL",
         "VERCEL_APP_CLIENT_SECRET",
         "VERCEL_SANDBOX_BASE_SNAPSHOT_ID",
-        "VERCEL_SANDBOX_CREDENTIAL_BROKERING"
+        "VERCEL_SANDBOX_CREDENTIAL_BROKERING",
+        "VERCEL_SANDBOX_TIMEOUT_MS"
       ],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
     },

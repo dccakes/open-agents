@@ -3,8 +3,14 @@
  * All timeout values are in milliseconds.
  */
 
-/** Default timeout for new cloud sandboxes (5 hours) */
-export const DEFAULT_SANDBOX_TIMEOUT_MS = 5 * 60 * 60 * 1000;
+/** Default timeout for new cloud sandboxes.
+ * Hobby plan max: 45 min (2_700_000ms). SDK adds 30s buffer so we use 44.5 min.
+ * Pro plan: increase to 5 * 60 * 60 * 1000 (5 hours).
+ */
+export const DEFAULT_SANDBOX_TIMEOUT_MS =
+  process.env.VERCEL_SANDBOX_TIMEOUT_MS
+    ? parseInt(process.env.VERCEL_SANDBOX_TIMEOUT_MS, 10)
+    : 2_670_000; // 44.5 min — Hobby plan limit
 
 /** Manual extension duration for explicit fallback flows (20 minutes) */
 export const EXTEND_TIMEOUT_DURATION_MS = 20 * 60 * 1000;
@@ -43,5 +49,5 @@ export const DEFAULT_WORKING_DIRECTORY = "/vercel/sandbox";
  */
 export const DEFAULT_SANDBOX_BASE_SNAPSHOT_ID =
   process.env.VERCEL_SANDBOX_BASE_SNAPSHOT_ID ??
-  // carvallo-io snapshot (bun + jq):
-  "snap_UKY5ZynoTp6asvvZZSFzJ7qWKeJq";
+  // carvallo-io snapshot (bun + jq + code-server + agent-browser + chromium):
+  "snap_5BjSWhQukFHehaEmU8FHPDFj1rfe";
