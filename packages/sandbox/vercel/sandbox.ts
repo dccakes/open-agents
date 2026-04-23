@@ -553,9 +553,15 @@ ${hostLine}${portLines}${runtimeEnvLine}`;
         source: { type: "snapshot", snapshotId: baseSnapshotId },
       });
     } else if (source) {
+      // When credential brokering is disabled, don't pass username/password to
+      // the SDK git source — it uses Vercel's git proxy which requires network
+      // policy transformations (Pro plan). Instead clone anonymously here and
+      // embed the token in the URL for the post-clone remote set-url below.
+      const useTokenInSdkSource =
+        source.token && isCredentialBrokeringSupported();
       sdk = await VercelSandboxSDK.create({
         ...createBaseConfig,
-        source: source.token
+        source: useTokenInSdkSource
           ? {
               type: "git",
               url: source.url,
