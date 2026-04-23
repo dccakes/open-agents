@@ -48,18 +48,29 @@ async function main() {
     },
     { label: "verify code-server", cmd: "$HOME/.local/bin/code-server --version" },
 
+    // agent-browser + chromium (browser automation for UI testing)
+    {
+      label: "install agent-browser",
+      cmd: "$HOME/.bun/bin/bun install -g agent-browser",
+      timeoutMs: 10 * 60 * 1000,
+    },
+    {
+      label: "install chromium for agent-browser",
+      cmd: "$HOME/.bun/bin/bunx agent-browser install chromium",
+      timeoutMs: 10 * 60 * 1000,
+    },
+    { label: "verify agent-browser", cmd: "$HOME/.bun/bin/agent-browser --version" },
+
     // Add all tools to PATH permanently
     {
       label: "update PATH in bash_profile",
-      cmd: [
-        `echo 'export PATH="${BIN}:$HOME/.bun/bin:$HOME/.local/bin:$PATH"' >> $HOME/.bash_profile`,
-      ].join(" && "),
+      cmd: `echo 'export PATH="${BIN}:$HOME/.bun/bin:$HOME/.local/bin:$PATH"' >> $HOME/.bash_profile`,
     },
 
     // Final verification
     {
       label: "verify all tools",
-      cmd: `echo "jq: $(${BIN}/jq --version)" && echo "bun: $($HOME/.bun/bin/bun --version)" && echo "code-server: $($HOME/.local/bin/code-server --version)"`,
+      cmd: `echo "jq: $(${BIN}/jq --version)" && echo "bun: $($HOME/.bun/bin/bun --version)" && echo "code-server: $($HOME/.local/bin/code-server --version)" && echo "agent-browser: $($HOME/.bun/bin/agent-browser --version)"`,
     },
   ];
 
