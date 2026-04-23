@@ -34,7 +34,9 @@
         "POSTGRES_URL_NON_POOLING",
         "POSTGRES_USER",
         "REDIS_URL",
-        "VERCEL_APP_CLIENT_SECRET"
+        "VERCEL_APP_CLIENT_SECRET",
+        "VERCEL_SANDBOX_BASE_SNAPSHOT_ID",
+        "VERCEL_SANDBOX_CREDENTIAL_BROKERING"
       ],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
     },

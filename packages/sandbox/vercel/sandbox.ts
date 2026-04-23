@@ -41,10 +41,14 @@ const DEFAULT_NETWORK_POLICY: SandboxNetworkPolicy = {
   },
 };
 
+function isCredentialBrokeringSupported(): boolean {
+  return process.env.VERCEL_SANDBOX_CREDENTIAL_BROKERING !== "false";
+}
+
 function buildGitHubCredentialBrokeringPolicy(
   token?: string,
 ): SandboxNetworkPolicy {
-  if (!token) {
+  if (!token || !isCredentialBrokeringSupported()) {
     return DEFAULT_NETWORK_POLICY;
   }
 
@@ -86,6 +90,10 @@ async function syncGitHubCredentialBrokering(
   sdk: VercelSandboxSDK,
   token?: string,
 ): Promise<void> {
+  if (!isCredentialBrokeringSupported()) {
+    return;
+  }
+
   const updateNetworkPolicy = (
     sdk as VercelSandboxSDK & {
       updateNetworkPolicy?: (policy: SandboxNetworkPolicy) => Promise<void>;
