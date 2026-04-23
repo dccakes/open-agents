@@ -602,15 +602,20 @@ ${hostLine}${portLines}${runtimeEnvLine}`;
       }
       cloneArgs.push(cloneUrl, ".");
 
+      console.log(`[VercelSandbox] Cloning ${source.url} (brokering=${isCredentialBrokeringSupported()}, hasToken=${!!source.token}, args=${JSON.stringify(cloneArgs)})`);
       const cloneResult = await sdk.runCommand({
         cmd: "git",
         args: cloneArgs,
         cwd: workingDirectory,
       });
 
+      const cloneStdout = await cloneResult.stdout();
+      const cloneStderr = await cloneResult.stderr?.() ?? "";
+      console.log(`[VercelSandbox] Clone exit=${cloneResult.exitCode} stdout=${cloneStdout.slice(0, 500)} stderr=${cloneStderr.slice(0, 500)}`);
+
       if (cloneResult.exitCode !== 0) {
         throw new Error(
-          `Failed to clone repository '${source.url}' (exit code ${cloneResult.exitCode})`,
+          `Failed to clone repository '${source.url}' (exit code ${cloneResult.exitCode}): ${cloneStderr || cloneStdout}`,
         );
       }
     }
