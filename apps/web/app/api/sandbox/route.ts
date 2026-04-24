@@ -27,6 +27,10 @@ import {
   hasResumableSandboxState,
 } from "@/lib/sandbox/utils";
 import { getEnvResolver } from "@/lib/sandbox/env-resolver";
+import {
+  getDbProvisioner,
+  type DbTeardownMetadata,
+} from "@/lib/sandbox/db-provisioner";
 import { getServerSession } from "@/lib/session/get-server-session";
 // import { buildDevelopmentDotenvFromVercelProject } from "@/lib/vercel/projects";
 // import { getUserVercelToken } from "@/lib/vercel/token";
@@ -37,6 +41,48 @@ interface CreateSandboxRequest {
   isNewBranch?: boolean;
   sessionId?: string;
   sandboxType?: "vercel";
+}
+
+function toProviderType(
+  type: unknown,
+): "vercel" | "docker" | "daytona" {
+  if (type === "docker" || type === "daytona" || type === "vercel") {
+    return type;
+  }
+
+  // Backward compatibility for legacy persisted states.
+  if (type === "cloud") {
+    return "vercel";
+  }
+
+  return "vercel";
+}
+
+function extractDbTeardownMetadata(
+  sessionRecord: SessionRecord,
+): DbTeardownMetadata | null {
+  // TODO: Remove this cast once Section 6 adds `dbTeardownMetadata` to SessionRecord type.
+  const rawMetadata = (
+    sessionRecord as { dbTeardownMetadata?: unknown }
+  ).dbTeardownMetadata;
+  if (!rawMetadata || typeof rawMetadata !== "object") {
+    return null;
+  }
+
+  const candidate = rawMetadata as Record<string, unknown>;
+  if (
+    (candidate.provider === "neon" ||
+      candidate.provider === "docker-postgres") &&
+    typeof candidate.identifier === "string" &&
+    candidate.identifier.length > 0
+  ) {
+    return {
+      provider: candidate.provider,
+      identifier: candidate.identifier,
+    };
+  }
+
+  return null;
 }
 
 // async function syncVercelProjectEnvVarsToSandbox(params: {
@@ -190,6 +236,37 @@ export async function POST(req: Request) {
     );
   }
 
+  let dbTeardownMetadata: DbTeardownMetadata | undefined;
+  const shouldProvisionDb =
+    (sessionRecord as { provisionDb?: unknown } | undefined)?.provisionDb ===
+    true;
+  const sessionProviderType = sessionRecord?.sandboxState?.type;
+  const providerType =
+    sessionProviderType === "docker" || sessionProviderType === "daytona"
+      ? sessionProviderType
+      : "vercel";
+
+  if (shouldProvisionDb && sessionId) {
+    const provisioner = getDbProvisioner(providerType);
+    if (provisioner) {
+      try {
+        const dbResult = await provisioner.provision(sessionId);
+        resolvedEnv = {
+          ...(resolvedEnv ?? {}),
+          POSTGRES_URL: dbResult.postgresUrl,
+        };
+        dbTeardownMetadata = dbResult.teardownMetadata;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`DB provisioning failed for session ${sessionId}:`, error);
+        return Response.json(
+          { error: `Database provisioning failed: ${message}` },
+          { status: 500 },
+        );
+      }
+    }
+  }
+
   const sandbox = await connectSandbox({
     state: {
       type: "vercel",
@@ -220,6 +297,23 @@ export async function POST(req: Request) {
       ),
       ...buildActiveLifecycleUpdate(nextState),
     });
+
+    if (dbTeardownMetadata) {
+      try {
+        // TODO: Remove this cast after Section 6 adds `dbTeardownMetadata` to the sessions schema.
+        await updateSession(
+          sessionId,
+          {
+            dbTeardownMetadata,
+          } as unknown as Parameters<typeof updateSession>[1],
+        );
+      } catch (error) {
+        console.error(
+          `Failed to persist DB teardown metadata for session ${sessionId}:`,
+          error,
+        );
+      }
+    }
 
     if (sessionRecord) {
       // TODO: Re-enable this once we have a solid exfiltration defense strategy.
@@ -308,6 +402,20 @@ export async function DELETE(req: Request) {
   // Connect and stop using unified API
   const sandbox = await connectSandbox(sessionRecord.sandboxState);
   await sandbox.stop();
+
+  const dbTeardownMetadata = extractDbTeardownMetadata(sessionRecord);
+  if (dbTeardownMetadata) {
+    const providerType = toProviderType(sessionRecord.sandboxState?.type);
+    const provisioner = getDbProvisioner(providerType);
+    if (provisioner) {
+      try {
+        await provisioner.teardown(dbTeardownMetadata);
+      } catch (error) {
+        console.error(`DB teardown failed for session ${sessionId}:`, error);
+        // Best-effort teardown should not block sandbox termination.
+      }
+    }
+  }
 
   const clearedState = clearSandboxState(sessionRecord.sandboxState);
   await updateSession(sessionId, {

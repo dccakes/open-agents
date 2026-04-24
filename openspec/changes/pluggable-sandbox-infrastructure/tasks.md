@@ -28,11 +28,11 @@
 
 ## 5. Database Provisioning
 
-- [ ] 5.1 Define database provisioner interface for session-scoped provision/teardown.
-- [ ] 5.2 Implement Neon provisioner for cloud providers and persist teardown metadata.
-- [ ] 5.3 Implement Docker Postgres provisioner for local provider workflows.
-- [ ] 5.4 Inject provisioned `POSTGRES_URL` into sandbox runtime creation options.
-- [ ] 5.5 Ensure session termination path triggers provisioner teardown and records outcomes.
+- [x] 5.1 Define database provisioner interface for session-scoped provision/teardown.
+- [x] 5.2 Implement Neon provisioner for cloud providers and persist teardown metadata.
+- [x] 5.3 Implement Docker Postgres provisioner for local provider workflows.
+- [x] 5.4 Inject provisioned `POSTGRES_URL` into sandbox runtime creation options.
+- [x] 5.5 Ensure session termination path triggers provisioner teardown and records outcomes.
 
 ## 6. Session API, Persistence, and UI
 
