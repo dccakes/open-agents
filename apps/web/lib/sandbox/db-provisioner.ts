@@ -1,5 +1,4 @@
 import type { SandboxProviderType } from "@open-agents/sandbox";
-import { DockerPostgresProvisioner } from "./provisioners/docker-postgres";
 import { NeonProvisioner } from "./provisioners/neon";
 
 export interface DbTeardownMetadata {
@@ -17,14 +16,16 @@ export interface DbProvisioner {
   teardown(metadata: DbTeardownMetadata): Promise<void>;
 }
 
-export function getDbProvisioner(
+export async function getDbProvisioner(
   providerType: SandboxProviderType,
-): DbProvisioner | null {
+): Promise<DbProvisioner | null> {
   if (providerType === "vercel" || providerType === "daytona") {
     return new NeonProvisioner();
   }
 
   if (providerType === "docker") {
+    const { DockerPostgresProvisioner } =
+      await import("./provisioners/docker-postgres");
     return new DockerPostgresProvisioner();
   }
 

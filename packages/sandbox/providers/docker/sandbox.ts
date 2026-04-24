@@ -164,6 +164,8 @@ function parseDockerMuxBuffer(buffer: Buffer): {
   return { stdout, stderr, remainder: buffer.subarray(offset) };
 }
 
+const DEFAULT_DOCKER_EXPIRES_MS = 24 * 60 * 60 * 1000; // 24 hours
+
 export class DockerSandbox implements Sandbox {
   readonly type = "docker" as const;
   readonly workingDirectory = WORKING_DIRECTORY;
@@ -171,6 +173,10 @@ export class DockerSandbox implements Sandbox {
   readonly hooks?: SandboxHooks;
 
   private readonly state: DockerState;
+
+  get expiresAt(): number | undefined {
+    return this.state.expiresAt;
+  }
 
   constructor(
     private readonly container: DockerContainerLike,
@@ -181,7 +187,9 @@ export class DockerSandbox implements Sandbox {
     this.hooks = options?.hooks;
     this.state = {
       containerId: state.containerId,
+      sandboxId: state.sandboxId ?? state.containerId,
       portBindings: state.portBindings ?? {},
+      expiresAt: state.expiresAt,
     };
   }
 
@@ -236,12 +244,17 @@ export class DockerSandbox implements Sandbox {
 
     const inspectResult = await container.inspect();
     const resolvedPortMap = extractPortMapFromInspectResult(inspectResult);
+    const containerId = container.id ?? state.containerId;
+    const expiresAt =
+      Date.now() + (options?.timeout ?? DEFAULT_DOCKER_EXPIRES_MS);
 
     return new DockerSandbox(
       container,
       {
-        containerId: container.id ?? state.containerId,
+        containerId,
+        sandboxId: containerId,
         portBindings: resolvedPortMap,
+        expiresAt,
       },
       options,
     );
@@ -268,14 +281,19 @@ export class DockerSandbox implements Sandbox {
     const inspectResult = await container.inspect();
     const resolvedPortMap = extractPortMapFromInspectResult(inspectResult);
 
+    const expiresAt =
+      Date.now() + (options?.timeout ?? DEFAULT_DOCKER_EXPIRES_MS);
+
     return new DockerSandbox(
       container,
       {
         containerId: state.containerId,
+        sandboxId: state.containerId,
         portBindings:
           Object.keys(resolvedPortMap).length > 0
             ? resolvedPortMap
             : (state.portBindings ?? {}),
+        expiresAt,
       },
       options,
     );
@@ -558,7 +576,7 @@ export class DockerSandbox implements Sandbox {
     }
   }
 
-  getState(): DockerState {
-    return this.state;
+  getState(): { type: "docker" } & DockerState {
+    return { type: "docker", ...this.state };
   }
 }

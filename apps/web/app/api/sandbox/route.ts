@@ -271,7 +271,7 @@ export async function POST(req: Request) {
   const shouldProvisionDb = sessionRecord?.provisionDb === true;
 
   if (shouldProvisionDb && sessionId) {
-    const provisioner = getDbProvisioner(requestedType);
+    const provisioner = await getDbProvisioner(requestedType);
     if (provisioner) {
       try {
         const dbResult = await provisioner.provision(sessionId);
@@ -320,20 +320,28 @@ export async function POST(req: Request) {
             type: "daytona",
           };
 
-  const sandbox = await connectSandbox({
-    state: requestedState,
-    options: {
-      ...(requestedType === "vercel" && githubToken ? { githubToken } : {}),
-      gitUser,
-      timeout: DEFAULT_SANDBOX_TIMEOUT_MS,
-      ports: DEFAULT_SANDBOX_PORTS,
-      baseSnapshotId: DEFAULT_SANDBOX_BASE_SNAPSHOT_ID,
-      persistent: requestedType === "vercel" && !!sandboxName,
-      resume: requestedType === "vercel" && !!sandboxName,
-      createIfMissing: requestedType === "vercel" && !!sandboxName,
-      ...(resolvedEnv !== undefined ? { env: resolvedEnv } : {}),
-    },
-  });
+  let sandbox: Awaited<ReturnType<typeof connectSandbox>>;
+  try {
+    sandbox = await connectSandbox({
+      state: requestedState,
+      options: {
+        ...(requestedType === "vercel" && githubToken ? { githubToken } : {}),
+        gitUser,
+        timeout: DEFAULT_SANDBOX_TIMEOUT_MS,
+        ports: DEFAULT_SANDBOX_PORTS,
+        baseSnapshotId: DEFAULT_SANDBOX_BASE_SNAPSHOT_ID,
+        persistent: requestedType === "vercel" && !!sandboxName,
+        resume: requestedType === "vercel" && !!sandboxName,
+        createIfMissing: requestedType === "vercel" && !!sandboxName,
+        ...(resolvedEnv !== undefined ? { env: resolvedEnv } : {}),
+      },
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unknown sandbox error";
+    console.error(`[sandbox] Failed to connect/create sandbox:`, error);
+    return Response.json({ error: message }, { status: 500 });
+  }
 
   if (sessionId && sandbox.getState) {
     const nextState = sandbox.getState() as SandboxState;
@@ -451,7 +459,7 @@ export async function DELETE(req: Request) {
   const dbTeardownMetadata = extractDbTeardownMetadata(sessionRecord);
   if (dbTeardownMetadata) {
     const providerType = toProviderType(sessionRecord.sandboxState?.type);
-    const provisioner = getDbProvisioner(providerType);
+    const provisioner = await getDbProvisioner(providerType);
     if (provisioner) {
       try {
         await provisioner.teardown(dbTeardownMetadata);

@@ -127,8 +127,9 @@ function defaultRandomPassword(): string {
 }
 
 async function defaultDockerFactory(): Promise<DockerLike> {
-  const moduleName = "dockerode";
-  const dockerModule = await import(moduleName);
+  // webpackIgnore: true prevents webpack from resolving/bundling this at build time.
+  // dockerode is only needed at runtime when the docker provider is active (local dev only).
+  const dockerModule = await import(/* webpackIgnore: true */ "dockerode");
   const DockerCtor = dockerModule.default as { new (): DockerLike };
   return new DockerCtor();
 }

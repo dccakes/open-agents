@@ -508,98 +508,106 @@ const SessionRow = memo(function SessionRow({
       </span>
     </div>
   ) : (
-    <button
-      type="button"
-      className={`group relative flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left outline-none transition-[background-color,opacity] cursor-pointer ${
+    <div
+      className={`group relative w-full rounded-lg transition-[background-color,opacity] ${
         isActive ? "bg-sidebar-active" : "hover:bg-muted/50"
       } ${isPending ? "opacity-80" : "opacity-100"}`}
       style={sessionRowPerformanceStyle}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      onClick={() => onSessionClick(session)}
-      onFocus={() => onSessionPrefetch(session)}
-      aria-busy={isPending}
     >
-      <span className="flex h-5 w-5 shrink-0 items-center justify-center">
-        {getSessionStatusIcon(session)}
-      </span>
-      <span className="min-w-0 flex-1 text-left">
-        <p
-          className={`truncate text-[13px] leading-5 ${
-            session.hasUnread && !isActive
-              ? "font-semibold text-foreground"
-              : "font-normal text-foreground/75"
-          }`}
-        >
-          {session.title}
-        </p>
-      </span>
-      <span className="flex shrink-0 items-center justify-end gap-0.5">
-        {showActionButtons ? (
-          <>
-            {onRenameSession ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    className="rounded p-0.5 text-muted-foreground/60 transition-colors hover:text-muted-foreground"
-                    aria-label="Rename session"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      if (hoverTimeoutRef.current) {
-                        clearTimeout(hoverTimeoutRef.current);
-                        hoverTimeoutRef.current = null;
-                      }
-                      setPopoverOpen(false);
-                      setRenameValue(session.title);
-                      setIsRenaming(true);
-                    }}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top" sideOffset={4}>
-                  Rename session
-                </TooltipContent>
-              </Tooltip>
-            ) : null}
+      <button
+        type="button"
+        className="flex w-full cursor-pointer items-center gap-1.5 px-2 py-1.5 text-left outline-none"
+        onClick={(event) => {
+          event.stopPropagation();
+          onSessionClick(session);
+        }}
+        onFocus={() => onSessionPrefetch(session)}
+        aria-busy={isPending}
+      >
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+          {getSessionStatusIcon(session)}
+        </span>
+        <span className="min-w-0 flex-1 text-left">
+          <p
+            className={`truncate text-[13px] leading-5 ${
+              session.hasUnread && !isActive
+                ? "font-semibold text-foreground"
+                : "font-normal text-foreground/75"
+            }`}
+          >
+            {session.title}
+          </p>
+        </span>
+        {!showActionButtons && hasDiff ? (
+          <span className="flex shrink-0 items-center justify-end gap-0.5">
+            <DiffStats
+              added={session.linesAdded}
+              removed={session.linesRemoved}
+            />
+          </span>
+        ) : null}
+      </button>
+      {showActionButtons ? (
+        <span className="absolute right-1 top-1/2 flex -translate-y-1/2 shrink-0 items-center gap-0.5">
+          {onRenameSession ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   type="button"
                   className="rounded p-0.5 text-muted-foreground/60 transition-colors hover:text-muted-foreground"
-                  aria-label={
-                    session.status === "archived"
-                      ? "Unarchive session"
-                      : "Archive session"
-                  }
+                  aria-label="Rename session"
                   onClick={(event) => {
                     event.stopPropagation();
-                    if (session.status === "archived") {
-                      onUnarchiveSession(session);
-                      return;
+                    if (hoverTimeoutRef.current) {
+                      clearTimeout(hoverTimeoutRef.current);
+                      hoverTimeoutRef.current = null;
                     }
-                    onArchiveSession(session);
+                    setPopoverOpen(false);
+                    setRenameValue(session.title);
+                    setIsRenaming(true);
                   }}
                 >
-                  <Archive className="h-3.5 w-3.5" />
+                  <Pencil className="h-3.5 w-3.5" />
                 </button>
               </TooltipTrigger>
               <TooltipContent side="top" sideOffset={4}>
-                {session.status === "archived"
-                  ? "Unarchive session"
-                  : "Archive session"}
+                Rename session
               </TooltipContent>
             </Tooltip>
-          </>
-        ) : hasDiff ? (
-          <DiffStats
-            added={session.linesAdded}
-            removed={session.linesRemoved}
-          />
-        ) : null}
-      </span>
-    </button>
+          ) : null}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="rounded p-0.5 text-muted-foreground/60 transition-colors hover:text-muted-foreground"
+                aria-label={
+                  session.status === "archived"
+                    ? "Unarchive session"
+                    : "Archive session"
+                }
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (session.status === "archived") {
+                    onUnarchiveSession(session);
+                    return;
+                  }
+                  onArchiveSession(session);
+                }}
+              >
+                <Archive className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top" sideOffset={4}>
+              {session.status === "archived"
+                ? "Unarchive session"
+                : "Archive session"}
+            </TooltipContent>
+          </Tooltip>
+        </span>
+      ) : null}
+    </div>
   );
 
   if (isMobile || isRenaming) {
