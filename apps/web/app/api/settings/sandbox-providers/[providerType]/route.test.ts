@@ -38,6 +38,34 @@ const dockerProvider = {
   reasonUnavailable: () => undefined,
 };
 
+const daytonaProvider = {
+  type: "daytona" as const,
+  label: "Daytona",
+  beta: true,
+  capabilities: {
+    persistent: true,
+    db: true,
+    envInjection: true,
+    credentialBrokering: true,
+  },
+  configFields: [
+    {
+      key: "DAYTONA_SERVER_URL",
+      label: "Server URL",
+      type: "url" as const,
+      required: true,
+    },
+    {
+      key: "DAYTONA_API_KEY",
+      label: "API Key",
+      type: "password" as const,
+      required: true,
+    },
+  ],
+  isAvailable: () => true,
+  reasonUnavailable: () => undefined,
+};
+
 mock.module("@/app/api/sessions/_lib/session-context", () => ({
   requireAuthenticatedUser: async () => authResult,
 }));
@@ -48,7 +76,13 @@ mock.module("@/lib/db/sandbox-configs", () => ({
 
 mock.module("@open-agents/sandbox", () => ({
   defaultRegistry: {
-    get: (type: string) => (type === "docker" ? dockerProvider : undefined),
+    list: () => [dockerProvider, daytonaProvider],
+    get: (type: string) =>
+      type === "docker"
+        ? dockerProvider
+        : type === "daytona"
+          ? daytonaProvider
+          : undefined,
   },
 }));
 
@@ -149,5 +183,29 @@ describe("PATCH /api/settings/sandbox-providers/[providerType]", () => {
     expect(body.provider.config).toEqual({
       DOCKER_SANDBOX_IMAGE: "open-agents/sandbox-dev:latest",
     });
+  });
+
+  test("rejects invalid daytona server URLs", async () => {
+    const { PATCH } = await routeModulePromise;
+
+    const response = await PATCH(
+      new Request("http://localhost/api/settings/sandbox-providers/daytona", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          enabled: true,
+          config: {
+            DAYTONA_SERVER_URL: "http://localhost:3000",
+            DAYTONA_API_KEY: "daytona-secret",
+          },
+        }),
+      }),
+      { params: Promise.resolve({ providerType: "daytona" }) },
+    );
+    const body = (await response.json()) as { error: string };
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe("DAYTONA_SERVER_URL must use https");
+    expect(upsertUserSandboxConfigMock).not.toHaveBeenCalled();
   });
 });

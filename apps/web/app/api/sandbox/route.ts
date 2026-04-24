@@ -33,7 +33,10 @@ import {
   hasResumableSandboxState,
 } from "@/lib/sandbox/utils";
 import { getEnvResolver } from "@/lib/sandbox/env-resolver";
-import { buildEffectiveProviderConfig } from "@/lib/sandbox-provider-settings";
+import {
+  buildEffectiveProviderConfig,
+  isConfiguredProvider,
+} from "@/lib/sandbox-provider-settings";
 import {
   getDbProvisioner,
   type DbTeardownMetadata,
@@ -222,9 +225,27 @@ export async function POST(req: Request) {
   }
 
   const userSandboxConfigs = await getUserSandboxConfigs(session.user.id);
-  const requestedProviderConfig =
-    userSandboxConfigs.find((config) => config.providerType === requestedType)
-      ?.config ?? {};
+  const requestedProviderUserConfig = userSandboxConfigs.find(
+    (config) => config.providerType === requestedType,
+  );
+  const requestedProviderConfig = requestedProviderUserConfig?.config ?? {};
+  const requestedProviderEnabled =
+    requestedProviderUserConfig?.enabled ?? false;
+  const requestedProviderIsConfigured = isConfiguredProvider(
+    providerDef.configFields ?? [],
+    requestedProviderConfig,
+  );
+
+  if (!requestedProviderEnabled || !requestedProviderIsConfigured) {
+    return Response.json(
+      {
+        error:
+          "Sandbox provider unavailable: Provider unavailable. Enable and configure this provider in Settings > Sandboxes.",
+      },
+      { status: 400 },
+    );
+  }
+
   const providerRuntimeEnv = buildEffectiveProviderConfig(
     providerDef.configFields ?? [],
     requestedProviderConfig,
@@ -345,6 +366,8 @@ export async function POST(req: Request) {
 
   let sandbox: Awaited<ReturnType<typeof connectSandbox>>;
   try {
+    // TODO(quality-review): Extract provider-specific connect option builders
+    // so this route stays focused on orchestration.
     sandbox = await connectSandbox({
       state: requestedState,
       options: {
@@ -375,21 +398,9 @@ export async function POST(req: Request) {
       lifecycleVersion: getNextLifecycleVersion(
         sessionRecord?.lifecycleVersion,
       ),
+      ...(dbTeardownMetadata ? { dbTeardownMetadata } : {}),
       ...buildActiveLifecycleUpdate(nextState),
     });
-
-    if (dbTeardownMetadata) {
-      try {
-        await updateSession(sessionId, {
-          dbTeardownMetadata,
-        });
-      } catch (error) {
-        console.error(
-          `Failed to persist DB teardown metadata for session ${sessionId}:`,
-          error,
-        );
-      }
-    }
 
     if (sessionRecord) {
       // TODO: Re-enable this once we have a solid exfiltration defense strategy.

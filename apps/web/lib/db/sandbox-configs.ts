@@ -117,6 +117,8 @@ export async function upsertUserSandboxConfig(
   const nextEnabled = patch.enabled ?? existing?.enabled ?? false;
 
   if (existing) {
+    // TODO(security-review): Encrypt password-type provider config values at rest
+    // (KMS/AEAD envelope) before persisting `config`.
     const [updated] = await db
       .update(userSandboxConfigs)
       .set({
@@ -137,6 +139,8 @@ export async function upsertUserSandboxConfig(
       userId,
       providerType,
       enabled: nextEnabled,
+      // TODO(security-review): Encrypt password-type provider config values at rest
+      // (KMS/AEAD envelope) before persisting `config`.
       config: mergedConfig,
       createdAt: now,
       updatedAt: now,

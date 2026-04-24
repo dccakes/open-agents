@@ -42,6 +42,8 @@ function resolveConfigEntries(
   configFields: SandboxConfigField[],
   savedConfig: Record<string, string>,
 ): ResolvedConfigEntry[] {
+  // TODO(quality-review): Accept an injected env map instead of reading
+  // process.env directly to reduce global-state coupling.
   const entries: ResolvedConfigEntry[] = [];
 
   for (const field of configFields) {

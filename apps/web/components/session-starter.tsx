@@ -21,6 +21,7 @@ import { BranchSelectorCompact } from "./branch-selector-compact";
 import { RepoSelectorCompact } from "./repo-selector-compact";
 import {
   DEFAULT_SANDBOX_TYPE,
+  SANDBOX_OPTIONS,
   type SandboxType,
 } from "./sandbox-selector-compact";
 import { SessionStarterVercelSyncSection } from "./session-starter-vercel-sync-section";
@@ -35,6 +36,14 @@ import {
 import { Switch } from "./ui/switch";
 
 type SessionMode = "empty" | "repo";
+
+const SANDBOX_TYPE_SET = new Set<SandboxType>(
+  SANDBOX_OPTIONS.map((option) => option.id),
+);
+
+function isSandboxType(value: string): value is SandboxType {
+  return SANDBOX_TYPE_SET.has(value as SandboxType);
+}
 
 interface SessionStarterProps {
   onSubmit: (session: {
@@ -87,35 +96,23 @@ export function SessionStarter({
     useState<SandboxType | null>(null);
   const defaultSandboxType =
     preferences?.defaultSandboxType ?? DEFAULT_SANDBOX_TYPE;
-  const {
-    providers,
-    selectableProviders,
-    loading: sandboxProvidersLoading,
-  } = useSettingsSandboxProviders();
+  const { selectableProviders, loading: sandboxProvidersLoading } =
+    useSettingsSandboxProviders();
   const fallbackSandboxProvider =
-    providers.find(
-      (provider) => provider.type === "vercel" && provider.isAvailable,
-    ) ?? providers.find((provider) => provider.isAvailable);
+    selectableProviders.find((provider) => provider.type === "vercel") ??
+    selectableProviders[0];
 
   useEffect(() => {
     const selectableTypes = new Set(
       selectableProviders.map((provider) => provider.type),
     );
-    const fallbackType = fallbackSandboxProvider?.type ?? DEFAULT_SANDBOX_TYPE;
+    const fallbackType = fallbackSandboxProvider?.type ?? null;
     const preferredType = selectableTypes.has(defaultSandboxType)
       ? defaultSandboxType
-      : (selectableProviders[0]?.type ?? fallbackType);
+      : fallbackType;
 
     setSelectedSandboxType((currentType) => {
       if (currentType && selectableTypes.has(currentType)) {
-        return currentType;
-      }
-
-      if (
-        currentType &&
-        selectableProviders.length === 0 &&
-        currentType === fallbackType
-      ) {
         return currentType;
       }
 
@@ -124,21 +121,13 @@ export function SessionStarter({
   }, [defaultSandboxType, selectableProviders, fallbackSandboxProvider?.type]);
 
   const selectedSandboxProvider =
-    providers.find((provider) => provider.type === selectedSandboxType) ??
-    fallbackSandboxProvider;
+    selectableProviders.find(
+      (provider) => provider.type === selectedSandboxType,
+    ) ?? fallbackSandboxProvider;
   const sandboxType = selectedSandboxProvider?.type ?? DEFAULT_SANDBOX_TYPE;
-  const sandboxName = selectedSandboxProvider?.label ?? sandboxType;
+  const sandboxName = selectedSandboxProvider?.label ?? "Provider unavailable";
   const hasConfiguredProviders = selectableProviders.length > 0;
-  const sandboxSelectOptions = hasConfiguredProviders
-    ? selectableProviders
-    : selectedSandboxProvider
-      ? [selectedSandboxProvider]
-      : [];
-  const sandboxUnavailableReason =
-    selectedSandboxProvider && !selectedSandboxProvider.isAvailable
-      ? (selectedSandboxProvider.reasonUnavailable ??
-        "This provider is currently unavailable.")
-      : null;
+  const sandboxSelectOptions = selectableProviders;
   const canProvisionDb = selectedSandboxProvider?.capabilities.db ?? true;
 
   const shouldLoadVercelProjects =
@@ -225,8 +214,7 @@ export function SessionStarter({
     !selectedSandboxProvider ||
     !isRepoSelectionComplete ||
     isVercelLookupPending ||
-    requiresVercelChoice ||
-    sandboxUnavailableReason !== null;
+    requiresVercelChoice;
   const effectiveAutoCommitPush = autoCommitPush ?? defaultAutoCommitPush;
   const effectiveAutoCreatePr = autoCreatePr ?? defaultAutoCreatePr;
   const showVercelProjectSection =
@@ -359,9 +347,13 @@ export function SessionStarter({
           <Label htmlFor="session-sandbox-type">Sandbox</Label>
           <Select
             value={selectedSandboxProvider?.type}
-            onValueChange={(value) =>
-              setSelectedSandboxType(value as SandboxType)
-            }
+            onValueChange={(value) => {
+              if (!isSandboxType(value)) {
+                return;
+              }
+
+              setSelectedSandboxType(value);
+            }}
             disabled={sandboxSelectorDisabled}
           >
             <SelectTrigger id="session-sandbox-type" className="w-full">
@@ -378,7 +370,7 @@ export function SessionStarter({
 
           {!hasConfiguredProviders ? (
             <p className="text-xs text-muted-foreground">
-              No sandbox providers are configured.{" "}
+              Provider unavailable.{" "}
               <Link
                 href="/settings/sandboxes"
                 className="underline decoration-muted-foreground/60 underline-offset-2 hover:text-foreground"
@@ -471,10 +463,6 @@ export function SessionStarter({
               disabled={controlsDisabled}
             />
           </div>
-        )}
-
-        {sandboxUnavailableReason && (
-          <p className="text-sm text-amber-500">{sandboxUnavailableReason}</p>
         )}
 
         <button

@@ -79,6 +79,7 @@ let currentDotenvContent: string;
 let currentDotenvError: Error | null;
 let currentUserSandboxConfigs: Array<{
   providerType: "vercel" | "docker" | "daytona";
+  enabled?: boolean;
   config: Record<string, string>;
 }>;
 
@@ -137,7 +138,7 @@ mock.module("@/lib/db/sandbox-configs", () => ({
       id: `sandbox-config-${index}`,
       userId: "user-1",
       providerType: item.providerType,
-      enabled: true,
+      enabled: item.enabled ?? true,
       config: item.config,
       createdAt: new Date("2026-01-01T00:00:00Z"),
       updatedAt: new Date("2026-01-01T00:00:00Z"),
@@ -269,7 +270,27 @@ describe("/api/sandbox lifecycle kicks", () => {
     delete process.env.DAYTONA_API_KEY;
     delete process.env.DAYTONA_SERVER_URL;
     delete process.env.VERCEL_SANDBOX_BASE_SNAPSHOT_ID;
-    currentUserSandboxConfigs = [];
+    currentUserSandboxConfigs = [
+      {
+        providerType: "vercel",
+        config: {
+          VERCEL_SANDBOX_BASE_SNAPSHOT_ID: "default-snapshot-id",
+        },
+      },
+      {
+        providerType: "docker",
+        config: {
+          DOCKER_SANDBOX_IMAGE: "ghcr.io/open-agents/sandbox:latest",
+        },
+      },
+      {
+        providerType: "daytona",
+        config: {
+          DAYTONA_API_KEY: "saved-api-key",
+          DAYTONA_SERVER_URL: "https://saved.daytona.example.com",
+        },
+      },
+    ];
     sessionRecord = {
       id: "session-1",
       userId: "user-1",
@@ -358,12 +379,18 @@ describe("/api/sandbox lifecycle kicks", () => {
     expect(connectConfigs[0]?.state.source).not.toHaveProperty("token");
   });
 
-  test("daytona proceeds with partial host env fallback when saved config is absent", async () => {
+  test("rejects daytona when provider is enabled but required config is incomplete", async () => {
     const { POST } = await routeModulePromise;
 
     process.env.DAYTONA_SERVER_URL = "https://env.daytona.example.com";
     delete process.env.DAYTONA_API_KEY;
-    currentUserSandboxConfigs = [];
+    currentUserSandboxConfigs = [
+      {
+        providerType: "daytona",
+        enabled: true,
+        config: {},
+      },
+    ];
 
     const response = await POST(
       new Request("http://localhost/api/sandbox", {
@@ -375,21 +402,13 @@ describe("/api/sandbox lifecycle kicks", () => {
         }),
       }),
     );
+    const payload = (await response.json()) as { error: string };
 
-    expect(response.ok).toBe(true);
-    expect(connectConfigs[0]).toMatchObject({
-      state: {
-        type: "daytona",
-      },
-      options: {
-        env: {
-          DAYTONA_SERVER_URL: "https://env.daytona.example.com",
-        },
-      },
-    });
-    expect(connectConfigs[0]?.options?.env).not.toHaveProperty(
-      "DAYTONA_API_KEY",
+    expect(response.status).toBe(400);
+    expect(payload.error).toBe(
+      "Sandbox provider unavailable: Provider unavailable. Enable and configure this provider in Settings > Sandboxes.",
     );
+    expect(connectConfigs).toHaveLength(0);
   });
 
   test("daytona applies saved-over-env precedence for matching config keys", async () => {
@@ -435,7 +454,13 @@ describe("/api/sandbox lifecycle kicks", () => {
     const { POST } = await routeModulePromise;
 
     process.env.VERCEL_SANDBOX_BASE_SNAPSHOT_ID = "env-snapshot-id";
-    currentUserSandboxConfigs = [];
+    currentUserSandboxConfigs = [
+      {
+        providerType: "vercel",
+        enabled: true,
+        config: {},
+      },
+    ];
 
     const response = await POST(
       new Request("http://localhost/api/sandbox", {
@@ -668,6 +693,38 @@ describe("/api/sandbox lifecycle kicks", () => {
     expect(response.status).toBe(400);
     expect(payload.error).toBe(
       "Sandbox provider unavailable: Vercel credentials are missing",
+    );
+    expect(connectConfigs).toHaveLength(0);
+  });
+
+  test("returns actionable error when provider is disabled in user settings", async () => {
+    const { POST } = await routeModulePromise;
+
+    currentUserSandboxConfigs = [
+      {
+        providerType: "vercel",
+        enabled: false,
+        config: {
+          VERCEL_SANDBOX_BASE_SNAPSHOT_ID: "saved-snapshot-id",
+        },
+      },
+    ];
+
+    const response = await POST(
+      new Request("http://localhost/api/sandbox", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: "session-1",
+          sandboxType: "vercel",
+        }),
+      }),
+    );
+    const payload = (await response.json()) as { error: string };
+
+    expect(response.status).toBe(400);
+    expect(payload.error).toBe(
+      "Sandbox provider unavailable: Provider unavailable. Enable and configure this provider in Settings > Sandboxes.",
     );
     expect(connectConfigs).toHaveLength(0);
   });
