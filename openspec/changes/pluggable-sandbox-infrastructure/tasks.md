@@ -44,10 +44,10 @@
 
 ## 7. Local Development Bootstrap
 
-- [ ] 7.1 Add/maintain root `docker-compose.yml` for local development dependencies and provider-support services.
-- [ ] 7.2 Add sandbox image definitions and setup scripts for local provider workflows.
-- [ ] 7.3 Ensure local credential bootstrap is development-only and clearly documented as non-production.
-- [ ] 7.4 Document local development flow in a dedicated runbook (setup, env, verification).
+- [x] 7.1 Add/maintain root `docker-compose.yml` for local development dependencies and provider-support services.
+- [x] 7.2 Add sandbox image definitions and setup scripts for local provider workflows.
+- [x] 7.3 Ensure local credential bootstrap is development-only and clearly documented as non-production.
+- [x] 7.4 Document local development flow in a dedicated runbook (setup, env, verification).
 
 ## 8. Security and Hardening
 

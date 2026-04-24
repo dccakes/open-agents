@@ -1,0 +1,34 @@
+# Local development dependencies only. NOT for production use.
+# Run: docker compose up -d
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: devpassword
+      POSTGRES_DB: open_agents_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Daytona server for local Daytona-provider testing only.
+  daytona:
+    image: daytonaio/daytona-server:latest
+    profiles:
+      - daytona
+    ports:
+      - "3986:3986"
+    environment:
+      DAYTONA_SERVER_API_KEY: local-dev-key
+    volumes:
+      - daytona_data:/var/lib/daytona
+
+volumes:
+  postgres_data:
+  daytona_data:
