@@ -502,6 +502,24 @@ export async function runAutoCreatePrStep(params: {
       console.warn("[workflow] Auto-PR failed:", result.error);
     }
 
+    const prNumber =
+      typeof result.prNumber === "number" ? result.prNumber : null;
+
+    if ((result.created || result.syncedExisting) && prNumber !== null) {
+      try {
+        const { startPrCheckWatcher } = await import("./pr-check-watcher");
+        await startPrCheckWatcher({
+          sessionId: params.sessionId,
+          userId: params.userId,
+          prNumber,
+          repoOwner: params.repoOwner,
+          repoName: params.repoName,
+        });
+      } catch (error) {
+        console.warn("[workflow] Failed to start PR watcher:", error);
+      }
+    }
+
     return result;
   } catch (error) {
     console.error("[workflow] Auto-PR failed:", error);

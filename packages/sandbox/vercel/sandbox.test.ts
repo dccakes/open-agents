@@ -459,17 +459,34 @@ describe("VercelSandbox.create", () => {
       type: "snapshot",
       snapshotId: "snap-base-1",
     });
-    expect(runCommandCalls[0]).toEqual({
-      cmd: "git",
-      args: [
-        "clone",
-        "--branch",
-        "main",
-        "https://github.com/open-agents/example",
-        ".",
-      ],
-      cwd: "/vercel/sandbox",
-    });
+    expect(runCommandCalls.slice(0, 4)).toEqual([
+      {
+        cmd: "bash",
+        args: ["-c", "git init 2>&1"],
+        cwd: "/vercel/sandbox",
+      },
+      {
+        cmd: "bash",
+        args: [
+          "-c",
+          'git remote add origin "https://github.com/open-agents/example" 2>&1',
+        ],
+        cwd: "/vercel/sandbox",
+      },
+      {
+        cmd: "bash",
+        args: [
+          "-c",
+          'GIT_TERMINAL_PROMPT=0 git fetch --depth=1 origin "main" 2>&1',
+        ],
+        cwd: "/vercel/sandbox",
+      },
+      {
+        cmd: "bash",
+        args: ["-c", 'git checkout -b "main" "origin/main" 2>&1'],
+        cwd: "/vercel/sandbox",
+      },
+    ]);
   });
 
   test("creates empty git repo from base snapshot", async () => {

@@ -20,6 +20,7 @@ Hard-won knowledge from building this codebase. When you make a mistake or disco
 
 - In Next.js App Router, dynamic route param names must match the folder segment exactly (e.g. `[sessionId]` requires `params.sessionId`, not `params.id`), or DB queries can receive `undefined` and fail at runtime.
 - Some planning docs still reference legacy `apps/web/app/tasks/[id]/...` paths; current UI/API code is centered on `apps/web/app/sessions/[sessionId]/chats/[chatId]/...`, so verify file paths before implementing plan items.
+- Keep thin re-export modules dependency-safe for their specific test/runtime usage: if `_lib/model-selection` re-exports from a module that statically imports server-only code (auth/session/db helpers), unit tests and client-safe imports can fail at module-evaluation time.
 - Next.js `after()` defers callbacks until the response is fully sent; for streaming endpoints this means `after()` runs after the entire stream completes, not at call time. Use fire-and-forget (`void run()`) for lifecycle kicks that must happen at request start.
 - In Next.js Route Handlers, `cookies()` from `next/headers` combined with `Response.redirect()` silently drops Set-Cookie headers from the redirect response. Use `NextResponse.redirect()` with `response.cookies.set()` instead to ensure cookies are included in redirect responses.
 - In this codebase's Next.js version, `revalidateTag` must be called with a second argument (for example `{ expire: 0 }`); single-argument calls fail typecheck.

@@ -199,6 +199,45 @@ export const sessions = pgTable(
   (table) => [index("sessions_user_id_idx").on(table.userId)],
 );
 
+export const prRemediationStates = pgTable(
+  "pr_remediation_states",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    prNumber: integer("pr_number").notNull(),
+    headSha: text("head_sha").notNull(),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    lastAttemptAt: timestamp("last_attempt_at"),
+    lastFingerprintHash: text("last_fingerprint_hash"),
+    status: text("status").notNull().default("watching"),
+    watcherRunId: text("watcher_run_id"),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("pr_remediation_states_session_pr_head_sha_idx").on(
+      table.sessionId,
+      table.prNumber,
+      table.headSha,
+    ),
+  ],
+);
+
+export const webhookDeliveries = pgTable("webhook_deliveries", {
+  deliveryId: text("delivery_id").primaryKey(),
+  processedAt: timestamp("processed_at").defaultNow().notNull(),
+});
+
+export const prRemediationLeases = pgTable("pr_remediation_leases", {
+  sessionId: text("session_id")
+    .primaryKey()
+    .references(() => sessions.id, { onDelete: "cascade" }),
+  prNumber: integer("pr_number").notNull(),
+  watcherRunId: text("watcher_run_id").notNull(),
+  claimedAt: timestamp("claimed_at").defaultNow().notNull(),
+});
+
 export const chats = pgTable(
   "chats",
   {
@@ -397,3 +436,9 @@ export const usageEvents = pgTable("usage_events", {
 
 export type UsageEvent = typeof usageEvents.$inferSelect;
 export type NewUsageEvent = typeof usageEvents.$inferInsert;
+export type PrRemediationState = typeof prRemediationStates.$inferSelect;
+export type NewPrRemediationState = typeof prRemediationStates.$inferInsert;
+export type WebhookDelivery = typeof webhookDeliveries.$inferSelect;
+export type NewWebhookDelivery = typeof webhookDeliveries.$inferInsert;
+export type PrRemediationLease = typeof prRemediationLeases.$inferSelect;
+export type NewPrRemediationLease = typeof prRemediationLeases.$inferInsert;

@@ -51,6 +51,9 @@ const spies = {
   performAutoCreatePr: mock(() =>
     Promise.resolve({ created: true, syncedExisting: false, skipped: false }),
   ),
+  startPrCheckWatcher: mock(() =>
+    Promise.resolve({ started: true, runId: "watcher-run-1" }),
+  ),
 };
 
 // ── Module mocks (must appear before the module-under-test import) ──
@@ -90,6 +93,10 @@ mock.module("@/lib/chat/auto-commit-direct", () => ({
 
 mock.module("@/lib/chat/auto-pr-direct", () => ({
   performAutoCreatePr: spies.performAutoCreatePr,
+}));
+
+mock.module("./pr-check-watcher", () => ({
+  startPrCheckWatcher: spies.startPrCheckWatcher,
 }));
 
 const {
@@ -455,6 +462,34 @@ describe("runAutoCreatePrStep", () => {
         repoName: "repo",
       }),
     );
+  });
+
+  test("starts watcher inline when auto-create returns a PR number", async () => {
+    spies.performAutoCreatePr.mockImplementationOnce(() =>
+      Promise.resolve({
+        created: true,
+        syncedExisting: false,
+        skipped: false,
+        prNumber: 123,
+      }),
+    );
+
+    await runAutoCreatePrStep({
+      userId: "user-1",
+      sessionId: "session-1",
+      sessionTitle: "My session",
+      repoOwner: "acme",
+      repoName: "repo",
+      sandboxState: { type: "vercel" } as never,
+    });
+
+    expect(spies.startPrCheckWatcher).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      userId: "user-1",
+      prNumber: 123,
+      repoOwner: "acme",
+      repoName: "repo",
+    });
   });
 
   test("does not throw on error", async () => {

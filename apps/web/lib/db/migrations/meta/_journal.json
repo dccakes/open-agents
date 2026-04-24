@@ -253,6 +253,20 @@
       "when": 1776850100000,
       "tag": "0035_secret_peter_parker",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1777030601960,
+      "tag": "0036_youthful_amazoness",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1777037758187,
+      "tag": "0037_yummy_jazinda",
+      "breakpoints": true
     }
   ]
 }

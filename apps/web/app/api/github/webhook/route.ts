@@ -8,6 +8,7 @@ import {
   updateInstallationsByInstallationId,
   upsertInstallation,
 } from "@/lib/db/installations";
+import { recordWebhookDeliveryIfNew } from "@/lib/db/pr-remediation";
 import { updateSession } from "@/lib/db/sessions";
 import { db } from "@/lib/db/client";
 import { sessions } from "@/lib/db/schema";
@@ -28,17 +29,47 @@ const installationWebhookSchema = z.object({
   }),
 });
 
+const repositorySchema = z.object({
+  name: z.string(),
+  owner: z.object({
+    login: z.string(),
+  }),
+});
+
+const pullRequestReferenceSchema = z.object({
+  number: z.number(),
+});
+
 const pullRequestWebhookSchema = z.object({
   action: z.string(),
-  repository: z.object({
-    name: z.string(),
-    owner: z.object({
-      login: z.string(),
-    }),
-  }),
+  repository: repositorySchema,
   pull_request: z.object({
     number: z.number(),
     merged: z.boolean().optional(),
+  }),
+});
+
+const checkRunWebhookSchema = z.object({
+  action: z.string(),
+  repository: repositorySchema,
+  check_run: z.object({
+    pull_requests: z.array(pullRequestReferenceSchema).default([]),
+  }),
+});
+
+const checkSuiteWebhookSchema = z.object({
+  action: z.string(),
+  repository: repositorySchema,
+  check_suite: z.object({
+    pull_requests: z.array(pullRequestReferenceSchema).default([]),
+  }),
+});
+
+const workflowRunWebhookSchema = z.object({
+  action: z.string(),
+  repository: repositorySchema,
+  workflow_run: z.object({
+    pull_requests: z.array(pullRequestReferenceSchema).default([]),
   }),
 });
 
@@ -62,17 +93,198 @@ function verifySignature(
   return timingSafeEqual(expected, provided);
 }
 
+async function getOpenLinkedSessionIds(
+  repoOwner: string,
+  repoName: string,
+  prNumber: number,
+): Promise<string[]> {
+  const linkedSessions = await db.query.sessions.findMany({
+    columns: {
+      id: true,
+    },
+    where: and(
+      sql`lower(${sessions.repoOwner}) = ${repoOwner.toLowerCase()}`,
+      sql`lower(${sessions.repoName}) = ${repoName.toLowerCase()}`,
+      eq(sessions.prNumber, prNumber),
+      eq(sessions.prStatus, "open"),
+    ),
+  });
+
+  return linkedSessions.map((sessionRecord) => sessionRecord.id);
+}
+
+async function startWatcherForSession(sessionId: string): Promise<void> {
+  try {
+    const [
+      { getSessionById },
+      { getUserGitHubToken },
+      { startPrCheckWatcher },
+    ] = await Promise.all([
+      import("@/lib/db/sessions"),
+      import("@/lib/github/token"),
+      import("@/app/workflows/pr-check-watcher"),
+    ]);
+
+    const session = await getSessionById(sessionId);
+    if (!session) {
+      console.warn(
+        JSON.stringify({
+          event: "watcher-trigger-skipped",
+          sessionId,
+          reason: "session_not_found",
+        }),
+      );
+      return;
+    }
+
+    if (
+      session.prStatus !== "open" ||
+      typeof session.prNumber !== "number" ||
+      !session.repoOwner ||
+      !session.repoName
+    ) {
+      console.warn(
+        JSON.stringify({
+          event: "watcher-trigger-skipped",
+          sessionId: session.id,
+          reason: "session_not_eligible",
+        }),
+      );
+      return;
+    }
+
+    const token = await getUserGitHubToken(session.userId);
+    if (!token) {
+      console.warn(
+        JSON.stringify({
+          event: "watcher-trigger-skipped",
+          sessionId: session.id,
+          reason: "missing_github_token",
+        }),
+      );
+      return;
+    }
+
+    await startPrCheckWatcher({
+      sessionId: session.id,
+      userId: session.userId,
+      prNumber: session.prNumber,
+      repoOwner: session.repoOwner,
+      repoName: session.repoName,
+    });
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "watcher-trigger-error",
+        sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    );
+  }
+}
+
+function triggerWatcherEvaluation(sessionId: string): void {
+  after(async () => {
+    await startWatcherForSession(sessionId);
+  });
+}
+
+async function triggerWatcherForPullRequests(
+  repoOwner: string,
+  repoName: string,
+  pullRequestNumbers: number[],
+): Promise<{
+  matchedSessions: number;
+  triggeredSessions: number;
+}> {
+  const uniquePrNumbers = [...new Set(pullRequestNumbers)];
+  const sessionIds = new Set<string>();
+  let matchedSessions = 0;
+
+  for (const prNumber of uniquePrNumbers) {
+    const linkedSessionIds = await getOpenLinkedSessionIds(
+      repoOwner,
+      repoName,
+      prNumber,
+    );
+
+    matchedSessions += linkedSessionIds.length;
+
+    for (const sessionId of linkedSessionIds) {
+      sessionIds.add(sessionId);
+    }
+  }
+
+  for (const sessionId of sessionIds) {
+    triggerWatcherEvaluation(sessionId);
+  }
+
+  return {
+    matchedSessions,
+    triggeredSessions: sessionIds.size,
+  };
+}
+
+async function handleCheckCompletedWebhook(params: {
+  event: "check_run" | "check_suite" | "workflow_run";
+  action: string;
+  repoOwner: string;
+  repoName: string;
+  pullRequestNumbers: number[];
+}): Promise<Response> {
+  if (params.action !== "completed") {
+    return Response.json({
+      ok: true,
+      ignored: true,
+      event: params.event,
+      action: params.action,
+    });
+  }
+
+  const { matchedSessions, triggeredSessions } =
+    await triggerWatcherForPullRequests(
+      params.repoOwner,
+      params.repoName,
+      params.pullRequestNumbers,
+    );
+
+  return Response.json({
+    ok: true,
+    event: params.event,
+    matchedSessions,
+    triggeredSessions,
+  });
+}
+
 async function handlePullRequestWebhook(
   payload: z.infer<typeof pullRequestWebhookSchema>,
 ): Promise<Response> {
   const action = payload.action;
-  if (action !== "closed" && action !== "reopened") {
+  if (
+    action !== "closed" &&
+    action !== "reopened" &&
+    action !== "synchronize"
+  ) {
     return Response.json({ ok: true, ignored: true, action });
   }
 
   const repoOwner = payload.repository.owner.login;
   const repoName = payload.repository.name;
   const prNumber = payload.pull_request.number;
+
+  if (action === "synchronize") {
+    const { matchedSessions, triggeredSessions } =
+      await triggerWatcherForPullRequests(repoOwner, repoName, [prNumber]);
+
+    return Response.json({
+      ok: true,
+      event: "pull_request",
+      action,
+      matchedSessions,
+      triggeredSessions,
+    });
+  }
+
   const prStatus =
     action === "closed"
       ? payload.pull_request.merged
@@ -176,6 +388,14 @@ export async function POST(req: Request): Promise<Response> {
     return Response.json({ ok: true });
   }
 
+  const deliveryId = req.headers.get("x-github-delivery");
+  if (deliveryId) {
+    const isNewDelivery = await recordWebhookDeliveryIfNew(deliveryId);
+    if (!isNewDelivery) {
+      return Response.json({ ok: true, duplicate: true, deliveryId });
+    }
+  }
+
   let parsedPayload: unknown;
   try {
     parsedPayload = JSON.parse(payloadText);
@@ -193,6 +413,66 @@ export async function POST(req: Request): Promise<Response> {
     }
 
     return handlePullRequestWebhook(parsed.data);
+  }
+
+  if (event === "check_run") {
+    const parsed = checkRunWebhookSchema.safeParse(parsedPayload);
+    if (!parsed.success) {
+      return Response.json(
+        { error: "Invalid webhook payload" },
+        { status: 400 },
+      );
+    }
+
+    return handleCheckCompletedWebhook({
+      event: "check_run",
+      action: parsed.data.action,
+      repoOwner: parsed.data.repository.owner.login,
+      repoName: parsed.data.repository.name,
+      pullRequestNumbers: parsed.data.check_run.pull_requests.map(
+        (pullRequest) => pullRequest.number,
+      ),
+    });
+  }
+
+  if (event === "check_suite") {
+    const parsed = checkSuiteWebhookSchema.safeParse(parsedPayload);
+    if (!parsed.success) {
+      return Response.json(
+        { error: "Invalid webhook payload" },
+        { status: 400 },
+      );
+    }
+
+    return handleCheckCompletedWebhook({
+      event: "check_suite",
+      action: parsed.data.action,
+      repoOwner: parsed.data.repository.owner.login,
+      repoName: parsed.data.repository.name,
+      pullRequestNumbers: parsed.data.check_suite.pull_requests.map(
+        (pullRequest) => pullRequest.number,
+      ),
+    });
+  }
+
+  if (event === "workflow_run") {
+    const parsed = workflowRunWebhookSchema.safeParse(parsedPayload);
+    if (!parsed.success) {
+      return Response.json(
+        { error: "Invalid webhook payload" },
+        { status: 400 },
+      );
+    }
+
+    return handleCheckCompletedWebhook({
+      event: "workflow_run",
+      action: parsed.data.action,
+      repoOwner: parsed.data.repository.owner.login,
+      repoName: parsed.data.repository.name,
+      pullRequestNumbers: parsed.data.workflow_run.pull_requests.map(
+        (pullRequest) => pullRequest.number,
+      ),
+    });
   }
 
   if (event !== "installation" && event !== "installation_repositories") {
