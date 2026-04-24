@@ -38,21 +38,18 @@ describe("Daytona provider", () => {
     expect(def).toBe(daytonaProvider);
   });
 
-  test("isAvailable returns false when DAYTONA_API_KEY is missing", () => {
-    expect(daytonaProvider.isAvailable()).toBe(false);
-    expect(daytonaProvider.reasonUnavailable()).toMatch(/DAYTONA_API_KEY/);
-  });
-
   test("isAvailable returns false when beta flag is missing", () => {
-    process.env.DAYTONA_API_KEY = "test-key";
-    process.env.DAYTONA_SERVER_URL = "https://daytona.example.com";
     expect(daytonaProvider.isAvailable()).toBe(false);
     expect(daytonaProvider.reasonUnavailable()).toMatch(/DAYTONA_BETA_ENABLED/);
   });
 
-  test("isAvailable returns true when required vars and beta flag are set", () => {
-    process.env.DAYTONA_API_KEY = "test-key";
-    process.env.DAYTONA_SERVER_URL = "https://daytona.example.com";
+  test("isAvailable returns false when beta flag is invalid", () => {
+    process.env.DAYTONA_BETA_ENABLED = "0";
+    expect(daytonaProvider.isAvailable()).toBe(false);
+    expect(daytonaProvider.reasonUnavailable()).toMatch(/DAYTONA_BETA_ENABLED/);
+  });
+
+  test("isAvailable returns true when beta flag is enabled", () => {
     process.env.DAYTONA_BETA_ENABLED = "true";
     expect(daytonaProvider.isAvailable()).toBe(true);
     expect(daytonaProvider.reasonUnavailable()).toBeUndefined();

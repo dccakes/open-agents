@@ -6,20 +6,10 @@ import type { DaytonaState } from "./state";
 function isDaytonaAvailable(): boolean {
   const betaFlag = process.env.DAYTONA_BETA_ENABLED;
   const betaEnabled = betaFlag === "true" || betaFlag === "1";
-  return Boolean(
-    process.env.DAYTONA_API_KEY &&
-    process.env.DAYTONA_SERVER_URL &&
-    betaEnabled,
-  );
+  return betaEnabled;
 }
 
 function getDaytonaUnavailableReason(): string | undefined {
-  if (!process.env.DAYTONA_API_KEY) {
-    return "DAYTONA_API_KEY environment variable is not set";
-  }
-  if (!process.env.DAYTONA_SERVER_URL) {
-    return "DAYTONA_SERVER_URL environment variable is not set";
-  }
   if (
     process.env.DAYTONA_BETA_ENABLED !== "true" &&
     process.env.DAYTONA_BETA_ENABLED !== "1"
@@ -39,6 +29,21 @@ export const daytonaProvider: SandboxProviderDef<DaytonaState> = {
     envInjection: true,
     credentialBrokering: true,
   },
+  configFields: [
+    {
+      key: "DAYTONA_SERVER_URL",
+      label: "Server URL",
+      type: "url",
+      required: true,
+      placeholder: "https://app.daytona.io",
+    },
+    {
+      key: "DAYTONA_API_KEY",
+      label: "API Key",
+      type: "password",
+      required: true,
+    },
+  ],
   isAvailable: isDaytonaAvailable,
   reasonUnavailable: getDaytonaUnavailableReason,
   create: (state, options) => DaytonaSandbox.create(state, options),

@@ -123,6 +123,39 @@ function mockDockerUnavailable() {
   };
 }
 
+function mockDockerCreate() {
+  const dockerPrototype = Docker.prototype as unknown as {
+    ping: unknown;
+    createContainer: unknown;
+    getContainer: unknown;
+  };
+
+  const originalPing = dockerPrototype.ping;
+  const originalCreateContainer = dockerPrototype.createContainer;
+  const originalGetContainer = dockerPrototype.getContainer;
+
+  const pingMock = mock(async () => {});
+  const createContainerMock = mock(async () => makeMockContainer());
+  const getContainerMock = mock(() => {
+    throw new Error("getContainer should not be called");
+  });
+
+  dockerPrototype.ping = pingMock;
+  dockerPrototype.createContainer = createContainerMock;
+  dockerPrototype.getContainer = getContainerMock;
+
+  return {
+    pingMock,
+    createContainerMock,
+    getContainerMock,
+    restore() {
+      dockerPrototype.ping = originalPing;
+      dockerPrototype.createContainer = originalCreateContainer;
+      dockerPrototype.getContainer = originalGetContainer;
+    },
+  };
+}
+
 describe("DockerSandbox", () => {
   test("create() returns actionable Docker Engine/Desktop guidance when daemon is unavailable", async () => {
     const unavailable = mockDockerUnavailable();
@@ -181,5 +214,85 @@ describe("DockerSandbox", () => {
 
     expect(sandbox.domain(3000)).toBe(`localhost:${MAPPED_PORT}`);
     expect(sandbox.domain(5173)).toBe("localhost:5173");
+  });
+
+  test("create() prefers options.env.DOCKER_SANDBOX_IMAGE over process env", async () => {
+    const createMock = mockDockerCreate();
+    const originalDockerSandboxImage = process.env.DOCKER_SANDBOX_IMAGE;
+    process.env.DOCKER_SANDBOX_IMAGE =
+      "ghcr.io/open-agents/sandbox:from-process-env";
+
+    try {
+      await DockerSandbox.create(
+        {},
+        {
+          env: {
+            DOCKER_SANDBOX_IMAGE: "ghcr.io/open-agents/sandbox:from-options",
+          },
+        },
+      );
+
+      expect(createMock.pingMock).toHaveBeenCalledTimes(1);
+      expect(createMock.getContainerMock).not.toHaveBeenCalled();
+      expect(createMock.createContainerMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          Image: "ghcr.io/open-agents/sandbox:from-options",
+        }),
+      );
+    } finally {
+      if (originalDockerSandboxImage === undefined) {
+        delete process.env.DOCKER_SANDBOX_IMAGE;
+      } else {
+        process.env.DOCKER_SANDBOX_IMAGE = originalDockerSandboxImage;
+      }
+      createMock.restore();
+    }
+  });
+
+  test("create() falls back to process env DOCKER_SANDBOX_IMAGE when options env key is missing", async () => {
+    const createMock = mockDockerCreate();
+    const originalDockerSandboxImage = process.env.DOCKER_SANDBOX_IMAGE;
+    process.env.DOCKER_SANDBOX_IMAGE =
+      "ghcr.io/open-agents/sandbox:from-process-env";
+
+    try {
+      await DockerSandbox.create({}, { env: { SOME_OTHER_ENV: "value" } });
+
+      expect(createMock.createContainerMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          Image: "ghcr.io/open-agents/sandbox:from-process-env",
+        }),
+      );
+    } finally {
+      if (originalDockerSandboxImage === undefined) {
+        delete process.env.DOCKER_SANDBOX_IMAGE;
+      } else {
+        process.env.DOCKER_SANDBOX_IMAGE = originalDockerSandboxImage;
+      }
+      createMock.restore();
+    }
+  });
+
+  test("create() falls back to default image when neither options nor process env is set", async () => {
+    const createMock = mockDockerCreate();
+    const originalDockerSandboxImage = process.env.DOCKER_SANDBOX_IMAGE;
+    delete process.env.DOCKER_SANDBOX_IMAGE;
+
+    try {
+      await DockerSandbox.create({});
+
+      expect(createMock.createContainerMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          Image: "ghcr.io/open-agents/sandbox:latest",
+        }),
+      );
+    } finally {
+      if (originalDockerSandboxImage === undefined) {
+        delete process.env.DOCKER_SANDBOX_IMAGE;
+      } else {
+        process.env.DOCKER_SANDBOX_IMAGE = originalDockerSandboxImage;
+      }
+      createMock.restore();
+    }
   });
 });

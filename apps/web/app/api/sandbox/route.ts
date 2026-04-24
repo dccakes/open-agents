@@ -12,6 +12,7 @@ import {
 } from "@/app/api/sessions/_lib/session-context";
 import { botIdConfig } from "@/lib/botid";
 import { getGitHubUserProfile, getUserGitHubToken } from "@/lib/github/token";
+import { getUserSandboxConfigs } from "@/lib/db/sandbox-configs";
 import { updateSession } from "@/lib/db/sessions";
 import { parseGitHubUrl } from "@/lib/github/client";
 import {
@@ -32,6 +33,7 @@ import {
   hasResumableSandboxState,
 } from "@/lib/sandbox/utils";
 import { getEnvResolver } from "@/lib/sandbox/env-resolver";
+import { buildEffectiveProviderConfig } from "@/lib/sandbox-provider-settings";
 import {
   getDbProvisioner,
   type DbTeardownMetadata,
@@ -219,6 +221,15 @@ export async function POST(req: Request) {
     );
   }
 
+  const userSandboxConfigs = await getUserSandboxConfigs(session.user.id);
+  const requestedProviderConfig =
+    userSandboxConfigs.find((config) => config.providerType === requestedType)
+      ?.config ?? {};
+  const providerRuntimeEnv = buildEffectiveProviderConfig(
+    providerDef.configFields ?? [],
+    requestedProviderConfig,
+  );
+
   const sandboxName = sessionId ? getSessionSandboxName(sessionId) : undefined;
   const ghProfile = await getGitHubUserProfile(session.user.id);
   const githubNoreplyEmail =
@@ -294,6 +305,18 @@ export async function POST(req: Request) {
     }
   }
 
+  const mergedEnv =
+    Object.keys(providerRuntimeEnv).length > 0
+      ? {
+          ...resolvedEnv,
+          ...providerRuntimeEnv,
+        }
+      : resolvedEnv;
+
+  const effectiveBaseSnapshotId =
+    providerRuntimeEnv.VERCEL_SANDBOX_BASE_SNAPSHOT_ID ??
+    DEFAULT_SANDBOX_BASE_SNAPSHOT_ID;
+
   const requestedState: SandboxState =
     requestedType === "vercel"
       ? {
@@ -329,11 +352,11 @@ export async function POST(req: Request) {
         gitUser,
         timeout: DEFAULT_SANDBOX_TIMEOUT_MS,
         ports: DEFAULT_SANDBOX_PORTS,
-        baseSnapshotId: DEFAULT_SANDBOX_BASE_SNAPSHOT_ID,
+        baseSnapshotId: effectiveBaseSnapshotId,
         persistent: requestedType === "vercel" && !!sandboxName,
         resume: requestedType === "vercel" && !!sandboxName,
         createIfMissing: requestedType === "vercel" && !!sandboxName,
-        ...(resolvedEnv !== undefined ? { env: resolvedEnv } : {}),
+        ...(mergedEnv !== undefined ? { env: mergedEnv } : {}),
       },
     });
   } catch (error) {

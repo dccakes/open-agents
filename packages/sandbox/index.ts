@@ -21,6 +21,7 @@ export type { Source, FileEntry, SandboxStatus } from "./types";
 export type {
   SandboxProviderType,
   SandboxCapabilities,
+  SandboxConfigField,
   SandboxProviderDef,
 } from "./provider";
 export { SandboxRegistry, defaultRegistry } from "./registry";

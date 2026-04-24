@@ -11,7 +11,7 @@ import {
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useGitHubConnectionStatus } from "@/hooks/use-github-connection-status";
-import { useSandboxProviders } from "@/hooks/use-sandbox-providers";
+import { useSettingsSandboxProviders } from "@/hooks/use-settings-sandbox-providers";
 import { useSession } from "@/hooks/use-session";
 import { useUserPreferences } from "@/hooks/use-user-preferences";
 import { useVercelRepoProjects } from "@/hooks/use-vercel-repo-projects";
@@ -21,10 +21,17 @@ import { BranchSelectorCompact } from "./branch-selector-compact";
 import { RepoSelectorCompact } from "./repo-selector-compact";
 import {
   DEFAULT_SANDBOX_TYPE,
-  SANDBOX_OPTIONS,
   type SandboxType,
 } from "./sandbox-selector-compact";
 import { SessionStarterVercelSyncSection } from "./session-starter-vercel-sync-section";
+import { Label } from "./ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
 import { Switch } from "./ui/switch";
 
 type SessionMode = "empty" | "repo";
@@ -76,15 +83,59 @@ export function SessionStarter({
   const [autoCreatePr, setAutoCreatePr] = useState<boolean | null>(null);
   const [provisionDb, setProvisionDb] = useState(false);
   const [gitSettingsExpanded, setGitSettingsExpanded] = useState(false);
-  const sandboxType = preferences?.defaultSandboxType ?? DEFAULT_SANDBOX_TYPE;
-  const { providers } = useSandboxProviders();
-  const selectedSandboxProvider = providers.find((p) => p.type === sandboxType);
-  const sandboxName =
-    selectedSandboxProvider?.label ??
-    SANDBOX_OPTIONS.find((s) => s.id === sandboxType)?.name ??
-    sandboxType;
+  const [selectedSandboxType, setSelectedSandboxType] =
+    useState<SandboxType | null>(null);
+  const defaultSandboxType =
+    preferences?.defaultSandboxType ?? DEFAULT_SANDBOX_TYPE;
+  const {
+    providers,
+    selectableProviders,
+    loading: sandboxProvidersLoading,
+  } = useSettingsSandboxProviders();
+  const fallbackSandboxProvider =
+    providers.find(
+      (provider) => provider.type === "vercel" && provider.isAvailable,
+    ) ?? providers.find((provider) => provider.isAvailable);
+
+  useEffect(() => {
+    const selectableTypes = new Set(
+      selectableProviders.map((provider) => provider.type),
+    );
+    const fallbackType = fallbackSandboxProvider?.type ?? DEFAULT_SANDBOX_TYPE;
+    const preferredType = selectableTypes.has(defaultSandboxType)
+      ? defaultSandboxType
+      : (selectableProviders[0]?.type ?? fallbackType);
+
+    setSelectedSandboxType((currentType) => {
+      if (currentType && selectableTypes.has(currentType)) {
+        return currentType;
+      }
+
+      if (
+        currentType &&
+        selectableProviders.length === 0 &&
+        currentType === fallbackType
+      ) {
+        return currentType;
+      }
+
+      return preferredType;
+    });
+  }, [defaultSandboxType, selectableProviders, fallbackSandboxProvider?.type]);
+
+  const selectedSandboxProvider =
+    providers.find((provider) => provider.type === selectedSandboxType) ??
+    fallbackSandboxProvider;
+  const sandboxType = selectedSandboxProvider?.type ?? DEFAULT_SANDBOX_TYPE;
+  const sandboxName = selectedSandboxProvider?.label ?? sandboxType;
+  const hasConfiguredProviders = selectableProviders.length > 0;
+  const sandboxSelectOptions = hasConfiguredProviders
+    ? selectableProviders
+    : selectedSandboxProvider
+      ? [selectedSandboxProvider]
+      : [];
   const sandboxUnavailableReason =
-    selectedSandboxProvider && !selectedSandboxProvider.available
+    selectedSandboxProvider && !selectedSandboxProvider.isAvailable
       ? (selectedSandboxProvider.reasonUnavailable ??
         "This provider is currently unavailable.")
       : null;
@@ -165,10 +216,13 @@ export function SessionStarter({
     repoProjects.projects.length > 0 &&
     repoProjects.selectedProjectId === null &&
     vercelProjectChoice === undefined;
-  const controlsDisabled = isLoading || preferencesLoading;
+  const controlsDisabled =
+    isLoading || preferencesLoading || sandboxProvidersLoading;
+  const sandboxSelectorDisabled = controlsDisabled || !hasConfiguredProviders;
   const isSubmitDisabled =
     controlsDisabled ||
     (mode === "repo" && (githubConnectionLoading || reconnectRequired)) ||
+    !selectedSandboxProvider ||
     !isRepoSelectionComplete ||
     isVercelLookupPending ||
     requiresVercelChoice ||
@@ -301,6 +355,41 @@ export function SessionStarter({
           </p>
         )}
 
+        <div className="grid gap-2">
+          <Label htmlFor="session-sandbox-type">Sandbox</Label>
+          <Select
+            value={selectedSandboxProvider?.type}
+            onValueChange={(value) =>
+              setSelectedSandboxType(value as SandboxType)
+            }
+            disabled={sandboxSelectorDisabled}
+          >
+            <SelectTrigger id="session-sandbox-type" className="w-full">
+              <SelectValue placeholder="Select a sandbox provider" />
+            </SelectTrigger>
+            <SelectContent>
+              {sandboxSelectOptions.map((provider) => (
+                <SelectItem key={provider.type} value={provider.type}>
+                  {provider.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {!hasConfiguredProviders ? (
+            <p className="text-xs text-muted-foreground">
+              No sandbox providers are configured.{" "}
+              <Link
+                href="/settings/sandboxes"
+                className="underline decoration-muted-foreground/60 underline-offset-2 hover:text-foreground"
+              >
+                Configure sandboxes
+              </Link>
+              .
+            </p>
+          ) : null}
+        </div>
+
         {mode === "repo" && !gitSettingsExpanded && (
           <button
             type="button"
@@ -407,10 +496,10 @@ export function SessionStarter({
           Using {sandboxName} sandbox{" "}
           <span className="text-muted-foreground/60">&middot;</span>{" "}
           <Link
-            href="/settings/preferences"
+            href="/settings/sandboxes"
             className="text-muted-foreground underline decoration-muted-foreground/40 underline-offset-2 transition-colors hover:text-foreground hover:decoration-foreground/40"
           >
-            Change
+            Manage
           </Link>
         </p>
       </div>

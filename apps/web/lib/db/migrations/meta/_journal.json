@@ -260,6 +260,13 @@
       "when": 1777032646436,
       "tag": "0036_rainy_hulk",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1777064225634,
+      "tag": "0037_many_mastermind",
+      "breakpoints": true
     }
   ]
 }

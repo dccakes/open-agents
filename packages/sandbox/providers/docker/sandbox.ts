@@ -9,8 +9,7 @@ import type {
 } from "../../interface";
 import type { DockerState } from "./state";
 
-const SANDBOX_IMAGE =
-  process.env.DOCKER_SANDBOX_IMAGE ?? "ghcr.io/open-agents/sandbox:latest";
+const DEFAULT_SANDBOX_IMAGE = "ghcr.io/open-agents/sandbox:latest";
 const WORKING_DIRECTORY = "/workspace";
 const DEFAULT_PORTS = [3000, 5173, 4321, 8000] as const;
 
@@ -204,6 +203,11 @@ export class DockerSandbox implements Sandbox {
       throw buildActionableDockerUnavailableError("create");
     }
 
+    const sandboxImage =
+      options?.env?.DOCKER_SANDBOX_IMAGE ??
+      process.env.DOCKER_SANDBOX_IMAGE ??
+      DEFAULT_SANDBOX_IMAGE;
+
     const requestedPorts =
       options?.ports && options.ports.length > 0
         ? options.ports
@@ -221,7 +225,7 @@ export class DockerSandbox implements Sandbox {
     let container: DockerContainerLike;
     try {
       container = (await docker.createContainer({
-        Image: SANDBOX_IMAGE,
+        Image: sandboxImage,
         WorkingDir: WORKING_DIRECTORY,
         Env: Object.entries(options?.env ?? {}).map(([key, value]) => {
           return `${key}=${value}`;
@@ -237,7 +241,7 @@ export class DockerSandbox implements Sandbox {
       const message =
         error instanceof Error ? error.message : "Unknown Docker error";
       throw new Error(
-        `Failed to start Docker sandbox container using image "${SANDBOX_IMAGE}": ${message}`,
+        `Failed to start Docker sandbox container using image "${sandboxImage}": ${message}`,
         { cause: error },
       );
     }

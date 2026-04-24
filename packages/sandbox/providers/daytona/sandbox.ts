@@ -49,6 +49,10 @@ const REDACTED_VALUE = "[REDACTED]";
 const CONNECTION_URL_ENV_KEYS = new Set(["POSTGRES_URL", "DATABASE_URL"]);
 const SENSITIVE_ENV_KEY_PATTERN =
   /(^|_)(TOKEN|PASSWORD|SECRET|API_KEY|PRIVATE_KEY)(_|$)/;
+const DAYTONA_PROVIDER_AUTH_ENV_KEYS = new Set([
+  "DAYTONA_API_KEY",
+  "DAYTONA_SERVER_URL",
+]);
 
 function quoteForShell(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
@@ -56,8 +60,9 @@ function quoteForShell(value: string): string {
 
 function getRequiredEnv(
   name: "DAYTONA_API_KEY" | "DAYTONA_SERVER_URL",
+  env?: Record<string, string>,
 ): string {
-  const value = process.env[name];
+  const value = env?.[name] ?? process.env[name];
   if (!value) {
     throw new Error(`${name} environment variable is not set`);
   }
@@ -145,6 +150,22 @@ function redactSensitiveValues(
   return redacted;
 }
 
+function getWorkspaceEnv(
+  env: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  if (!env) {
+    return undefined;
+  }
+
+  const runtimeEnv = Object.fromEntries(
+    Object.entries(env).filter(
+      ([key]) => !DAYTONA_PROVIDER_AUTH_ENV_KEYS.has(key),
+    ),
+  );
+
+  return Object.keys(runtimeEnv).length > 0 ? runtimeEnv : undefined;
+}
+
 function toDaytonaWorkspace(value: unknown): DaytonaWorkspace {
   if (!isRecord(value)) {
     throw new Error("Daytona SDK returned an invalid workspace payload");
@@ -183,7 +204,9 @@ function toDaytonaWorkspace(value: unknown): DaytonaWorkspace {
   };
 }
 
-async function loadDaytonaClient(): Promise<DaytonaClient> {
+async function loadDaytonaClient(
+  options?: ConnectOptions,
+): Promise<DaytonaClient> {
   const daytonaModule: unknown = await import("@daytonaio/sdk");
 
   const ctorCandidate =
@@ -202,8 +225,8 @@ async function loadDaytonaClient(): Promise<DaytonaClient> {
   const DaytonaClientConstructor = ctorCandidate as DaytonaConstructor;
 
   return new DaytonaClientConstructor({
-    apiKey: getRequiredEnv("DAYTONA_API_KEY"),
-    serverUrl: getRequiredEnv("DAYTONA_SERVER_URL"),
+    apiKey: getRequiredEnv("DAYTONA_API_KEY", options?.env),
+    serverUrl: getRequiredEnv("DAYTONA_SERVER_URL", options?.env),
   });
 }
 
@@ -221,7 +244,7 @@ export class DaytonaSandbox implements Sandbox {
     state: DaytonaState,
     options?: ConnectOptions,
   ) {
-    this.env = options?.env;
+    this.env = getWorkspaceEnv(options?.env);
     this.hooks = options?.hooks;
     this.state = {
       workspaceId: state.workspaceId ?? workspace.id,
@@ -234,11 +257,11 @@ export class DaytonaSandbox implements Sandbox {
     state: DaytonaState,
     options?: ConnectOptions,
   ): Promise<DaytonaSandbox> {
-    const client = await loadDaytonaClient();
+    const client = await loadDaytonaClient(options);
     const rawWorkspace = await client.create({
       id: state.workspaceId,
       name: state.workspaceName,
-      env: options?.env,
+      env: getWorkspaceEnv(options?.env),
     });
     const workspace = toDaytonaWorkspace(rawWorkspace);
 
@@ -260,7 +283,7 @@ export class DaytonaSandbox implements Sandbox {
       throw new Error("DaytonaState.workspaceId is required for connect()");
     }
 
-    const client = await loadDaytonaClient();
+    const client = await loadDaytonaClient(options);
     const rawWorkspace = await client.get(state.workspaceId);
     await client.start(rawWorkspace);
     const workspace = toDaytonaWorkspace(rawWorkspace);

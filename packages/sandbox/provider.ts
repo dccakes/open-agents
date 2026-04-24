@@ -14,11 +14,20 @@ export interface SandboxCapabilities {
   credentialBrokering: boolean;
 }
 
+export interface SandboxConfigField {
+  key: string;
+  label: string;
+  type: "text" | "url" | "password";
+  required: boolean;
+  placeholder?: string;
+}
+
 export interface SandboxProviderDef<S = unknown> {
   type: SandboxProviderType;
   label: string;
   beta?: boolean;
   capabilities: SandboxCapabilities;
+  configFields?: SandboxConfigField[];
   isAvailable(): boolean;
   reasonUnavailable(): string | undefined;
   create(state: S, options?: ConnectOptions): Promise<Sandbox>;

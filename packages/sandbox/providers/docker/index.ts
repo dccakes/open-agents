@@ -12,6 +12,15 @@ export const dockerProvider: SandboxProviderDef<DockerState> = {
     envInjection: true,
     credentialBrokering: false,
   },
+  configFields: [
+    {
+      key: "DOCKER_SANDBOX_IMAGE",
+      label: "Sandbox Image",
+      type: "text",
+      required: true,
+      placeholder: "open-agents/sandbox-dev:latest",
+    },
+  ],
   isAvailable: () => process.env.NODE_ENV === "development",
   reasonUnavailable: () =>
     process.env.NODE_ENV !== "development"
