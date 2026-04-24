@@ -558,6 +558,21 @@ export class DockerSandbox implements Sandbox {
     return `localhost:${port}`;
   }
 
+  async execDetached(
+    command: string,
+    cwd: string,
+  ): Promise<{ commandId: string }> {
+    const result = await this.exec(
+      `nohup sh -c ${quoteForShell(command)} > /dev/null 2>&1 & echo $!`,
+      cwd,
+      10_000,
+    );
+    if (!result.success) {
+      throw new Error(`Failed to launch background command: ${result.stderr}`);
+    }
+    return { commandId: result.stdout.trim() };
+  }
+
   async stop(): Promise<void> {
     if (this.hooks?.beforeStop) {
       await this.hooks.beforeStop(this);
