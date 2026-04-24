@@ -7,10 +7,10 @@
 
 ## 2. Daytona Beta Provider
 
-- [ ] 2.1 Implement Daytona provider module through the shared provider contract.
-- [ ] 2.2 Implement Daytona command execution and async preview URL resolution behavior.
-- [ ] 2.3 Implement Daytona pause/resume semantics for persistent named sandboxes.
-- [ ] 2.4 Gate Daytona availability on runtime/config prerequisites with actionable unavailability reasons.
+- [x] 2.1 Implement Daytona provider module through the shared provider contract.
+- [x] 2.2 Implement Daytona command execution and async preview URL resolution behavior.
+- [x] 2.3 Implement Daytona pause/resume semantics for persistent named sandboxes.
+- [x] 2.4 Gate Daytona availability on runtime/config prerequisites with actionable unavailability reasons.
 
 ## 3. Docker Provider Runtime
 

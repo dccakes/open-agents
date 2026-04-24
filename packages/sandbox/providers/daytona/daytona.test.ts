@@ -1,0 +1,56 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { defaultRegistry } from "../../registry";
+import { daytonaProvider } from "./index";
+
+describe("Daytona provider", () => {
+  const originalApiKey = process.env.DAYTONA_API_KEY;
+  const originalServerUrl = process.env.DAYTONA_SERVER_URL;
+
+  beforeEach(() => {
+    delete process.env.DAYTONA_API_KEY;
+    delete process.env.DAYTONA_SERVER_URL;
+  });
+
+  afterEach(() => {
+    if (originalApiKey === undefined) {
+      delete process.env.DAYTONA_API_KEY;
+    } else {
+      process.env.DAYTONA_API_KEY = originalApiKey;
+    }
+
+    if (originalServerUrl === undefined) {
+      delete process.env.DAYTONA_SERVER_URL;
+    } else {
+      process.env.DAYTONA_SERVER_URL = originalServerUrl;
+    }
+  });
+
+  test("registers in defaultRegistry", () => {
+    const def = defaultRegistry.get("daytona");
+    expect(def).toBe(daytonaProvider);
+  });
+
+  test("isAvailable returns false when DAYTONA_API_KEY is missing", () => {
+    expect(daytonaProvider.isAvailable()).toBe(false);
+    expect(daytonaProvider.reasonUnavailable()).toMatch(/DAYTONA_API_KEY/);
+  });
+
+  test("isAvailable returns true when required vars are set", () => {
+    process.env.DAYTONA_API_KEY = "test-key";
+    process.env.DAYTONA_SERVER_URL = "https://daytona.example.com";
+    expect(daytonaProvider.isAvailable()).toBe(true);
+    expect(daytonaProvider.reasonUnavailable()).toBeUndefined();
+  });
+
+  test("is labeled as beta", () => {
+    expect(daytonaProvider.beta).toBe(true);
+    expect(daytonaProvider.label).toContain("Daytona");
+  });
+
+  test("capabilities are set correctly", () => {
+    expect(daytonaProvider.capabilities.persistent).toBe(true);
+    expect(daytonaProvider.capabilities.db).toBe(true);
+    expect(daytonaProvider.capabilities.envInjection).toBe(true);
+    expect(daytonaProvider.capabilities.credentialBrokering).toBe(true);
+  });
+});

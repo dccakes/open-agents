@@ -1,5 +1,6 @@
 // Register built-in providers (side-effect imports)
 import "./providers/vercel";
+import "./providers/daytona";
 
 // interface
 export type {
