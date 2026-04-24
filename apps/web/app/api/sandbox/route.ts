@@ -26,6 +26,7 @@ import {
   getSessionSandboxName,
   hasResumableSandboxState,
 } from "@/lib/sandbox/utils";
+import { getEnvResolver } from "@/lib/sandbox/env-resolver";
 import { getServerSession } from "@/lib/session/get-server-session";
 // import { buildDevelopmentDotenvFromVercelProject } from "@/lib/vercel/projects";
 // import { getUserVercelToken } from "@/lib/vercel/token";
@@ -169,6 +170,26 @@ export async function POST(req: Request) {
       }
     : undefined;
 
+  let resolvedEnv: Record<string, string> | undefined;
+  try {
+    const envResolver = getEnvResolver();
+    if (envResolver) {
+      resolvedEnv = await envResolver.resolve({
+        projectId: sessionRecord?.vercelProjectId ?? undefined,
+        environment: "production",
+      });
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("Failed to resolve sandbox environment variables:", error);
+    return Response.json(
+      {
+        error: `Failed to resolve sandbox environment variables. Verify SANDBOX_ENV_RESOLVER configuration and provider credentials. ${message}`,
+      },
+      { status: 500 },
+    );
+  }
+
   const sandbox = await connectSandbox({
     state: {
       type: "vercel",
@@ -184,6 +205,7 @@ export async function POST(req: Request) {
       persistent: !!sandboxName,
       resume: !!sandboxName,
       createIfMissing: !!sandboxName,
+      ...(resolvedEnv !== undefined ? { env: resolvedEnv } : {}),
     },
   });
 

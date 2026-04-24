@@ -21,10 +21,10 @@
 
 ## 4. Environment Variable Injection
 
-- [ ] 4.1 Define env resolver interface and backend selection via `SANDBOX_ENV_RESOLVER`.
-- [ ] 4.2 Implement Vercel resolver with environment scoping and denylist filtering.
-- [ ] 4.3 Implement Infisical resolver with configured token/project/environment lookup.
-- [ ] 4.4 Integrate resolver into session creation sandbox flow and hard-fail on resolver errors.
+- [x] 4.1 Define env resolver interface and backend selection via `SANDBOX_ENV_RESOLVER`.
+- [x] 4.2 Implement Vercel resolver with environment scoping and denylist filtering.
+- [x] 4.3 Implement Infisical resolver with configured token/project/environment lookup.
+- [x] 4.4 Integrate resolver into session creation sandbox flow and hard-fail on resolver errors.
 
 ## 5. Database Provisioning
 
