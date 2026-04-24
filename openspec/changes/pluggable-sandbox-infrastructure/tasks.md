@@ -36,11 +36,11 @@
 
 ## 6. Session API, Persistence, and UI
 
-- [ ] 6.1 Extend session creation API validation to accept provider selection and `provisionDb`.
-- [ ] 6.2 Persist provider identity in session runtime state and add only required teardown metadata fields.
-- [ ] 6.3 Generate and commit Drizzle migration for persistence changes using `bun run --cwd apps/web db:generate`.
-- [ ] 6.4 Update session creation UI with provider dropdown sourced from registry availability.
-- [ ] 6.5 Implement server-side fallback/unavailable-provider handling and capability-gated DB toggle behavior.
+- [x] 6.1 Extend session creation API validation to accept provider selection and `provisionDb`.
+- [x] 6.2 Persist provider identity in session runtime state and add only required teardown metadata fields.
+- [x] 6.3 Generate and commit Drizzle migration for persistence changes using `bun run --cwd apps/web db:generate`.
+- [x] 6.4 Update session creation UI with provider dropdown sourced from registry availability.
+- [x] 6.5 Implement server-side fallback/unavailable-provider handling and capability-gated DB toggle behavior.
 
 ## 7. Local Development Bootstrap
 

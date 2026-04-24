@@ -11,6 +11,7 @@ import {
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useGitHubConnectionStatus } from "@/hooks/use-github-connection-status";
+import { useSandboxProviders } from "@/hooks/use-sandbox-providers";
 import { useSession } from "@/hooks/use-session";
 import { useUserPreferences } from "@/hooks/use-user-preferences";
 import { useVercelRepoProjects } from "@/hooks/use-vercel-repo-projects";
@@ -36,6 +37,7 @@ interface SessionStarterProps {
     cloneUrl?: string;
     isNewBranch: boolean;
     sandboxType: SandboxType;
+    provisionDb: boolean;
     autoCommitPush: boolean;
     autoCreatePr: boolean;
     vercelProject?: VercelProjectSelection | null;
@@ -72,10 +74,21 @@ export function SessionStarter({
   const defaultAutoCreatePr = preferences?.autoCreatePr ?? false;
   const [autoCommitPush, setAutoCommitPush] = useState<boolean | null>(null);
   const [autoCreatePr, setAutoCreatePr] = useState<boolean | null>(null);
+  const [provisionDb, setProvisionDb] = useState(false);
   const [gitSettingsExpanded, setGitSettingsExpanded] = useState(false);
   const sandboxType = preferences?.defaultSandboxType ?? DEFAULT_SANDBOX_TYPE;
+  const { providers } = useSandboxProviders();
+  const selectedSandboxProvider = providers.find((p) => p.type === sandboxType);
   const sandboxName =
-    SANDBOX_OPTIONS.find((s) => s.id === sandboxType)?.name ?? sandboxType;
+    selectedSandboxProvider?.label ??
+    SANDBOX_OPTIONS.find((s) => s.id === sandboxType)?.name ??
+    sandboxType;
+  const sandboxUnavailableReason =
+    selectedSandboxProvider && !selectedSandboxProvider.available
+      ? selectedSandboxProvider.reasonUnavailable ??
+        "This provider is currently unavailable."
+      : null;
+  const canProvisionDb = selectedSandboxProvider?.capabilities.db ?? true;
 
   const shouldLoadVercelProjects =
     mode === "repo" &&
@@ -158,7 +171,8 @@ export function SessionStarter({
     (mode === "repo" && (githubConnectionLoading || reconnectRequired)) ||
     !isRepoSelectionComplete ||
     isVercelLookupPending ||
-    requiresVercelChoice;
+    requiresVercelChoice ||
+    sandboxUnavailableReason !== null;
   const effectiveAutoCommitPush = autoCommitPush ?? defaultAutoCommitPush;
   const effectiveAutoCreatePr = autoCreatePr ?? defaultAutoCreatePr;
   const showVercelProjectSection =
@@ -198,6 +212,7 @@ export function SessionStarter({
           : undefined,
       isNewBranch: mode === "repo" ? isNewBranch : false,
       sandboxType,
+      provisionDb: canProvisionDb ? provisionDb : false,
       autoCommitPush: effectiveAutoCommitPush,
       autoCreatePr: effectiveAutoCommitPush ? effectiveAutoCreatePr : false,
       vercelProject,
@@ -351,6 +366,26 @@ export function SessionStarter({
               )}
             </div>
           </div>
+        )}
+
+        {canProvisionDb && (
+          <div className="flex items-center justify-between gap-4 rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5 dark:border-white/10 dark:bg-white/[0.02]">
+            <div className="space-y-0.5">
+              <p className="text-sm font-medium">Provision database</p>
+              <p className="text-xs text-muted-foreground">
+                Inject a session-scoped <code>POSTGRES_URL</code>.
+              </p>
+            </div>
+            <Switch
+              checked={provisionDb}
+              onCheckedChange={setProvisionDb}
+              disabled={controlsDisabled}
+            />
+          </div>
+        )}
+
+        {sandboxUnavailableReason && (
+          <p className="text-sm text-amber-500">{sandboxUnavailableReason}</p>
         )}
 
         <button

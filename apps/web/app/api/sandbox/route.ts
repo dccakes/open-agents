@@ -1,5 +1,10 @@
 import { checkBotId } from "botid/server";
-import { connectSandbox, type SandboxState } from "@open-agents/sandbox";
+import {
+  connectSandbox,
+  defaultRegistry,
+  type SandboxProviderType,
+  type SandboxState,
+} from "@open-agents/sandbox";
 import {
   requireAuthenticatedUser,
   requireOwnedSession,
@@ -40,12 +45,23 @@ interface CreateSandboxRequest {
   branch?: string;
   isNewBranch?: boolean;
   sessionId?: string;
-  sandboxType?: "vercel";
+  sandboxType?: SandboxProviderType | "cloud";
+}
+
+function isValidRequestSandboxType(
+  type: unknown,
+): type is SandboxProviderType | "cloud" {
+  return (
+    type === "vercel" ||
+    type === "docker" ||
+    type === "daytona" ||
+    type === "cloud"
+  );
 }
 
 function toProviderType(
   type: unknown,
-): "vercel" | "docker" | "daytona" {
+): SandboxProviderType {
   if (type === "docker" || type === "daytona" || type === "vercel") {
     return type;
   }
@@ -61,28 +77,16 @@ function toProviderType(
 function extractDbTeardownMetadata(
   sessionRecord: SessionRecord,
 ): DbTeardownMetadata | null {
-  // TODO: Remove this cast once Section 6 adds `dbTeardownMetadata` to SessionRecord type.
-  const rawMetadata = (
-    sessionRecord as { dbTeardownMetadata?: unknown }
-  ).dbTeardownMetadata;
-  if (!rawMetadata || typeof rawMetadata !== "object") {
+  const rawMetadata = sessionRecord.dbTeardownMetadata;
+  if (!rawMetadata) {
     return null;
   }
 
-  const candidate = rawMetadata as Record<string, unknown>;
-  if (
-    (candidate.provider === "neon" ||
-      candidate.provider === "docker-postgres") &&
-    typeof candidate.identifier === "string" &&
-    candidate.identifier.length > 0
-  ) {
-    return {
-      provider: candidate.provider,
-      identifier: candidate.identifier,
-    };
+  if (!rawMetadata.identifier) {
+    return null;
   }
 
-  return null;
+  return rawMetadata;
 }
 
 // async function syncVercelProjectEnvVarsToSandbox(params: {
@@ -138,7 +142,10 @@ export async function POST(req: Request) {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  if (body.sandboxType && body.sandboxType !== "vercel") {
+  if (
+    body.sandboxType !== undefined &&
+    !isValidRequestSandboxType(body.sandboxType)
+  ) {
     return Response.json({ error: "Invalid sandbox type" }, { status: 400 });
   }
 
@@ -186,6 +193,22 @@ export async function POST(req: Request) {
     }
 
     sessionRecord = sessionContext.sessionRecord;
+  }
+
+  const requestedType = toProviderType(
+    body.sandboxType ?? sessionRecord?.sandboxState?.type,
+  );
+  const providerDef = defaultRegistry.get(requestedType);
+  if (!providerDef?.isAvailable()) {
+    const reason =
+      providerDef?.reasonUnavailable() ??
+      (providerDef
+        ? `Provider '${requestedType}' is currently unavailable`
+        : `Provider '${requestedType}' is not registered`);
+    return Response.json(
+      { error: `Sandbox provider unavailable: ${reason}` },
+      { status: 400 },
+    );
   }
 
   const sandboxName = sessionId ? getSessionSandboxName(sessionId) : undefined;
@@ -237,17 +260,10 @@ export async function POST(req: Request) {
   }
 
   let dbTeardownMetadata: DbTeardownMetadata | undefined;
-  const shouldProvisionDb =
-    (sessionRecord as { provisionDb?: unknown } | undefined)?.provisionDb ===
-    true;
-  const sessionProviderType = sessionRecord?.sandboxState?.type;
-  const providerType =
-    sessionProviderType === "docker" || sessionProviderType === "daytona"
-      ? sessionProviderType
-      : "vercel";
+  const shouldProvisionDb = sessionRecord?.provisionDb === true;
 
   if (shouldProvisionDb && sessionId) {
-    const provisioner = getDbProvisioner(providerType);
+    const provisioner = getDbProvisioner(requestedType);
     if (provisioner) {
       try {
         const dbResult = await provisioner.provision(sessionId);
@@ -267,21 +283,43 @@ export async function POST(req: Request) {
     }
   }
 
+  const requestedState: SandboxState =
+    requestedType === "vercel"
+      ? {
+          ...(sessionRecord?.sandboxState &&
+          (sessionRecord.sandboxState.type === "vercel" ||
+            sessionRecord.sandboxState.type === "cloud")
+            ? sessionRecord.sandboxState
+            : {}),
+          type: "vercel",
+          ...(sandboxName ? { sandboxName } : {}),
+          ...(source ? { source } : {}),
+        }
+      : requestedType === "docker"
+        ? {
+            ...(sessionRecord?.sandboxState?.type === "docker"
+              ? sessionRecord.sandboxState
+              : {}),
+            type: "docker",
+          }
+        : {
+            ...(sessionRecord?.sandboxState?.type === "daytona"
+              ? sessionRecord.sandboxState
+              : {}),
+            type: "daytona",
+          };
+
   const sandbox = await connectSandbox({
-    state: {
-      type: "vercel",
-      ...(sandboxName ? { sandboxName } : {}),
-      source,
-    },
+    state: requestedState,
     options: {
       githubToken: githubToken ?? undefined,
       gitUser,
       timeout: DEFAULT_SANDBOX_TIMEOUT_MS,
       ports: DEFAULT_SANDBOX_PORTS,
       baseSnapshotId: DEFAULT_SANDBOX_BASE_SNAPSHOT_ID,
-      persistent: !!sandboxName,
-      resume: !!sandboxName,
-      createIfMissing: !!sandboxName,
+      persistent: requestedType === "vercel" && !!sandboxName,
+      resume: requestedType === "vercel" && !!sandboxName,
+      createIfMissing: requestedType === "vercel" && !!sandboxName,
       ...(resolvedEnv !== undefined ? { env: resolvedEnv } : {}),
     },
   });
@@ -300,13 +338,9 @@ export async function POST(req: Request) {
 
     if (dbTeardownMetadata) {
       try {
-        // TODO: Remove this cast after Section 6 adds `dbTeardownMetadata` to the sessions schema.
-        await updateSession(
-          sessionId,
-          {
-            dbTeardownMetadata,
-          } as unknown as Parameters<typeof updateSession>[1],
-        );
+        await updateSession(sessionId, {
+          dbTeardownMetadata,
+        });
       } catch (error) {
         console.error(
           `Failed to persist DB teardown metadata for session ${sessionId}:`,
@@ -355,7 +389,7 @@ export async function POST(req: Request) {
     createdAt: Date.now(),
     timeout: DEFAULT_SANDBOX_TIMEOUT_MS,
     currentBranch: repoUrl ? branch : undefined,
-    mode: "vercel",
+    mode: requestedType,
     timing: { readyMs },
   });
 }

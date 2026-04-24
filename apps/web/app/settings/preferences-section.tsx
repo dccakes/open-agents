@@ -21,6 +21,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { ModelCombobox } from "@/components/model-combobox";
 import { useModelOptions } from "@/hooks/use-model-options";
+import { useSandboxProviders } from "@/hooks/use-sandbox-providers";
 import { useSession } from "@/hooks/use-session";
 import {
   type DiffMode,
@@ -36,7 +37,7 @@ import {
   withMissingModelOption,
 } from "@/lib/model-options";
 
-const SANDBOX_OPTIONS: Array<{ id: SandboxType; name: string }> = [
+const FALLBACK_SANDBOX_OPTIONS: Array<{ id: SandboxType; name: string }> = [
   { id: "vercel", name: "Vercel" },
 ];
 
@@ -190,6 +191,7 @@ function usePreferencesSectionState() {
   const { theme, setTheme } = useTheme();
   const { session } = useSession();
   const { preferences, loading, updatePreferences } = useUserPreferences();
+  const { availableProviders } = useSandboxProviders({ enabled: !!preferences });
   const { modelOptions, loading: modelOptionsLoading } = useModelOptions();
   const [isSaving, setIsSaving] = useState(false);
   const [globalSkillSource, setGlobalSkillSource] = useState("");
@@ -215,6 +217,16 @@ function usePreferencesSectionState() {
       withMissingModelOption(modelOptions, preferences?.defaultSubagentModelId),
     [modelOptions, preferences?.defaultSubagentModelId],
   );
+  const sandboxOptions = useMemo(() => {
+    if (availableProviders.length === 0) {
+      return FALLBACK_SANDBOX_OPTIONS;
+    }
+
+    return availableProviders.map((provider) => ({
+      id: provider.type,
+      name: provider.label,
+    }));
+  }, [availableProviders]);
 
   const handleThemeChange = (nextTheme: string) => {
     if (isThemePreference(nextTheme)) {
@@ -487,6 +499,7 @@ function usePreferencesSectionState() {
     handleAddModel,
     handleRemoveModel,
     handleSetEnabledModels,
+    sandboxOptions,
   };
 }
 
@@ -519,7 +532,14 @@ export function PreferencesSection() {
     handleCopyPublicProfileUrl,
     handleAddGlobalSkillRef,
     handleRemoveGlobalSkillRef,
+    sandboxOptions,
   } = state;
+  const selectedSandboxType = preferences?.defaultSandboxType ?? DEFAULT_SANDBOX_TYPE;
+  const sandboxSelectValue = sandboxOptions.some(
+    (option) => option.id === selectedSandboxType,
+  )
+    ? selectedSandboxType
+    : (sandboxOptions[0]?.id ?? DEFAULT_SANDBOX_TYPE);
 
   return (
     <div className="space-y-8">
@@ -551,7 +571,7 @@ export function PreferencesSection() {
             <div className="grid gap-2">
               <Label htmlFor="sandbox">Default Sandbox</Label>
               <Select
-                value={preferences?.defaultSandboxType ?? DEFAULT_SANDBOX_TYPE}
+                value={sandboxSelectValue}
                 onValueChange={(value) =>
                   handleSandboxChange(value as SandboxType)
                 }
@@ -561,7 +581,7 @@ export function PreferencesSection() {
                   <SelectValue placeholder="Select a sandbox type" />
                 </SelectTrigger>
                 <SelectContent>
-                  {SANDBOX_OPTIONS.map((option) => (
+                  {sandboxOptions.map((option) => (
                     <SelectItem key={option.id} value={option.id}>
                       {option.name}
                     </SelectItem>

@@ -60,6 +60,12 @@ const writeFileCalls: Array<{ path: string; content: string }> = [];
 const execCalls: Array<{ command: string; cwd: string; timeoutMs: number }> =
   [];
 const dotenvSyncCalls: Array<Record<string, unknown>> = [];
+const providerAvailability: Record<string, boolean> = {
+  vercel: true,
+  docker: true,
+  daytona: true,
+};
+const providerUnavailableReason: Record<string, string | undefined> = {};
 
 let sessionRecord: TestSessionRecord;
 let currentVercelAuthInfo: TestVercelAuthInfo | null;
@@ -122,6 +128,25 @@ mock.module("@/lib/sandbox/lifecycle-kick", () => ({
 }));
 
 mock.module("@open-agents/sandbox", () => ({
+  defaultRegistry: {
+    get: (type: string) => {
+      if (!(type in providerAvailability)) {
+        return undefined;
+      }
+
+      return {
+        type,
+        capabilities: {
+          persistent: type !== "docker",
+          db: true,
+          envInjection: true,
+          credentialBrokering: type !== "docker",
+        },
+        isAvailable: () => providerAvailability[type],
+        reasonUnavailable: () => providerUnavailableReason[type],
+      };
+    },
+  },
   connectSandbox: async (config: ConnectConfig) => {
     connectConfigs.push(config);
 
@@ -179,6 +204,12 @@ describe("/api/sandbox lifecycle kicks", () => {
     currentGitHubToken = null;
     currentDotenvContent = 'API_KEY="secret"\n';
     currentDotenvError = null;
+    providerAvailability.vercel = true;
+    providerAvailability.docker = true;
+    providerAvailability.daytona = true;
+    providerUnavailableReason.vercel = undefined;
+    providerUnavailableReason.docker = undefined;
+    providerUnavailableReason.daytona = undefined;
     sessionRecord = {
       id: "session-1",
       userId: "user-1",
@@ -379,5 +410,30 @@ describe("/api/sandbox lifecycle kicks", () => {
     expect(payload.error).toBe("Invalid sandbox type");
     expect(connectConfigs).toHaveLength(0);
     expect(kickCalls).toHaveLength(0);
+  });
+
+  test("returns actionable error when provider is unavailable", async () => {
+    const { POST } = await routeModulePromise;
+
+    providerAvailability.vercel = false;
+    providerUnavailableReason.vercel = "Vercel credentials are missing";
+
+    const response = await POST(
+      new Request("http://localhost/api/sandbox", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: "session-1",
+          sandboxType: "vercel",
+        }),
+      }),
+    );
+    const payload = (await response.json()) as { error: string };
+
+    expect(response.status).toBe(400);
+    expect(payload.error).toBe(
+      "Sandbox provider unavailable: Vercel credentials are missing",
+    );
+    expect(connectConfigs).toHaveLength(0);
   });
 });

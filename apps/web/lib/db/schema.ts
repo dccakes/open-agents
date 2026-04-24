@@ -1,5 +1,6 @@
 import type { SandboxState } from "@open-agents/sandbox";
 import type { ModelVariant } from "@/lib/model-variants";
+import type { DbTeardownMetadata } from "@/lib/sandbox/db-provisioner";
 import type { GlobalSkillRef } from "@/lib/skills/global-skill-refs";
 import {
   boolean,
@@ -157,8 +158,10 @@ export const sessions = pgTable(
       .$type<GlobalSkillRef[]>()
       .notNull()
       .default([]),
+    provisionDb: boolean("provision_db").notNull().default(false),
     // Unified sandbox state
     sandboxState: jsonb("sandbox_state").$type<SandboxState>(),
+    dbTeardownMetadata: jsonb("db_teardown_metadata").$type<DbTeardownMetadata>(),
     // Lifecycle orchestration state for sandbox management
     lifecycleState: text("lifecycle_state", {
       enum: [
@@ -345,7 +348,7 @@ export const userPreferences = pgTable("user_preferences", {
   ),
   defaultSubagentModelId: text("default_subagent_model_id"),
   defaultSandboxType: text("default_sandbox_type", {
-    enum: ["vercel"],
+    enum: ["vercel", "docker", "daytona"],
   }).default("vercel"),
   defaultDiffMode: text("default_diff_mode", {
     enum: ["unified", "split"],
