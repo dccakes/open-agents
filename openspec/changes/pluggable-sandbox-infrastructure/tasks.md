@@ -14,10 +14,10 @@
 
 ## 3. Docker Provider Runtime
 
-- [ ] 3.1 Create Docker provider module implementing the shared sandbox runtime contract.
-- [ ] 3.2 Implement Docker exec/file/close/preview behavior with localhost port mapping.
-- [ ] 3.3 Add Docker provider capability metadata (`persistent=false`, `db=true`, `envInjection=true`, `credentialBrokering=false`).
-- [ ] 3.4 Add actionable error handling for missing/unreachable Docker runtime dependencies.
+- [x] 3.1 Create Docker provider module implementing the shared sandbox runtime contract.
+- [x] 3.2 Implement Docker exec/file/close/preview behavior with localhost port mapping.
+- [x] 3.3 Add Docker provider capability metadata (`persistent=false`, `db=true`, `envInjection=true`, `credentialBrokering=false`).
+- [x] 3.4 Add actionable error handling for missing/unreachable Docker runtime dependencies.
 
 ## 4. Environment Variable Injection
 
