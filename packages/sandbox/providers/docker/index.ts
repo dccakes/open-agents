@@ -12,10 +12,16 @@ export const dockerProvider: SandboxProviderDef<DockerState> = {
     envInjection: true,
     credentialBrokering: false,
   },
-  isAvailable: () => true,
-  reasonUnavailable: () => undefined,
+  isAvailable: () => process.env.NODE_ENV === "development",
+  reasonUnavailable: () =>
+    process.env.NODE_ENV !== "development"
+      ? "Docker sandbox is only available in local development"
+      : undefined,
   create: (state, options) => DockerSandbox.create(state, options),
-  connect: (state, options) => DockerSandbox.connect(state, options),
+  connect: (state, options) =>
+    state.containerId
+      ? DockerSandbox.connect(state, options)
+      : DockerSandbox.create(state, options),
 };
 
 defaultRegistry.register(dockerProvider);

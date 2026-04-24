@@ -42,7 +42,10 @@ export const daytonaProvider: SandboxProviderDef<DaytonaState> = {
   isAvailable: isDaytonaAvailable,
   reasonUnavailable: getDaytonaUnavailableReason,
   create: (state, options) => DaytonaSandbox.create(state, options),
-  connect: (state, options) => DaytonaSandbox.connect(state, options),
+  connect: (state, options) =>
+    state.workspaceId
+      ? DaytonaSandbox.connect(state, options)
+      : DaytonaSandbox.create(state, options),
 };
 
 defaultRegistry.register(daytonaProvider);
