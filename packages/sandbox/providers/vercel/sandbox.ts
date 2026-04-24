@@ -6,8 +6,8 @@ import type {
   SandboxHooks,
   SandboxStats,
   SnapshotResult,
-} from "../interface";
-import type { SandboxStatus } from "../types";
+} from "../../interface";
+import type { SandboxStatus } from "../../types";
 import type { VercelSandboxConfig, VercelSandboxConnectConfig } from "./config";
 import type { VercelState } from "./state";
 

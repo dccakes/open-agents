@@ -1,11 +1,11 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import type { Sandbox } from "../interface";
-import type { SandboxProviderDef } from "../provider";
-import { defaultRegistry } from "../registry";
+import type { Sandbox } from "../../interface";
+import type { SandboxProviderDef } from "../../provider";
+import { defaultRegistry } from "../../registry";
 
 const connectVercelMock = mock(async () => ({ type: "vercel" }) as Sandbox);
 
-mock.module("../vercel/connect", () => ({
+mock.module("./connect", () => ({
   connectVercel: connectVercelMock,
 }));
 
@@ -18,7 +18,7 @@ function clearDefaultRegistry(): void {
 
 beforeAll(async () => {
   clearDefaultRegistry();
-  await import("../providers/vercel");
+  await import(".");
 });
 
 beforeEach(() => {

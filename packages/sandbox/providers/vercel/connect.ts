@@ -1,4 +1,4 @@
-import type { Sandbox, SandboxHooks } from "../interface";
+import type { Sandbox, SandboxHooks } from "../../interface";
 import type { VercelSandboxConfig } from "./config";
 import { VercelSandbox } from "./sandbox";
 import type { VercelState } from "./state";

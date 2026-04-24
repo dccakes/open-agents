@@ -12,7 +12,7 @@
 import {
   DEFAULT_BASE_SNAPSHOT_COMMAND_TIMEOUT_MS,
   refreshBaseSnapshot,
-} from "../packages/sandbox/vercel/index.ts";
+} from "../packages/sandbox/providers/vercel/index.ts";
 import {
   DEFAULT_SANDBOX_BASE_SNAPSHOT_ID,
   DEFAULT_SANDBOX_PORTS,

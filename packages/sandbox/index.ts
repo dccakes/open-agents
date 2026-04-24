@@ -40,4 +40,4 @@ export {
   type VercelSandboxConfig,
   type VercelSandboxConnectConfig,
   type VercelState,
-} from "./vercel";
+} from "./providers/vercel";

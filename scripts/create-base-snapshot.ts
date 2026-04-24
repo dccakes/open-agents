@@ -7,7 +7,7 @@
  *   VERCEL_ACCESS_TOKEN=... VERCEL_TEAM_ID=... bun run scripts/create-base-snapshot.ts
  */
 
-import { VercelSandbox } from "../packages/sandbox/vercel/sandbox.ts";
+import { VercelSandbox } from "../packages/sandbox/providers/vercel/sandbox.ts";
 import { DEFAULT_SANDBOX_PORTS } from "../apps/web/lib/sandbox/config.ts";
 
 const BIN = "/vercel/sandbox/bin";

@@ -3,7 +3,7 @@ import type { DaytonaState } from "./providers/daytona/state";
 import { defaultRegistry } from "./registry";
 import type { Sandbox, SandboxHooks } from "./interface";
 import type { SandboxStatus } from "./types";
-import type { VercelState } from "./vercel/state";
+import type { VercelState } from "./providers/vercel/state";
 
 // Re-export SandboxStatus from types for convenience
 export type { SandboxStatus };
