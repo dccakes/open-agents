@@ -14,7 +14,9 @@ This directory contains the provider implementations for the pluggable sandbox s
 
 ## Required Sandbox Capabilities
 
-All sandbox images/environments **must** provide the following tools on `PATH`. The platform code calls these via `sandbox.exec()` — missing tools will cause 500 errors or silent failures.
+All sandbox images/environments **must** provide the following tools on `PATH`. The platform calls these via `sandbox.exec()` — missing tools cause 500 errors or silent failures.
+
+The canonical reference is `scripts/create-base-snapshot.ts`, which builds the Vercel base snapshot. The Docker `Dockerfile` mirrors that tool set.
 
 ### Mandatory
 
@@ -32,8 +34,11 @@ All sandbox images/environments **must** provide the following tools on `PATH`. 
 | `mkdir` | `sandbox.mkdir()` |
 | `test` | `sandbox.access()` — path existence checks |
 | `nohup` | `sandbox.execDetached()` — background process launch |
+| `jq` | JSON manipulation in agent shell commands |
 | `bun` | Agent tooling, dev-server startup, script execution |
+| `bunx` | Running bun-installed CLIs (e.g. `bunx agent-browser`) |
 | `code-server` | In-browser VS Code editor (`/api/sessions/[id]/code-editor`) |
+| `agent-browser` | Browser automation for agent UI validation (Playwright-based) |
 
 ### Optional (graceful degradation)
 
@@ -55,6 +60,8 @@ All sandbox images/environments **must** provide the following tools on `PATH`. 
 docker build -t open-agents/sandbox-dev:latest packages/sandbox/providers/docker/
 ```
 
+> The image includes Chromium (via `agent-browser install chromium`) and code-server, so the build takes several minutes and produces a ~2 GB image.
+
 ### Configuring the image
 
 Set `DOCKER_SANDBOX_IMAGE` in `apps/web/.env.local`:
@@ -64,6 +71,13 @@ DOCKER_SANDBOX_IMAGE=open-agents/sandbox-dev:latest
 ```
 
 If unset, the provider falls back to `ghcr.io/open-agents/sandbox:latest` (the production image, which is private).
+
+### Keeping in sync with the Vercel snapshot
+
+When `scripts/create-base-snapshot.ts` adds or updates a tool, mirror that change in the `Dockerfile`. The two sources of truth are:
+
+- **Vercel base snapshot**: `scripts/create-base-snapshot.ts`
+- **Docker dev image**: `packages/sandbox/providers/docker/Dockerfile`
 
 ### Notes
 
@@ -81,6 +95,7 @@ Uses [Vercel Sandbox](https://vercel.com/docs/sandbox) (Firecracker microVMs). R
 - Sandboxes auto-expire; `expiresAt` is authoritative.
 - Persistent sandboxes are identified by `sandboxName` (session-scoped).
 - Lifecycle hibernation is handled by the durable workflow in `apps/web/app/workflows/`.
+- Base snapshot is configured via `VERCEL_SANDBOX_BASE_SNAPSHOT_ID`. See `apps/web/lib/sandbox/config.ts` for the current default. To rebuild the snapshot, run `scripts/create-base-snapshot.ts`.
 
 ---
 
