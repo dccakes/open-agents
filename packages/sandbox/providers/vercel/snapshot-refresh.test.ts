@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
-import type { SandboxConnectConfig } from "../factory";
-import type { ExecResult } from "../interface";
+import type { SandboxConnectConfig } from "../../factory";
+import type { ExecResult } from "../../interface";
 import {
   DEFAULT_BASE_SNAPSHOT_COMMAND_TIMEOUT_MS,
   refreshBaseSnapshot,

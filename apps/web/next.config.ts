@@ -3,6 +3,7 @@ import { withBotId } from "botid/next/config";
 import { withWorkflow } from "workflow/next";
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ["dockerode"],
   images: {
     remotePatterns: [
       {

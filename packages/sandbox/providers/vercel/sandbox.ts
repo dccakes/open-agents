@@ -6,8 +6,8 @@ import type {
   SandboxHooks,
   SandboxStats,
   SnapshotResult,
-} from "../interface";
-import type { SandboxStatus } from "../types";
+} from "../../interface";
+import type { SandboxStatus } from "../../types";
 import type { VercelSandboxConfig, VercelSandboxConnectConfig } from "./config";
 import type { VercelState } from "./state";
 
@@ -169,7 +169,7 @@ function getRemainingTimeoutFromSession(
  * Runs code in isolated Firecracker MicroVMs.
  */
 export class VercelSandbox implements Sandbox {
-  readonly type = "cloud" as const;
+  readonly type = "vercel" as const;
   /** Durable persistent sandbox name. */
   readonly name: string;
   /** Current runtime session identifier. */
@@ -600,10 +600,19 @@ ${hostLine}${portLines}${runtimeEnvLine}`;
         s.replace(/x-access-token:[^@]+@/g, "x-access-token:***@");
 
       const gitSteps: Array<{ label: string; script: string }> = [
-        { label: "git-init",     script: "git init 2>&1" },
-        { label: "git-remote",   script: `git remote add origin ${JSON.stringify(cloneUrl)} 2>&1` },
-        { label: "git-fetch",    script: `GIT_TERMINAL_PROMPT=0 git fetch --depth=1 origin ${JSON.stringify(branch)} 2>&1` },
-        { label: "git-checkout", script: `git checkout -b ${JSON.stringify(branch)} ${JSON.stringify(`origin/${branch}`)} 2>&1` },
+        { label: "git-init", script: "git init 2>&1" },
+        {
+          label: "git-remote",
+          script: `git remote add origin ${JSON.stringify(cloneUrl)} 2>&1`,
+        },
+        {
+          label: "git-fetch",
+          script: `GIT_TERMINAL_PROMPT=0 git fetch --depth=1 origin ${JSON.stringify(branch)} 2>&1`,
+        },
+        {
+          label: "git-checkout",
+          script: `git checkout -b ${JSON.stringify(branch)} ${JSON.stringify(`origin/${branch}`)} 2>&1`,
+        },
       ];
 
       for (const step of gitSteps) {

@@ -1,3 +1,8 @@
+// Register built-in providers (side-effect imports)
+import "./providers/vercel";
+import "./providers/daytona";
+import "./providers/docker";
+
 // interface
 export type {
   ExecResult,
@@ -11,6 +16,15 @@ export type {
 
 // shared types
 export type { Source, FileEntry, SandboxStatus } from "./types";
+
+// providers
+export type {
+  SandboxProviderType,
+  SandboxCapabilities,
+  SandboxConfigField,
+  SandboxProviderDef,
+} from "./provider";
+export { SandboxRegistry, defaultRegistry } from "./registry";
 
 // factory
 export {
@@ -27,4 +41,4 @@ export {
   type VercelSandboxConfig,
   type VercelSandboxConnectConfig,
   type VercelState,
-} from "./vercel";
+} from "./providers/vercel";

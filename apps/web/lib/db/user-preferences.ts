@@ -1,5 +1,7 @@
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
+// TODO(architecture-review): Move SandboxType to a non-UI shared/domain module
+// to avoid data-layer dependency on a component path.
 import type { SandboxType } from "@/components/sandbox-selector-compact";
 import { modelVariantsSchema, type ModelVariant } from "@/lib/model-variants";
 import { APP_DEFAULT_MODEL_ID } from "@/lib/models";
@@ -42,7 +44,7 @@ const DEFAULT_PREFERENCES: UserPreferencesData = {
   enabledModelIds: [],
 };
 
-const VALID_SANDBOX_TYPES: SandboxType[] = ["vercel"];
+const VALID_SANDBOX_TYPES: SandboxType[] = ["vercel", "docker", "daytona"];
 const VALID_DIFF_MODES: DiffMode[] = ["unified", "split"];
 
 function normalizeSandboxType(value: unknown): SandboxType {

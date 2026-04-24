@@ -70,6 +70,27 @@ describe("toUserPreferencesData", () => {
     expect(result.defaultDiffMode).toBe("unified");
   });
 
+  test("keeps supported non-vercel sandbox types", async () => {
+    const { toUserPreferencesData } = await userPreferencesModulePromise;
+
+    const result = toUserPreferencesData({
+      defaultModelId: "openai/gpt-5",
+      defaultSubagentModelId: null,
+      defaultSandboxType: "daytona" as never,
+      defaultDiffMode: "unified",
+      autoCommitPush: false,
+      autoCreatePr: false,
+      alertsEnabled: true,
+      alertSoundEnabled: true,
+      publicUsageEnabled: false,
+      globalSkillRefs: [],
+      modelVariants: [],
+      enabledModelIds: [],
+    });
+
+    expect(result.defaultSandboxType).toBe("daytona");
+  });
+
   test("drops invalid globalSkillRefs payloads", async () => {
     const { toUserPreferencesData } = await userPreferencesModulePromise;
 

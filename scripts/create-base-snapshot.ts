@@ -7,7 +7,7 @@
  *   VERCEL_ACCESS_TOKEN=... VERCEL_TEAM_ID=... bun run scripts/create-base-snapshot.ts
  */
 
-import { VercelSandbox } from "../packages/sandbox/vercel/sandbox.ts";
+import { VercelSandbox } from "../packages/sandbox/providers/vercel/sandbox.ts";
 import { DEFAULT_SANDBOX_PORTS } from "../apps/web/lib/sandbox/config.ts";
 
 const BIN = "/vercel/sandbox/bin";
@@ -46,7 +46,10 @@ async function main() {
       cmd: "curl -fsSL https://code-server.dev/install.sh | sh -s -- --method standalone --prefix $HOME/.local",
       timeoutMs: 10 * 60 * 1000,
     },
-    { label: "verify code-server", cmd: "$HOME/.local/bin/code-server --version" },
+    {
+      label: "verify code-server",
+      cmd: "$HOME/.local/bin/code-server --version",
+    },
 
     // agent-browser + chromium (browser automation for UI testing)
     {
@@ -59,7 +62,10 @@ async function main() {
       cmd: "$HOME/.bun/bin/bunx agent-browser install chromium",
       timeoutMs: 10 * 60 * 1000,
     },
-    { label: "verify agent-browser", cmd: "$HOME/.bun/bin/agent-browser --version" },
+    {
+      label: "verify agent-browser",
+      cmd: "$HOME/.bun/bin/agent-browser --version",
+    },
 
     // Add all tools to PATH permanently
     {
@@ -76,7 +82,11 @@ async function main() {
 
   for (const { label, cmd, timeoutMs } of commands) {
     console.log(`\n[${label}]`);
-    const result = await sandbox.exec(cmd, "/vercel/sandbox", timeoutMs ?? TIMEOUT_MS);
+    const result = await sandbox.exec(
+      cmd,
+      "/vercel/sandbox",
+      timeoutMs ?? TIMEOUT_MS,
+    );
     if (result.stdout.trim()) console.log(result.stdout.trim());
     if (!result.success) {
       console.error(`FAILED (exit ${result.exitCode})`);
@@ -92,7 +102,9 @@ async function main() {
   console.log(`\nNew snapshot id: ${snapshotId}`);
   console.log(`\n1. Set in Vercel env vars (Production + Preview):`);
   console.log(`   VERCEL_SANDBOX_BASE_SNAPSHOT_ID=${snapshotId}`);
-  console.log(`\n2. Update apps/web/lib/sandbox/config.ts fallback to: "${snapshotId}"`);
+  console.log(
+    `\n2. Update apps/web/lib/sandbox/config.ts fallback to: "${snapshotId}"`,
+  );
 }
 
 main().catch((error) => {

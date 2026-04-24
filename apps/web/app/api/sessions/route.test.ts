@@ -22,6 +22,11 @@ let currentVercelToken: string | null = "vercel-token";
 let matchingProjects: VercelProjectSelection[] = [];
 const createCalls: Array<Record<string, unknown>> = [];
 const upsertCalls: Array<Record<string, unknown>> = [];
+const providerAvailability: Record<string, boolean> = {
+  vercel: true,
+  docker: true,
+  daytona: true,
+};
 
 mock.module("@/lib/session/get-server-session", () => ({
   getServerSession: async () => currentSession,
@@ -64,6 +69,9 @@ mock.module("@/lib/vercel/projects", () => ({
 }));
 
 mock.module("@/lib/db/sessions", () => ({
+  getSessionById: async () => null,
+  getChatById: async () => null,
+  updateSession: async () => null,
   countSessionsByUserId: async () => existingSessionCount,
   createSessionWithInitialChat: async (input: {
     session: Record<string, unknown>;
@@ -89,6 +97,32 @@ mock.module("@/lib/db/sessions", () => ({
   getArchivedSessionCountByUserId: async () => 0,
   getSessionsWithUnreadByUserId: async () => [],
   getUsedSessionTitles: async () => new Set<string>(),
+  getChatsBySessionId: async () => [],
+}));
+
+mock.module("@open-agents/sandbox", () => ({
+  connectSandbox: async () => ({
+    stop: async () => {},
+  }),
+  defaultRegistry: {
+    get: (type: string) => {
+      if (!(type in providerAvailability)) {
+        return undefined;
+      }
+
+      return {
+        type,
+        capabilities: {
+          persistent: type !== "docker",
+          db: true,
+          envInjection: true,
+          credentialBrokering: type !== "docker",
+        },
+        isAvailable: () => providerAvailability[type],
+        reasonUnavailable: () => undefined,
+      };
+    },
+  },
 }));
 
 const routeModulePromise = import("./route");
@@ -119,6 +153,9 @@ describe("/api/sessions POST vercel project linking", () => {
     matchingProjects = [];
     createCalls.length = 0;
     upsertCalls.length = 0;
+    providerAvailability.vercel = true;
+    providerAvailability.docker = true;
+    providerAvailability.daytona = true;
   });
 
   test("blocks additional sessions for non-Vercel trial users on the managed deployment", async () => {

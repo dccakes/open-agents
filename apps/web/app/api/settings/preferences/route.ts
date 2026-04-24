@@ -1,4 +1,5 @@
 import { getServerSession } from "@/lib/session/get-server-session";
+import type { SandboxProviderType } from "@open-agents/sandbox";
 import {
   getUserPreferences,
   type DiffMode,
@@ -53,10 +54,10 @@ export async function PATCH(req: Request) {
   }
 
   if (body.defaultSandboxType !== undefined) {
-    const validTypes = ["vercel"];
+    const validTypes: SandboxProviderType[] = ["vercel", "docker", "daytona"];
     if (
       typeof body.defaultSandboxType !== "string" ||
-      !validTypes.includes(body.defaultSandboxType)
+      !validTypes.includes(body.defaultSandboxType as SandboxProviderType)
     ) {
       return Response.json({ error: "Invalid sandbox type" }, { status: 400 });
     }

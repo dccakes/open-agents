@@ -19,6 +19,7 @@ type CreateSessionInput = {
   cloneUrl?: string;
   isNewBranch: boolean;
   sandboxType: SandboxType;
+  provisionDb: boolean;
   autoCommitPush: boolean;
   autoCreatePr: boolean;
   vercelProject?: VercelProjectSelection | null;

@@ -1,5 +1,5 @@
-import { connectSandbox, type SandboxConnectConfig } from "../factory";
-import type { ExecResult, SnapshotResult } from "../interface";
+import { connectSandbox, type SandboxConnectConfig } from "../../factory";
+import type { ExecResult, SnapshotResult } from "../../interface";
 
 export const DEFAULT_BASE_SNAPSHOT_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
 

@@ -3,7 +3,7 @@ import type { Dirent } from "fs";
 /**
  * The type of sandbox environment.
  */
-export type SandboxType = "cloud";
+export type SandboxType = "vercel" | "docker" | "daytona";
 
 /**
  * Result of a successful snapshot operation.
@@ -77,8 +77,7 @@ export interface ExecResult {
  */
 export interface Sandbox {
   /**
-   * Identifier for the sandbox implementation type.
-   * Used to conditionally adjust agent behavior.
+   * Provider type for this sandbox.
    */
   readonly type: SandboxType;
 

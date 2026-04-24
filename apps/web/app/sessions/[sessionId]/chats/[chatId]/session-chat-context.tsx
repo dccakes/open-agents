@@ -41,7 +41,7 @@ import {
   useSessionChatRuntime,
 } from "./hooks/use-session-chat-runtime";
 
-const KNOWN_SANDBOX_TYPES = ["vercel"] as const;
+const KNOWN_SANDBOX_TYPES = ["vercel", "docker", "daytona"] as const;
 type KnownSandboxType = (typeof KNOWN_SANDBOX_TYPES)[number];
 
 function asKnownSandboxType(value: unknown): KnownSandboxType | null {
