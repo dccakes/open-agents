@@ -1,3 +1,6 @@
+// Register built-in providers (side-effect imports)
+import "./providers/vercel";
+
 // interface
 export type {
   ExecResult,
@@ -11,6 +14,14 @@ export type {
 
 // shared types
 export type { Source, FileEntry, SandboxStatus } from "./types";
+
+// providers
+export type {
+  SandboxProviderType,
+  SandboxCapabilities,
+  SandboxProviderDef,
+} from "./provider";
+export { SandboxRegistry, defaultRegistry } from "./registry";
 
 // factory
 export {

@@ -1,9 +1,9 @@
 ## 1. Provider Registry Foundation
 
-- [ ] 1.1 Expand provider typing/capability metadata and add backward-compatible `cloud` -> `vercel` mapping.
-- [ ] 1.2 Implement registry with provider registration, discovery, availability checks, and typed create/connect dispatch.
-- [ ] 1.3 Refactor sandbox entrypoints to use registry dispatch instead of provider-specific branching.
-- [ ] 1.4 Register existing Vercel provider under `vercel` and validate legacy reconnect behavior for sessions persisted as `cloud`.
+- [x] 1.1 Expand provider typing/capability metadata and add backward-compatible `cloud` -> `vercel` mapping.
+- [x] 1.2 Implement registry with provider registration, discovery, availability checks, and typed create/connect dispatch.
+- [x] 1.3 Refactor sandbox entrypoints to use registry dispatch instead of provider-specific branching.
+- [x] 1.4 Register existing Vercel provider under `vercel` and validate legacy reconnect behavior for sessions persisted as `cloud`.
 
 ## 2. Daytona Beta Provider
 

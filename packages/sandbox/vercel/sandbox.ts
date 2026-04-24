@@ -169,7 +169,7 @@ function getRemainingTimeoutFromSession(
  * Runs code in isolated Firecracker MicroVMs.
  */
 export class VercelSandbox implements Sandbox {
-  readonly type = "cloud" as const;
+  readonly type = "vercel" as const;
   /** Durable persistent sandbox name. */
   readonly name: string;
   /** Current runtime session identifier. */
