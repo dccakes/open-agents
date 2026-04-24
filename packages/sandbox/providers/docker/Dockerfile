@@ -12,6 +12,13 @@ RUN apt-get update && apt-get install -y \
     procps \
     && rm -rf /var/lib/apt/lists/*
 
+# bun — used by agent tools and dev-server detection
+COPY --from=oven/bun:1 /usr/local/bin/bun /usr/local/bin/bun
+
+# code-server — required for the in-browser VS Code editor (/code-editor route)
+RUN curl -fsSL https://code-server.dev/install.sh | sh \
+    && rm -rf /tmp/code-server-install*
+
 RUN mkdir -p /workspace
 WORKDIR /workspace
 
