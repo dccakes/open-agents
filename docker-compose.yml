@@ -17,7 +17,12 @@ services:
       timeout: 5s
       retries: 5
 
-  # Daytona server for local Daytona-provider testing only.
+  # Self-hosted Daytona server for local Daytona-provider testing.
+  # Only needed if you want to test the Daytona provider without a cloud account.
+  # For cloud Daytona, skip this service and set env vars in .env.local directly:
+  #   DAYTONA_SERVER_URL=<your-daytona-cloud-api-url>
+  #   DAYTONA_API_KEY=<your-daytona-cloud-api-key>
+  #   DAYTONA_BETA_ENABLED=true
   daytona:
     image: daytonaio/daytona-server:latest
     profiles:

@@ -8,7 +8,7 @@ This directory contains the provider implementations for the pluggable sandbox s
 |---|---|---|
 | `vercel` | Production / Preview | Uses Vercel Sandbox (Firecracker microVMs). Default for deployed environments. |
 | `docker` | Local development only | Uses Docker containers via dockerode. Gated to `NODE_ENV=development`. |
-| `daytona` | Local development only | Uses a self-hosted Daytona server. Requires `DAYTONA_*` env vars. |
+| `daytona` | Local or cloud (beta) | Works with any Daytona instance — self-hosted or cloud. Requires `DAYTONA_*` env vars and `DAYTONA_BETA_ENABLED=true`. |
 
 ---
 
@@ -101,12 +101,36 @@ Uses [Vercel Sandbox](https://vercel.com/docs/sandbox) (Firecracker microVMs). R
 
 ## Daytona Provider
 
-Uses a self-hosted [Daytona](https://daytona.io/) server. For local testing only.
+Uses any [Daytona](https://daytona.io/) instance — cloud-hosted or self-hosted. The provider is beta-gated and requires three env vars:
 
-Start the server via the included Compose profile:
+```
+DAYTONA_SERVER_URL=<your-daytona-instance-url>
+DAYTONA_API_KEY=<your-daytona-api-key>
+DAYTONA_BETA_ENABLED=true
+```
+
+### Cloud Daytona
+
+Sign up at [app.daytona.io](https://app.daytona.io), create an API key from your account settings, and set the env vars in `apps/web/.env.local` (local) or your Vercel project settings (production/preview):
+
+```
+DAYTONA_SERVER_URL=<api-url-from-daytona-dashboard>
+DAYTONA_API_KEY=<api-key-from-daytona-dashboard>
+DAYTONA_BETA_ENABLED=true
+```
+
+### Self-hosted Daytona (local)
+
+Start the bundled Daytona server via the included Compose profile:
 
 ```bash
 docker compose --profile daytona up -d
 ```
 
-Required env vars: `DAYTONA_SERVER_API_URL`, `DAYTONA_SERVER_API_KEY`.
+Then add to `apps/web/.env.local`:
+
+```
+DAYTONA_SERVER_URL=http://localhost:3986
+DAYTONA_API_KEY=local-dev-key
+DAYTONA_BETA_ENABLED=true
+```
