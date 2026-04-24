@@ -59,9 +59,7 @@ function isValidRequestSandboxType(
   );
 }
 
-function toProviderType(
-  type: unknown,
-): SandboxProviderType {
+function toProviderType(type: unknown): SandboxProviderType {
   if (type === "docker" || type === "daytona" || type === "vercel") {
     return type;
   }
@@ -162,21 +160,12 @@ export async function POST(req: Request) {
     return Response.json({ error: "Access denied" }, { status: 403 });
   }
 
-  const githubToken = await getUserGitHubToken(session.user.id);
-
   if (repoUrl) {
     const parsedRepo = parseGitHubUrl(repoUrl);
     if (!parsedRepo) {
       return Response.json(
         { error: "Invalid GitHub repository URL" },
         { status: 400 },
-      );
-    }
-
-    if (!githubToken) {
-      return Response.json(
-        { error: "Connect GitHub to access repositories" },
-        { status: 403 },
       );
     }
   }
@@ -198,6 +187,25 @@ export async function POST(req: Request) {
   const requestedType = toProviderType(
     body.sandboxType ?? sessionRecord?.sandboxState?.type,
   );
+  const githubToken = await getUserGitHubToken(session.user.id);
+
+  if (repoUrl && requestedType !== "vercel") {
+    return Response.json(
+      {
+        error:
+          "Repository bootstrap is currently only supported for the vercel sandbox provider for secure auth reasons. Set sandboxType to 'vercel' or omit repoUrl.",
+      },
+      { status: 400 },
+    );
+  }
+
+  if (repoUrl && !githubToken) {
+    return Response.json(
+      { error: "Connect GitHub to access repositories" },
+      { status: 403 },
+    );
+  }
+
   const providerDef = defaultRegistry.get(requestedType);
   if (!providerDef?.isAvailable()) {
     const reason =
@@ -268,13 +276,16 @@ export async function POST(req: Request) {
       try {
         const dbResult = await provisioner.provision(sessionId);
         resolvedEnv = {
-          ...(resolvedEnv ?? {}),
+          ...resolvedEnv,
           POSTGRES_URL: dbResult.postgresUrl,
         };
         dbTeardownMetadata = dbResult.teardownMetadata;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        console.error(`DB provisioning failed for session ${sessionId}:`, error);
+        console.error(
+          `DB provisioning failed for session ${sessionId}:`,
+          error,
+        );
         return Response.json(
           { error: `Database provisioning failed: ${message}` },
           { status: 500 },
@@ -312,7 +323,7 @@ export async function POST(req: Request) {
   const sandbox = await connectSandbox({
     state: requestedState,
     options: {
-      githubToken: githubToken ?? undefined,
+      ...(requestedType === "vercel" && githubToken ? { githubToken } : {}),
       gitUser,
       timeout: DEFAULT_SANDBOX_TIMEOUT_MS,
       ports: DEFAULT_SANDBOX_PORTS,

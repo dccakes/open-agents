@@ -3,7 +3,10 @@ import type { Sandbox } from "./interface";
 import type { SandboxProviderDef } from "./provider";
 import { SandboxRegistry } from "./registry";
 
-function makeDef(type: "vercel" | "docker" | "daytona", available = true): SandboxProviderDef {
+function makeDef(
+  type: "vercel" | "docker" | "daytona",
+  available = true,
+): SandboxProviderDef {
   return {
     type,
     label: type,
@@ -15,8 +18,8 @@ function makeDef(type: "vercel" | "docker" | "daytona", available = true): Sandb
     },
     isAvailable: () => available,
     reasonUnavailable: () => (available ? undefined : `${type} not configured`),
-    create: async () => ({ type } as unknown as Sandbox),
-    connect: async () => ({ type } as unknown as Sandbox),
+    create: async () => ({ type }) as unknown as Sandbox,
+    connect: async () => ({ type }) as unknown as Sandbox,
   };
 }
 
@@ -57,9 +60,9 @@ describe("SandboxRegistry", () => {
 
   test("create throws for unknown provider type", async () => {
     const reg = new SandboxRegistry();
-    await expect(reg.create("docker" as "vercel", { type: "docker" })).rejects.toThrow(
-      "Unknown sandbox provider: docker",
-    );
+    await expect(
+      reg.create("docker" as "vercel", { type: "docker" }),
+    ).rejects.toThrow("Unknown sandbox provider: docker");
   });
 
   test("connect dispatches through registered provider using state.type", async () => {

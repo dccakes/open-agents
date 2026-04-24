@@ -191,7 +191,9 @@ function usePreferencesSectionState() {
   const { theme, setTheme } = useTheme();
   const { session } = useSession();
   const { preferences, loading, updatePreferences } = useUserPreferences();
-  const { availableProviders } = useSandboxProviders({ enabled: !!preferences });
+  const { availableProviders } = useSandboxProviders({
+    enabled: !!preferences,
+  });
   const { modelOptions, loading: modelOptionsLoading } = useModelOptions();
   const [isSaving, setIsSaving] = useState(false);
   const [globalSkillSource, setGlobalSkillSource] = useState("");
@@ -534,7 +536,8 @@ export function PreferencesSection() {
     handleRemoveGlobalSkillRef,
     sandboxOptions,
   } = state;
-  const selectedSandboxType = preferences?.defaultSandboxType ?? DEFAULT_SANDBOX_TYPE;
+  const selectedSandboxType =
+    preferences?.defaultSandboxType ?? DEFAULT_SANDBOX_TYPE;
   const sandboxSelectValue = sandboxOptions.some(
     (option) => option.id === selectedSandboxType,
   )

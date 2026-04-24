@@ -65,7 +65,9 @@ describe("DockerPostgresProvisioner", () => {
     const stop = mock(async () => {
       throw new Error("already stopped");
     });
-    const remove = mock(async (_options?: { force?: boolean; v?: boolean }) => {});
+    const remove = mock(
+      async (_options?: { force?: boolean; v?: boolean }) => {},
+    );
     const container = {
       ...createMockContainer(),
       stop,

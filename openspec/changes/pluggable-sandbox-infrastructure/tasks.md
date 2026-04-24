@@ -51,8 +51,8 @@
 
 ## 8. Security and Hardening
 
-- [ ] 8.1 Implement credential-brokering or ephemeral auth paths that avoid persisting credential-bearing git remotes.
-- [ ] 8.2 Add secret-redaction tests for provider logs and failure paths.
-- [ ] 8.3 Add provider availability/fallback integration tests and unknown-provider handling tests.
-- [ ] 8.4 Add migration and backward-compatibility tests for legacy `cloud` sessions.
-- [ ] 8.5 Run and pass required repository checks with `bun run ci`.
+- [x] 8.1 Implement credential-brokering or ephemeral auth paths that avoid persisting credential-bearing git remotes.
+- [x] 8.2 Add secret-redaction tests for provider logs and failure paths.
+- [x] 8.3 Add provider availability/fallback integration tests and unknown-provider handling tests.
+- [x] 8.4 Add migration and backward-compatibility tests for legacy `cloud` sessions.
+- [x] 8.5 Run and pass required repository checks with `bun run ci`.

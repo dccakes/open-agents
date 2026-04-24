@@ -30,6 +30,8 @@ describe("getEnvResolver", () => {
   test("throws for unknown SANDBOX_ENV_RESOLVER value", async () => {
     process.env.SANDBOX_ENV_RESOLVER = "unknown-backend";
     const { getEnvResolver } = await import("./env-resolver");
-    expect(() => getEnvResolver()).toThrow("Unknown SANDBOX_ENV_RESOLVER: unknown-backend");
+    expect(() => getEnvResolver()).toThrow(
+      "Unknown SANDBOX_ENV_RESOLVER: unknown-backend",
+    );
   });
 });

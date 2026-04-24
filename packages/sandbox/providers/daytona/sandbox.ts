@@ -45,11 +45,18 @@ type DaytonaConstructor = new (config: {
   serverUrl?: string;
 }) => DaytonaClient;
 
+const REDACTED_VALUE = "[REDACTED]";
+const CONNECTION_URL_ENV_KEYS = new Set(["POSTGRES_URL", "DATABASE_URL"]);
+const SENSITIVE_ENV_KEY_PATTERN =
+  /(^|_)(TOKEN|PASSWORD|SECRET|API_KEY|PRIVATE_KEY)(_|$)/;
+
 function quoteForShell(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-function getRequiredEnv(name: "DAYTONA_API_KEY" | "DAYTONA_SERVER_URL"): string {
+function getRequiredEnv(
+  name: "DAYTONA_API_KEY" | "DAYTONA_SERVER_URL",
+): string {
   const value = process.env[name];
   if (!value) {
     throw new Error(`${name} environment variable is not set`);
@@ -59,6 +66,83 @@ function getRequiredEnv(name: "DAYTONA_API_KEY" | "DAYTONA_SERVER_URL"): string 
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function isSensitiveEnvKey(key: string): boolean {
+  const upperKey = key.toUpperCase();
+  return (
+    CONNECTION_URL_ENV_KEYS.has(upperKey) ||
+    SENSITIVE_ENV_KEY_PATTERN.test(upperKey)
+  );
+}
+
+function extractConnectionUrlPassword(value: string): string[] {
+  const passwords: string[] = [];
+  const directMatch = value.match(
+    /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^:/?#\s]+:([^@/?#\s]+)@/,
+  );
+
+  if (directMatch?.[1]) {
+    passwords.push(directMatch[1]);
+    try {
+      const decoded = decodeURIComponent(directMatch[1]);
+      if (decoded !== directMatch[1]) {
+        passwords.push(decoded);
+      }
+    } catch {
+      // Keep deterministic behavior; ignore malformed escapes.
+    }
+  }
+
+  return passwords;
+}
+
+function getSensitiveValues(options?: ConnectOptions): string[] {
+  const values = new Set<string>();
+
+  if (options?.githubToken) {
+    values.add(options.githubToken);
+  }
+
+  if (!options?.env) {
+    return [...values];
+  }
+
+  for (const [key, value] of Object.entries(options.env)) {
+    if (!value || !isSensitiveEnvKey(key)) {
+      continue;
+    }
+
+    values.add(value);
+
+    if (CONNECTION_URL_ENV_KEYS.has(key.toUpperCase())) {
+      for (const password of extractConnectionUrlPassword(value)) {
+        values.add(password);
+      }
+    }
+  }
+
+  return [...values]
+    .filter((value) => value.length > 0)
+    .sort(
+      (left, right) => right.length - left.length || left.localeCompare(right),
+    );
+}
+
+function redactSensitiveValues(
+  value: string,
+  sensitiveValues: string[],
+): string {
+  if (!value || sensitiveValues.length === 0) {
+    return value;
+  }
+
+  let redacted = value;
+  for (const sensitiveValue of sensitiveValues) {
+    redacted = redacted.split(sensitiveValue).join(REDACTED_VALUE);
+  }
+
+  return redacted;
 }
 
 function toDaytonaWorkspace(value: unknown): DaytonaWorkspace {
@@ -92,7 +176,9 @@ function toDaytonaWorkspace(value: unknown): DaytonaWorkspace {
     process: {
       executeCommand: process.executeCommand.bind(process),
     },
-    getPreviewLink: getPreviewLink.bind(value) as DaytonaWorkspace["getPreviewLink"],
+    getPreviewLink: getPreviewLink.bind(
+      value,
+    ) as DaytonaWorkspace["getPreviewLink"],
     stop: stop.bind(value) as DaytonaWorkspace["stop"],
   };
 }
@@ -108,7 +194,9 @@ async function loadDaytonaClient(): Promise<DaytonaClient> {
         : undefined;
 
   if (typeof ctorCandidate !== "function") {
-    throw new Error("@daytonaio/sdk does not export a Daytona client constructor");
+    throw new Error(
+      "@daytonaio/sdk does not export a Daytona client constructor",
+    );
   }
 
   const DaytonaClientConstructor = ctorCandidate as DaytonaConstructor;
@@ -126,6 +214,7 @@ export class DaytonaSandbox implements Sandbox {
   readonly hooks?: SandboxHooks;
 
   private readonly state: DaytonaState;
+  private readonly sensitiveValues: string[];
 
   constructor(
     private readonly workspace: DaytonaWorkspace,
@@ -138,6 +227,7 @@ export class DaytonaSandbox implements Sandbox {
       workspaceId: state.workspaceId ?? workspace.id,
       workspaceName: state.workspaceName,
     };
+    this.sensitiveValues = getSensitiveValues(options);
   }
 
   static async create(
@@ -191,10 +281,25 @@ export class DaytonaSandbox implements Sandbox {
     timeoutMs: number,
   ): Promise<ExecResult> {
     const timeout = Math.max(1, Math.ceil(timeoutMs / 1000));
-    const result = await this.workspace.process.executeCommand(command, {
-      timeout,
-      cwd,
-    });
+    let result: DaytonaCommandResult;
+    try {
+      result = await this.workspace.process.executeCommand(command, {
+        timeout,
+        cwd,
+      });
+    } catch (error) {
+      if (error instanceof Error) {
+        throw new Error(
+          redactSensitiveValues(error.message, this.sensitiveValues),
+          { cause: error },
+        );
+      }
+
+      throw new Error(
+        redactSensitiveValues(String(error), this.sensitiveValues),
+        { cause: error },
+      );
+    }
 
     const exitCode =
       typeof result.code === "number"
@@ -209,12 +314,13 @@ export class DaytonaSandbox implements Sandbox {
         : typeof result.stdout === "string"
           ? result.stdout
           : "";
+    const stderr = typeof result.stderr === "string" ? result.stderr : "";
 
     return {
       success: exitCode === 0,
       exitCode,
-      stdout,
-      stderr: typeof result.stderr === "string" ? result.stderr : "",
+      stdout: redactSensitiveValues(stdout, this.sensitiveValues),
+      stderr: redactSensitiveValues(stderr, this.sensitiveValues),
       truncated: false,
     };
   }

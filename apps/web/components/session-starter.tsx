@@ -85,8 +85,8 @@ export function SessionStarter({
     sandboxType;
   const sandboxUnavailableReason =
     selectedSandboxProvider && !selectedSandboxProvider.available
-      ? selectedSandboxProvider.reasonUnavailable ??
-        "This provider is currently unavailable."
+      ? (selectedSandboxProvider.reasonUnavailable ??
+        "This provider is currently unavailable.")
       : null;
   const canProvisionDb = selectedSandboxProvider?.capabilities.db ?? true;
 

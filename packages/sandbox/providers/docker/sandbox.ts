@@ -55,7 +55,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function buildActionableDockerUnavailableError(mode: "create" | "connect"): Error {
+function buildActionableDockerUnavailableError(
+  mode: "create" | "connect",
+): Error {
   const action =
     mode === "create"
       ? "creating a Docker-backed session"
@@ -65,7 +67,9 @@ function buildActionableDockerUnavailableError(mode: "create" | "connect"): Erro
   );
 }
 
-function extractPortMapFromInspectResult(inspectResult: unknown): Record<number, number> {
+function extractPortMapFromInspectResult(
+  inspectResult: unknown,
+): Record<number, number> {
   if (!isRecord(inspectResult)) {
     return {};
   }
@@ -226,6 +230,7 @@ export class DockerSandbox implements Sandbox {
         error instanceof Error ? error.message : "Unknown Docker error";
       throw new Error(
         `Failed to start Docker sandbox container using image "${SANDBOX_IMAGE}": ${message}`,
+        { cause: error },
       );
     }
 
@@ -257,7 +262,9 @@ export class DockerSandbox implements Sandbox {
       throw buildActionableDockerUnavailableError("connect");
     }
 
-    const container = docker.getContainer(state.containerId) as unknown as DockerContainerLike;
+    const container = docker.getContainer(
+      state.containerId,
+    ) as unknown as DockerContainerLike;
     const inspectResult = await container.inspect();
     const resolvedPortMap = extractPortMapFromInspectResult(inspectResult);
 
@@ -268,7 +275,7 @@ export class DockerSandbox implements Sandbox {
         portBindings:
           Object.keys(resolvedPortMap).length > 0
             ? resolvedPortMap
-            : state.portBindings ?? {},
+            : (state.portBindings ?? {}),
       },
       options,
     );

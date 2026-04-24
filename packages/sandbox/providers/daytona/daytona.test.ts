@@ -5,10 +5,12 @@ import { daytonaProvider } from "./index";
 describe("Daytona provider", () => {
   const originalApiKey = process.env.DAYTONA_API_KEY;
   const originalServerUrl = process.env.DAYTONA_SERVER_URL;
+  const originalBetaEnabled = process.env.DAYTONA_BETA_ENABLED;
 
   beforeEach(() => {
     delete process.env.DAYTONA_API_KEY;
     delete process.env.DAYTONA_SERVER_URL;
+    delete process.env.DAYTONA_BETA_ENABLED;
   });
 
   afterEach(() => {
@@ -23,6 +25,12 @@ describe("Daytona provider", () => {
     } else {
       process.env.DAYTONA_SERVER_URL = originalServerUrl;
     }
+
+    if (originalBetaEnabled === undefined) {
+      delete process.env.DAYTONA_BETA_ENABLED;
+    } else {
+      process.env.DAYTONA_BETA_ENABLED = originalBetaEnabled;
+    }
   });
 
   test("registers in defaultRegistry", () => {
@@ -35,9 +43,17 @@ describe("Daytona provider", () => {
     expect(daytonaProvider.reasonUnavailable()).toMatch(/DAYTONA_API_KEY/);
   });
 
-  test("isAvailable returns true when required vars are set", () => {
+  test("isAvailable returns false when beta flag is missing", () => {
     process.env.DAYTONA_API_KEY = "test-key";
     process.env.DAYTONA_SERVER_URL = "https://daytona.example.com";
+    expect(daytonaProvider.isAvailable()).toBe(false);
+    expect(daytonaProvider.reasonUnavailable()).toMatch(/DAYTONA_BETA_ENABLED/);
+  });
+
+  test("isAvailable returns true when required vars and beta flag are set", () => {
+    process.env.DAYTONA_API_KEY = "test-key";
+    process.env.DAYTONA_SERVER_URL = "https://daytona.example.com";
+    process.env.DAYTONA_BETA_ENABLED = "true";
     expect(daytonaProvider.isAvailable()).toBe(true);
     expect(daytonaProvider.reasonUnavailable()).toBeUndefined();
   });

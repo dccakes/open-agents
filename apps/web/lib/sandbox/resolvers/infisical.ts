@@ -14,10 +14,13 @@ interface InfisicalEnvResolverDeps {
 }
 
 export class InfisicalEnvResolver implements EnvResolver {
-  private readonly fetchSecrets: NonNullable<InfisicalEnvResolverDeps["fetchSecrets"]>;
+  private readonly fetchSecrets: NonNullable<
+    InfisicalEnvResolverDeps["fetchSecrets"]
+  >;
 
   constructor(deps?: InfisicalEnvResolverDeps) {
-    this.fetchSecrets = deps?.fetchSecrets ?? this.defaultFetchSecrets.bind(this);
+    this.fetchSecrets =
+      deps?.fetchSecrets ?? this.defaultFetchSecrets.bind(this);
   }
 
   private async defaultFetchSecrets(opts: {
@@ -33,7 +36,8 @@ export class InfisicalEnvResolver implements EnvResolver {
     }
 
     const environment = opts.environment ?? "production";
-    const baseUrl = process.env.INFISICAL_BASE_URL ?? "https://app.infisical.com";
+    const baseUrl =
+      process.env.INFISICAL_BASE_URL ?? "https://app.infisical.com";
     const query = new URLSearchParams({
       workspaceId: projectId,
       environment,
@@ -41,12 +45,15 @@ export class InfisicalEnvResolver implements EnvResolver {
       include_imports: "true",
     });
 
-    const response = await fetch(`${baseUrl}/api/v3/secrets/raw?${query.toString()}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
+    const response = await fetch(
+      `${baseUrl}/api/v3/secrets/raw?${query.toString()}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        },
       },
-    });
+    );
 
     if (!response.ok) {
       throw new Error(
@@ -75,7 +82,7 @@ export class InfisicalEnvResolver implements EnvResolver {
       projectId: opts.projectId,
       environment: targetEnvironment,
     });
-    const denylist = new Set(opts.denylist ?? []);
+    const denylist = new Set(opts.denylist);
     const result: Record<string, string> = {};
 
     for (const secret of secrets) {

@@ -17,7 +17,9 @@ export interface DbProvisioner {
   teardown(metadata: DbTeardownMetadata): Promise<void>;
 }
 
-export function getDbProvisioner(providerType: SandboxProviderType): DbProvisioner | null {
+export function getDbProvisioner(
+  providerType: SandboxProviderType,
+): DbProvisioner | null {
   if (providerType === "vercel" || providerType === "daytona") {
     return new NeonProvisioner();
   }

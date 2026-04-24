@@ -4,11 +4,17 @@ import type { SandboxProviderDef } from "./provider";
 import { defaultRegistry } from "./registry";
 
 function makeConnectedSandbox(label: string): Sandbox {
-  return { type: "vercel", workingDirectory: "/", readFile: async () => label } as unknown as Sandbox;
+  return {
+    type: "vercel",
+    workingDirectory: "/",
+    readFile: async () => label,
+  } as unknown as Sandbox;
 }
 
 function clearDefaultRegistry(): void {
-  const registry = defaultRegistry as unknown as { providers: Map<string, SandboxProviderDef> };
+  const registry = defaultRegistry as unknown as {
+    providers: Map<string, SandboxProviderDef>;
+  };
   registry.providers.clear();
 }
 
@@ -18,11 +24,18 @@ describe("connectSandbox (registry dispatch)", () => {
   });
 
   test("dispatches to registered provider via state.type", async () => {
-    const connectMock = mock(async () => makeConnectedSandbox("vercel-connected"));
+    const connectMock = mock(async () =>
+      makeConnectedSandbox("vercel-connected"),
+    );
     const def: SandboxProviderDef = {
       type: "vercel",
       label: "Vercel",
-      capabilities: { persistent: true, db: true, envInjection: true, credentialBrokering: true },
+      capabilities: {
+        persistent: true,
+        db: true,
+        envInjection: true,
+        credentialBrokering: true,
+      },
       isAvailable: () => true,
       reasonUnavailable: () => undefined,
       create: connectMock,
@@ -37,11 +50,18 @@ describe("connectSandbox (registry dispatch)", () => {
   });
 
   test("dispatches legacy 'cloud' state as 'vercel'", async () => {
-    const connectMock = mock(async () => makeConnectedSandbox("vercel-connected"));
+    const connectMock = mock(async () =>
+      makeConnectedSandbox("vercel-connected"),
+    );
     const def: SandboxProviderDef = {
       type: "vercel",
       label: "Vercel",
-      capabilities: { persistent: true, db: true, envInjection: true, credentialBrokering: true },
+      capabilities: {
+        persistent: true,
+        db: true,
+        envInjection: true,
+        credentialBrokering: true,
+      },
       isAvailable: () => true,
       reasonUnavailable: () => undefined,
       create: connectMock,

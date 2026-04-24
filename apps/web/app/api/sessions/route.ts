@@ -199,18 +199,15 @@ export async function POST(req: Request) {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  if (
-    body.sandboxType &&
-    !VALID_SANDBOX_TYPES.includes(body.sandboxType)
-  ) {
+  if (body.sandboxType && !VALID_SANDBOX_TYPES.includes(body.sandboxType)) {
     return Response.json({ error: "Invalid sandbox type" }, { status: 400 });
   }
 
-  if (
-    body.provisionDb !== undefined &&
-    typeof body.provisionDb !== "boolean"
-  ) {
-    return Response.json({ error: "Invalid provisionDb value" }, { status: 400 });
+  if (body.provisionDb !== undefined && typeof body.provisionDb !== "boolean") {
+    return Response.json(
+      { error: "Invalid provisionDb value" },
+      { status: 400 },
+    );
   }
 
   if (
@@ -386,7 +383,9 @@ export async function POST(req: Request) {
       vercelTeamSlug: resolvedVercelProject?.teamSlug ?? null,
       isNewBranch: isNewBranch ?? false,
       autoCommitPushOverride: effectiveAutoCommitPush,
-      autoCreatePrOverride: effectiveAutoCommitPush ? effectiveAutoCreatePr : false,
+      autoCreatePrOverride: effectiveAutoCommitPush
+        ? effectiveAutoCreatePr
+        : false,
       globalSkillRefs: preferences.globalSkillRefs,
       sandboxState: { type: sandboxType },
       lifecycleState: "provisioning",

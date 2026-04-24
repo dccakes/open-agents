@@ -4,7 +4,13 @@ import { DaytonaSandbox } from "./sandbox";
 import type { DaytonaState } from "./state";
 
 function isDaytonaAvailable(): boolean {
-  return Boolean(process.env.DAYTONA_API_KEY && process.env.DAYTONA_SERVER_URL);
+  const betaFlag = process.env.DAYTONA_BETA_ENABLED;
+  const betaEnabled = betaFlag === "true" || betaFlag === "1";
+  return Boolean(
+    process.env.DAYTONA_API_KEY &&
+    process.env.DAYTONA_SERVER_URL &&
+    betaEnabled,
+  );
 }
 
 function getDaytonaUnavailableReason(): string | undefined {
@@ -13,6 +19,12 @@ function getDaytonaUnavailableReason(): string | undefined {
   }
   if (!process.env.DAYTONA_SERVER_URL) {
     return "DAYTONA_SERVER_URL environment variable is not set";
+  }
+  if (
+    process.env.DAYTONA_BETA_ENABLED !== "true" &&
+    process.env.DAYTONA_BETA_ENABLED !== "1"
+  ) {
+    return "DAYTONA_BETA_ENABLED environment variable must be set to true or 1";
   }
   return undefined;
 }

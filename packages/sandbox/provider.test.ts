@@ -15,8 +15,8 @@ describe("SandboxProviderDef type contract", () => {
       },
       isAvailable: () => true,
       reasonUnavailable: () => undefined,
-      create: async (_state, _opts) => ({} as Sandbox),
-      connect: async (_state, _opts) => ({} as Sandbox),
+      create: async (_state, _opts) => ({}) as Sandbox,
+      connect: async (_state, _opts) => ({}) as Sandbox,
     };
     expect(mockProvider.type).toBe("vercel");
     expect(mockProvider.isAvailable()).toBe(true);
@@ -36,10 +36,12 @@ describe("SandboxProviderDef type contract", () => {
       },
       isAvailable: () => false,
       reasonUnavailable: () => "DAYTONA_API_KEY not configured",
-      create: async () => ({} as Sandbox),
-      connect: async () => ({} as Sandbox),
+      create: async () => ({}) as Sandbox,
+      connect: async () => ({}) as Sandbox,
     };
     expect(mockProvider.isAvailable()).toBe(false);
-    expect(mockProvider.reasonUnavailable()).toBe("DAYTONA_API_KEY not configured");
+    expect(mockProvider.reasonUnavailable()).toBe(
+      "DAYTONA_API_KEY not configured",
+    );
   });
 });

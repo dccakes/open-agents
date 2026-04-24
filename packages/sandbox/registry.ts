@@ -11,7 +11,10 @@ function resolveProviderType(raw: string): SandboxProviderType {
 }
 
 export class SandboxRegistry {
-  private readonly providers = new Map<SandboxProviderType, SandboxProviderDef>();
+  private readonly providers = new Map<
+    SandboxProviderType,
+    SandboxProviderDef
+  >();
 
   register(def: SandboxProviderDef): void {
     this.providers.set(def.type, def);
@@ -29,7 +32,11 @@ export class SandboxRegistry {
     return this.list().filter((d) => d.isAvailable());
   }
 
-  async create(type: SandboxProviderType, state: unknown, options?: ConnectOptions): Promise<Sandbox> {
+  async create(
+    type: SandboxProviderType,
+    state: unknown,
+    options?: ConnectOptions,
+  ): Promise<Sandbox> {
     const provider = this.providers.get(type);
     if (!provider) {
       throw new Error(`Unknown sandbox provider: ${type}`);
@@ -37,7 +44,10 @@ export class SandboxRegistry {
     return provider.create(state, options);
   }
 
-  async connect(state: SandboxState, options?: ConnectOptions): Promise<Sandbox> {
+  async connect(
+    state: SandboxState,
+    options?: ConnectOptions,
+  ): Promise<Sandbox> {
     const resolvedType = resolveProviderType(state.type);
     const provider = this.providers.get(resolvedType);
     if (!provider) {

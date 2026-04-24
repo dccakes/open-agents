@@ -67,7 +67,9 @@ export class VercelEnvResolver implements EnvResolver {
     });
 
     if (!response.ok) {
-      throw new Error(`Vercel env fetch failed: ${response.status} ${response.statusText}`);
+      throw new Error(
+        `Vercel env fetch failed: ${response.status} ${response.statusText}`,
+      );
     }
 
     const payload = (await response.json()) as { envs?: VercelEnvVar[] };
@@ -85,7 +87,10 @@ export class VercelEnvResolver implements EnvResolver {
     const result: Record<string, string> = {};
 
     for (const variable of vars) {
-      if (typeof variable.key !== "string" || typeof variable.value !== "string") {
+      if (
+        typeof variable.key !== "string" ||
+        typeof variable.value !== "string"
+      ) {
         continue;
       }
 

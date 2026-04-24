@@ -21,7 +21,9 @@ describe("DaytonaSandbox", () => {
       stop: mock(async () => {}),
     };
 
-    const sandbox = new DaytonaSandbox(mockWorkspace, { workspaceId: "ws-123" });
+    const sandbox = new DaytonaSandbox(mockWorkspace, {
+      workspaceId: "ws-123",
+    });
 
     const result: ExecResult = await sandbox.exec("echo hello", "/", 10_000);
 
@@ -49,7 +51,9 @@ describe("DaytonaSandbox", () => {
       stop: mock(async () => {}),
     };
 
-    const sandbox = new DaytonaSandbox(mockWorkspace, { workspaceId: "ws-123" });
+    const sandbox = new DaytonaSandbox(mockWorkspace, {
+      workspaceId: "ws-123",
+    });
 
     const url = await sandbox.getPreviewUrl(3000);
 

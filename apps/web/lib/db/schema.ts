@@ -161,7 +161,9 @@ export const sessions = pgTable(
     provisionDb: boolean("provision_db").notNull().default(false),
     // Unified sandbox state
     sandboxState: jsonb("sandbox_state").$type<SandboxState>(),
-    dbTeardownMetadata: jsonb("db_teardown_metadata").$type<DbTeardownMetadata>(),
+    dbTeardownMetadata: jsonb(
+      "db_teardown_metadata",
+    ).$type<DbTeardownMetadata>(),
     // Lifecycle orchestration state for sandbox management
     lifecycleState: text("lifecycle_state", {
       enum: [

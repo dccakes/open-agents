@@ -55,7 +55,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function parseInspectResult(value: unknown): DockerContainerInspectResult | null {
+function parseInspectResult(
+  value: unknown,
+): DockerContainerInspectResult | null {
   if (!isRecord(value)) {
     return null;
   }
@@ -185,7 +187,9 @@ export class DockerPostgresProvisioner implements DbProvisioner {
     const parsedInspect = parseInspectResult(inspectResult);
     const containerId = container.id ?? parsedInspect?.Id;
     if (!containerId) {
-      throw new Error("Docker Postgres container did not return an identifier.");
+      throw new Error(
+        "Docker Postgres container did not return an identifier.",
+      );
     }
 
     return {
@@ -206,7 +210,10 @@ export class DockerPostgresProvisioner implements DbProvisioner {
     try {
       docker = await this.dockerFactory();
     } catch (error) {
-      console.error("Failed to initialize Docker client for DB teardown:", error);
+      console.error(
+        "Failed to initialize Docker client for DB teardown:",
+        error,
+      );
       return;
     }
 

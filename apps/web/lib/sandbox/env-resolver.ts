@@ -26,5 +26,7 @@ export function getEnvResolver(): EnvResolver | null {
     return new InfisicalEnvResolver();
   }
 
-  throw new Error(`Unknown SANDBOX_ENV_RESOLVER: ${backend}. Supported: vercel, infisical`);
+  throw new Error(
+    `Unknown SANDBOX_ENV_RESOLVER: ${backend}. Supported: vercel, infisical`,
+  );
 }

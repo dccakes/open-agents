@@ -31,7 +31,7 @@ interface KickCall {
 
 interface ConnectConfig {
   state: {
-    type: "vercel";
+    type: "vercel" | "docker" | "daytona";
     sandboxName?: string;
     source?: {
       repo?: string;
@@ -296,6 +296,48 @@ describe("/api/sandbox lifecycle kicks", () => {
       },
     });
     expect(connectConfigs[0]?.state.source).not.toHaveProperty("token");
+  });
+
+  test("rejects repo bootstrap for non-vercel providers", async () => {
+    const { POST } = await routeModulePromise;
+
+    const response = await POST(
+      new Request("http://localhost/api/sandbox", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repoUrl: "https://github.com/acme/private-repo",
+          sandboxType: "docker",
+        }),
+      }),
+    );
+    const payload = (await response.json()) as { error: string };
+
+    expect(response.status).toBe(400);
+    expect(payload.error).toBe(
+      "Repository bootstrap is currently only supported for the vercel sandbox provider for secure auth reasons. Set sandboxType to 'vercel' or omit repoUrl.",
+    );
+    expect(connectConfigs).toHaveLength(0);
+  });
+
+  test("non-vercel providers do not receive githubToken in connect options", async () => {
+    const { POST } = await routeModulePromise;
+
+    currentGitHubToken = "github-user-token";
+
+    const response = await POST(
+      new Request("http://localhost/api/sandbox", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sandboxType: "docker",
+        }),
+      }),
+    );
+
+    expect(response.ok).toBe(true);
+    expect(connectConfigs[0]?.state.type).toBe("docker");
+    expect(connectConfigs[0]?.options).not.toHaveProperty("githubToken");
   });
 
   test("new vercel sandbox does not sync linked Development env vars while code is commented out", async () => {
