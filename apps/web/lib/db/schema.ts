@@ -440,12 +440,12 @@ export const linearWorkspaces = pgTable(
   "linear_workspaces",
   {
     id: text("id").primaryKey(),
-    workspaceId: text("workspace_id").notNull().unique(),
+    workspaceId: text("workspace_id").notNull(),
     workspaceName: text("workspace_name").notNull(),
     accessToken: text("access_token").notNull(),
     webhookSecret: text("webhook_secret").notNull(),
     webhookId: text("webhook_id").notNull(),
-    installedByUserId: text("installed_by_user_id"),
+    installedByUserId: text("installed_by_user_id"), // tracking only — workspace-level, not per-user
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },

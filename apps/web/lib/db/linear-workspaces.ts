@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { db } from "./client";
 import {
@@ -75,10 +75,18 @@ export async function upsertLinearWorkspace(
 export async function getLinearWorkspace(): Promise<
   LinearWorkspace | undefined
 > {
-  const [workspace] = await db.select().from(linearWorkspaces).limit(1);
+  const [workspace] = await db
+    .select()
+    .from(linearWorkspaces)
+    .orderBy(asc(linearWorkspaces.createdAt))
+    .limit(1);
   return workspace;
 }
 
-export async function deleteLinearWorkspace(): Promise<void> {
-  await db.delete(linearWorkspaces);
+export async function deleteLinearWorkspace(
+  workspaceId: string,
+): Promise<void> {
+  await db
+    .delete(linearWorkspaces)
+    .where(eq(linearWorkspaces.workspaceId, workspaceId));
 }
