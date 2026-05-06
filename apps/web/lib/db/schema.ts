@@ -434,3 +434,25 @@ export const usageEvents = pgTable("usage_events", {
 
 export type UsageEvent = typeof usageEvents.$inferSelect;
 export type NewUsageEvent = typeof usageEvents.$inferInsert;
+
+// Linear workspace connection (one per deployment)
+export const linearWorkspaces = pgTable(
+  "linear_workspaces",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().unique(),
+    workspaceName: text("workspace_name").notNull(),
+    accessToken: text("access_token").notNull(),
+    webhookSecret: text("webhook_secret").notNull(),
+    webhookId: text("webhook_id").notNull(),
+    installedByUserId: text("installed_by_user_id"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("linear_workspaces_workspace_id_idx").on(table.workspaceId),
+  ],
+);
+
+export type LinearWorkspace = typeof linearWorkspaces.$inferSelect;
+export type NewLinearWorkspace = typeof linearWorkspaces.$inferInsert;
