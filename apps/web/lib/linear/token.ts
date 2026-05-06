@@ -15,7 +15,7 @@ function getEncryptionKey(): Buffer {
 
 export function encryptLinearToken(token: string): string {
   const key = getEncryptionKey();
-  const iv = randomBytes(16);
+  const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, iv);
   const encrypted = Buffer.concat([
     cipher.update(token, "utf8"),
@@ -31,7 +31,11 @@ export function encryptLinearToken(token: string): string {
 
 export function decryptLinearToken(encryptedToken: string): string {
   const key = getEncryptionKey();
-  const [ivB64, authTagB64, encryptedB64] = encryptedToken.split(":");
+  const parts = encryptedToken.split(":");
+  if (parts.length !== 3) {
+    throw new Error("Invalid encrypted token format");
+  }
+  const [ivB64, authTagB64, encryptedB64] = parts;
   const iv = Buffer.from(ivB64, "base64");
   const authTag = Buffer.from(authTagB64, "base64");
   const encrypted = Buffer.from(encryptedB64, "base64");

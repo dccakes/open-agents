@@ -1,10 +1,12 @@
+import "server-only";
+
 const LINEAR_GRAPHQL_URL = "https://api.linear.app/graphql";
 
 export function linearGraphQL(token: string) {
   return async function execute<T>(
     query: string,
     variables?: Record<string, unknown>,
-  ): Promise<T> {
+  ): Promise<T | null> {
     const response = await fetch(LINEAR_GRAPHQL_URL, {
       method: "POST",
       headers: {
@@ -31,6 +33,6 @@ export function linearGraphQL(token: string) {
       );
     }
 
-    return json.data as T;
+    return (json.data as T) ?? null;
   };
 }
