@@ -4,11 +4,20 @@ import { z } from "zod";
 import { upsertLinearWorkspace } from "@/lib/db/linear-workspaces";
 import { linearGraphQL } from "@/lib/linear/client";
 import { encryptLinearToken } from "@/lib/linear/token";
-import { registerLinearWebhook } from "@/lib/linear/webhook";
+import {
+  deregisterLinearWebhook,
+  registerLinearWebhook,
+} from "@/lib/linear/webhook";
 import { getServerSession } from "@/lib/session/get-server-session";
 
 function getAppUrl(req: Request): string {
   return process.env.NEXT_PUBLIC_APP_URL ?? new URL(req.url).origin;
+}
+
+function errorRedirect(url: URL): NextResponse {
+  const response = NextResponse.redirect(url);
+  response.cookies.delete("linear_oauth_state");
+  return response;
 }
 
 const tokenResponseSchema = z.object({
@@ -21,10 +30,12 @@ const tokenResponseSchema = z.object({
 const viewerResponseSchema = z.object({
   viewer: z.object({
     id: z.string(),
-    organization: z.object({
-      id: z.string(),
-      name: z.string(),
-    }),
+    organization: z
+      .object({
+        id: z.string(),
+        name: z.string(),
+      })
+      .nullable(),
   }),
 });
 
@@ -44,11 +55,11 @@ export async function GET(req: Request): Promise<Response> {
   const code = requestUrl.searchParams.get("code");
 
   if (!storedState || !stateParam || storedState !== stateParam) {
-    return NextResponse.redirect(errorUrl);
+    return errorRedirect(errorUrl);
   }
 
   if (!code) {
-    return NextResponse.redirect(errorUrl);
+    return errorRedirect(errorUrl);
   }
 
   try {
@@ -97,22 +108,39 @@ export async function GET(req: Request): Promise<Response> {
     }
 
     const parsed = viewerResponseSchema.parse(viewerData);
+
+    if (!parsed.viewer.organization) {
+      const orgRequired = new URL(
+        "/settings/connections?linear=org_required",
+        req.url,
+      );
+      const response = NextResponse.redirect(orgRequired);
+      response.cookies.delete("linear_oauth_state");
+      return response;
+    }
+
     const workspaceId = parsed.viewer.organization.id;
     const workspaceName = parsed.viewer.organization.name;
 
     // Register webhook
     const { webhookId, webhookSecret } = await registerLinearWebhook(token);
 
-    // Encrypt token and upsert workspace
-    const encryptedToken = encryptLinearToken(token);
-    await upsertLinearWorkspace({
-      workspaceId,
-      workspaceName,
-      accessToken: encryptedToken,
-      webhookId,
-      webhookSecret,
-      installedByUserId: session.user.id,
-    });
+    // Encrypt token and upsert workspace; rollback webhook if upsert fails
+    try {
+      const encryptedToken = encryptLinearToken(token);
+      await upsertLinearWorkspace({
+        workspaceId,
+        workspaceName,
+        accessToken: encryptedToken,
+        webhookId,
+        webhookSecret,
+        installedByUserId: session.user.id,
+      });
+    } catch (err) {
+      // rollback — best effort
+      await deregisterLinearWebhook(token, webhookId).catch(() => {});
+      throw err;
+    }
 
     const response = NextResponse.redirect(
       new URL("/settings/connections?linear=connected", req.url),
@@ -121,6 +149,6 @@ export async function GET(req: Request): Promise<Response> {
     return response;
   } catch (error) {
     console.error("Linear OAuth callback error:", error);
-    return NextResponse.redirect(errorUrl);
+    return errorRedirect(errorUrl);
   }
 }
