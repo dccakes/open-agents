@@ -11,8 +11,8 @@ export interface UpsertLinearWorkspaceInput {
   workspaceId: string;
   workspaceName: string;
   accessToken: string;
-  webhookSecret: string;
-  webhookId: string;
+  webhookSecret?: string | null;
+  webhookId?: string | null;
   installedByUserId?: string | null;
 }
 
@@ -33,8 +33,8 @@ export async function upsertLinearWorkspace(
       .set({
         workspaceName: data.workspaceName,
         accessToken: data.accessToken,
-        webhookSecret: data.webhookSecret,
-        webhookId: data.webhookId,
+        webhookSecret: data.webhookSecret ?? null,
+        webhookId: data.webhookId ?? null,
         installedByUserId: data.installedByUserId ?? null,
         updatedAt: now,
       })
@@ -53,8 +53,8 @@ export async function upsertLinearWorkspace(
     workspaceId: data.workspaceId,
     workspaceName: data.workspaceName,
     accessToken: data.accessToken,
-    webhookSecret: data.webhookSecret,
-    webhookId: data.webhookId,
+    webhookSecret: data.webhookSecret ?? null,
+    webhookId: data.webhookId ?? null,
     installedByUserId: data.installedByUserId ?? null,
     createdAt: now,
     updatedAt: now,

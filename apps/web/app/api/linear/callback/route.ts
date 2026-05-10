@@ -4,10 +4,6 @@ import { z } from "zod";
 import { upsertLinearWorkspace } from "@/lib/db/linear-workspaces";
 import { linearGraphQL } from "@/lib/linear/client";
 import { encryptLinearToken } from "@/lib/linear/token";
-import {
-  deregisterLinearWebhook,
-  registerLinearWebhook,
-} from "@/lib/linear/webhook";
 import { getServerSession } from "@/lib/session/get-server-session";
 
 function getAppUrl(req: Request): string {
@@ -122,25 +118,14 @@ export async function GET(req: Request): Promise<Response> {
     const workspaceId = parsed.viewer.organization.id;
     const workspaceName = parsed.viewer.organization.name;
 
-    // Register webhook
-    const { webhookId, webhookSecret } = await registerLinearWebhook(token);
-
-    // Encrypt token and upsert workspace; rollback webhook if upsert fails
-    try {
-      const encryptedToken = encryptLinearToken(token);
-      await upsertLinearWorkspace({
-        workspaceId,
-        workspaceName,
-        accessToken: encryptedToken,
-        webhookId,
-        webhookSecret,
-        installedByUserId: session.user.id,
-      });
-    } catch (err) {
-      // rollback — best effort
-      await deregisterLinearWebhook(token, webhookId).catch(() => {});
-      throw err;
-    }
+    // Encrypt token and upsert workspace
+    const encryptedToken = encryptLinearToken(token);
+    await upsertLinearWorkspace({
+      workspaceId,
+      workspaceName,
+      accessToken: encryptedToken,
+      installedByUserId: session.user.id,
+    });
 
     const response = NextResponse.redirect(
       new URL("/settings/connections?linear=connected", req.url),

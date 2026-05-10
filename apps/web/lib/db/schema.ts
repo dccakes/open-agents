@@ -197,6 +197,10 @@ export const sessions = pgTable(
     // Cached diff for offline viewing
     cachedDiff: jsonb("cached_diff"),
     cachedDiffUpdatedAt: timestamp("cached_diff_updated_at"),
+    // Linear integration
+    linearIssueId: text("linear_issue_id"),
+    linearIssueUrl: text("linear_issue_url"),
+    linearAgentSessionId: text("linear_agent_session_id"),
     // Timestamps
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -443,8 +447,8 @@ export const linearWorkspaces = pgTable(
     workspaceId: text("workspace_id").notNull(),
     workspaceName: text("workspace_name").notNull(),
     accessToken: text("access_token").notNull(),
-    webhookSecret: text("webhook_secret").notNull(),
-    webhookId: text("webhook_id").notNull(),
+    webhookSecret: text("webhook_secret"),
+    webhookId: text("webhook_id"),
     installedByUserId: text("installed_by_user_id"), // tracking only — workspace-level, not per-user
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),

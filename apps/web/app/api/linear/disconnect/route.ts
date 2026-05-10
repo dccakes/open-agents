@@ -20,11 +20,13 @@ export async function POST() {
     return NextResponse.json({ ok: true });
   }
 
-  try {
-    const token = decryptLinearToken(workspace.accessToken);
-    await deregisterLinearWebhook(token, workspace.webhookId);
-  } catch {
-    // swallow — deregisterLinearWebhook already swallows internally, this is extra safety
+  if (workspace.webhookId) {
+    try {
+      const token = decryptLinearToken(workspace.accessToken);
+      await deregisterLinearWebhook(token, workspace.webhookId);
+    } catch {
+      // swallow — deregisterLinearWebhook already swallows internally, this is extra safety
+    }
   }
 
   await deleteLinearWorkspace(workspace.workspaceId);

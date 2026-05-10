@@ -281,6 +281,13 @@
       "when": 1778062437121,
       "tag": "0039_gorgeous_mysterio",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1778425783139,
+      "tag": "0040_loving_tarot",
+      "breakpoints": true
     }
   ]
 }
