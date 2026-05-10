@@ -2,6 +2,10 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { AccountsSection, AccountsSectionSkeleton } from "../accounts-section";
 import { VercelSection, VercelSectionSkeleton } from "../vercel-section";
+import {
+  LinearConnectionCard,
+  LinearConnectionCardSkeleton,
+} from "./linear-connection-card";
 
 export const metadata: Metadata = {
   title: "Connections",
@@ -17,6 +21,9 @@ export default function ConnectionsPage() {
       </Suspense>
       <Suspense fallback={<AccountsSectionSkeleton />}>
         <AccountsSection />
+      </Suspense>
+      <Suspense fallback={<LinearConnectionCardSkeleton />}>
+        <LinearConnectionCard />
       </Suspense>
     </>
   );
