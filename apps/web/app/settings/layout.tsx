@@ -2,6 +2,7 @@
 
 import {
   ArrowLeft,
+  Box,
   Cable,
   LogOut,
   Menu,
@@ -76,6 +77,12 @@ const baseSidebarItems = [
     label: "Preferences",
     href: "/settings/preferences",
     icon: SettingsIcon,
+  },
+  {
+    id: "sandboxes",
+    label: "Sandboxes",
+    href: "/settings/sandboxes",
+    icon: Box,
   },
   {
     id: "connections",
@@ -241,6 +248,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <ConnectionsPageSkeleton />
     ) : activeItem?.id === "preferences" ? (
       <PreferencesSectionSkeleton />
+    ) : activeItem?.id === "sandboxes" ? (
+      <div className="space-y-6">
+        <Skeleton className="h-20 w-full" />
+        <Skeleton className="h-36 w-full" />
+        <Skeleton className="h-36 w-full" />
+      </div>
     ) : activeItem?.id === "models" ? (
       <ModelVariantsSectionSkeleton />
     ) : activeItem?.id === "leaderboard" ? (

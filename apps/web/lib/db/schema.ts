@@ -1,5 +1,6 @@
-import type { SandboxState } from "@open-agents/sandbox";
+import type { SandboxProviderType, SandboxState } from "@open-agents/sandbox";
 import type { ModelVariant } from "@/lib/model-variants";
+import type { DbTeardownMetadata } from "@/lib/sandbox/db-provisioner";
 import type { GlobalSkillRef } from "@/lib/skills/global-skill-refs";
 import {
   boolean,
@@ -157,8 +158,12 @@ export const sessions = pgTable(
       .$type<GlobalSkillRef[]>()
       .notNull()
       .default([]),
+    provisionDb: boolean("provision_db").notNull().default(false),
     // Unified sandbox state
     sandboxState: jsonb("sandbox_state").$type<SandboxState>(),
+    dbTeardownMetadata: jsonb(
+      "db_teardown_metadata",
+    ).$type<DbTeardownMetadata>(),
     // Lifecycle orchestration state for sandbox management
     lifecycleState: text("lifecycle_state", {
       enum: [
@@ -193,6 +198,10 @@ export const sessions = pgTable(
     // Cached diff for offline viewing
     cachedDiff: jsonb("cached_diff"),
     cachedDiffUpdatedAt: timestamp("cached_diff_updated_at"),
+    // Linear integration
+    linearIssueId: text("linear_issue_id"),
+    linearIssueUrl: text("linear_issue_url"),
+    linearAgentSessionId: text("linear_agent_session_id"),
     // Timestamps
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -346,7 +355,7 @@ export const userPreferences = pgTable("user_preferences", {
   ),
   defaultSubagentModelId: text("default_subagent_model_id"),
   defaultSandboxType: text("default_sandbox_type", {
-    enum: ["vercel"],
+    enum: ["vercel", "docker", "daytona"],
   }).default("vercel"),
   defaultDiffMode: text("default_diff_mode", {
     enum: ["unified", "split"],
@@ -375,6 +384,38 @@ export const userPreferences = pgTable("user_preferences", {
 export type UserPreferences = typeof userPreferences.$inferSelect;
 export type NewUserPreferences = typeof userPreferences.$inferInsert;
 
+export const userSandboxConfigs = pgTable(
+  "user_sandbox_configs",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    providerType: text("provider_type", {
+      enum: ["vercel", "docker", "daytona"],
+    })
+      .$type<SandboxProviderType>()
+      .notNull(),
+    enabled: boolean("enabled").notNull().default(false),
+    config: jsonb("config")
+      .$type<Record<string, string>>()
+      .notNull()
+      .default({}),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("user_sandbox_configs_user_provider_idx").on(
+      table.userId,
+      table.providerType,
+    ),
+    index("user_sandbox_configs_user_id_idx").on(table.userId),
+  ],
+);
+
+export type UserSandboxConfig = typeof userSandboxConfigs.$inferSelect;
+export type NewUserSandboxConfig = typeof userSandboxConfigs.$inferInsert;
+
 // Usage tracking — one row per assistant turn (append-only)
 export const usageEvents = pgTable("usage_events", {
   id: text("id").primaryKey(),
@@ -398,3 +439,25 @@ export const usageEvents = pgTable("usage_events", {
 
 export type UsageEvent = typeof usageEvents.$inferSelect;
 export type NewUsageEvent = typeof usageEvents.$inferInsert;
+
+// Linear workspace connection (one per deployment)
+export const linearWorkspaces = pgTable(
+  "linear_workspaces",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    workspaceName: text("workspace_name").notNull(),
+    accessToken: text("access_token").notNull(),
+    webhookSecret: text("webhook_secret"),
+    webhookId: text("webhook_id"),
+    installedByUserId: text("installed_by_user_id"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("linear_workspaces_workspace_id_idx").on(table.workspaceId),
+  ],
+);
+
+export type LinearWorkspace = typeof linearWorkspaces.$inferSelect;
+export type NewLinearWorkspace = typeof linearWorkspaces.$inferInsert;

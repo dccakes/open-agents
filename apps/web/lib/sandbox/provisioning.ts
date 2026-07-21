@@ -4,6 +4,7 @@ import {
   connectSandbox,
   type Sandbox,
   type SandboxState,
+  type VercelState,
 } from "@open-agents/sandbox";
 import {
   getSessionById,
@@ -88,7 +89,7 @@ async function getUserById(userId: string): Promise<UserRecord | null> {
   return user ?? null;
 }
 
-function buildSandboxSource(session: SessionRecord): SandboxState["source"] {
+function buildSandboxSource(session: SessionRecord): VercelState["source"] {
   if (!session.cloneUrl) {
     return undefined;
   }
@@ -110,12 +111,13 @@ function buildSandboxState(session: SessionRecord): SandboxState {
     getResumableSandboxName(existingState) ?? getSessionSandboxName(session.id);
   const source = buildSandboxSource(session);
 
-  return {
+  const base: VercelState & { type: "vercel" } = {
     type: "vercel",
-    ...(isSandboxState(existingState) ? existingState : {}),
+    ...((isSandboxState(existingState) ? existingState : {}) as VercelState),
     sandboxName,
     ...(source ? { source } : {}),
   };
+  return base;
 }
 
 async function getGitUser(user: UserRecord) {

@@ -3,7 +3,7 @@ import type { Dirent } from "fs";
 /**
  * The type of sandbox environment.
  */
-export type SandboxType = "cloud";
+export type SandboxType = "cloud" | "vercel" | "docker" | "daytona";
 
 /**
  * Result of a successful snapshot operation.

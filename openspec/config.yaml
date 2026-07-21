@@ -1,0 +1,20 @@
+schema: spec-driven
+
+# Project context is in context.md (sibling file).
+# It is shown to AI when creating artifacts.
+context_file: context.md
+
+tasks:
+  - |
+    Begin with an "## Execution" section containing exactly:
+
+    **Before starting:** Invoke the `superpowers:subagent-driven-development`
+    skill. Each task group should be dispatched to parallel subagents where
+    dependencies allow.
+
+    **During implementation:** Follow red-green-refactor TDD — write a failing
+    test first (red), implement the minimum code to pass it (green), then
+    refactor. Do not skip the red phase.
+
+    **On completion:** Invoke the `review-implementation` skill before marking
+    this change done.

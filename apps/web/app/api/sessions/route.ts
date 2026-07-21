@@ -1,3 +1,7 @@
+import {
+  defaultRegistry,
+  type SandboxProviderType,
+} from "@open-agents/sandbox";
 import { nanoid } from "nanoid";
 import { checkBotProtection } from "@/lib/botid";
 import {
@@ -45,7 +49,8 @@ interface CreateSessionRequest {
   branch?: string;
   cloneUrl?: string;
   isNewBranch?: boolean;
-  sandboxType?: "vercel";
+  sandboxType?: SandboxProviderType;
+  provisionDb?: boolean;
   autoCommitPush?: boolean;
   autoCreatePr?: boolean;
   vercelProject?: VercelProjectSelection | null;
@@ -80,6 +85,12 @@ async function resolveSessionTitle(
 
 const DEFAULT_ARCHIVED_SESSIONS_LIMIT = 50;
 const MAX_ARCHIVED_SESSIONS_LIMIT = 100;
+
+const VALID_SANDBOX_TYPES: SandboxProviderType[] = [
+  "vercel",
+  "docker",
+  "daytona",
+];
 
 type SessionsStatusFilter = "all" | "active" | "archived";
 
@@ -219,8 +230,15 @@ export async function POST(req: Request) {
     );
   }
 
-  if (body.sandboxType && body.sandboxType !== "vercel") {
+  if (body.sandboxType && !VALID_SANDBOX_TYPES.includes(body.sandboxType)) {
     return Response.json({ error: "Invalid sandbox type" }, { status: 400 });
+  }
+
+  if (body.provisionDb !== undefined && typeof body.provisionDb !== "boolean") {
+    return Response.json(
+      { error: "Invalid provisionDb value" },
+      { status: 400 },
+    );
   }
 
   if (
@@ -302,9 +320,32 @@ export async function POST(req: Request) {
     cloneUrl,
     isNewBranch,
     sandboxType = "vercel",
+    provisionDb = false,
     autoCommitPush,
     autoCreatePr,
   } = body;
+
+  const providerDef = defaultRegistry.get(sandboxType);
+  if (!providerDef?.isAvailable()) {
+    const reason =
+      providerDef?.reasonUnavailable() ??
+      (providerDef
+        ? `Provider '${sandboxType}' is currently unavailable`
+        : `Provider '${sandboxType}' is not registered`);
+    return Response.json(
+      { error: `Sandbox provider unavailable: ${reason}` },
+      { status: 400 },
+    );
+  }
+
+  if (provisionDb && !providerDef.capabilities.db) {
+    return Response.json(
+      {
+        error: `Sandbox provider '${sandboxType}' does not support database provisioning`,
+      },
+      { status: 400 },
+    );
+  }
 
   let finalBranch = branch;
   if (isNewBranch) {
@@ -394,6 +435,7 @@ export async function POST(req: Request) {
           ? effectiveAutoCreatePr
           : false,
         globalSkillRefs: preferences.globalSkillRefs,
+        provisionDb,
         sandboxState: { type: sandboxType },
         lifecycleState: "provisioning",
         lifecycleVersion: 0,
