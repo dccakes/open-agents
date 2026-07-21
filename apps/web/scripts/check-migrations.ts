@@ -5,7 +5,7 @@
  * files.  If it did, the schema has drifted from the migrations and the
  * developer needs to commit the new migration.
  *
- * Usage:  node scripts/check-migrations.ts
+ * Usage:  bun run scripts/check-migrations.ts
  */
 
 import { execSync } from "node:child_process";
@@ -27,7 +27,7 @@ const before = new Set(
 
 // Run drizzle-kit generate (produces a new .sql file if schema drifted)
 try {
-  execSync("pnpm db:generate", {
+  execSync("bun run db:generate", {
     cwd: join(import.meta.dirname, ".."),
     stdio: "pipe",
   });
@@ -55,7 +55,7 @@ if (newFiles.length > 0) {
     console.error(`   ${f}`);
   }
   console.error(
-    "\nRun `pnpm --dir apps/web db:generate` and commit the result.",
+    "\nRun `bun run --cwd apps/web db:generate` and commit the result.",
   );
   process.exit(1);
 }

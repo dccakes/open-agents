@@ -145,8 +145,7 @@ ELEVENLABS_API_KEY=
 1. Install dependencies:
 
    ```bash
-   corepack enable
-   pnpm install
+   bun install
    ```
 
 2. Create your local env file:
@@ -159,7 +158,7 @@ ELEVENLABS_API_KEY=
 4. Start the app:
 
    ```bash
-   pnpm web
+   bun run web
    ```
 
 If you already have a linked Vercel project, you can pull env vars locally with `vc env pull`.
@@ -218,12 +217,12 @@ GITHUB_WEBHOOK_SECRET=...
 ## Useful commands
 
 ```bash
-pnpm web                    # run dev server
-pnpm check                  # lint + format check
-pnpm fix                    # lint + format fix
-pnpm typecheck              # typecheck all packages
-pnpm run ci                 # full CI: check, typecheck, tests, migration check
-pnpm sandbox:snapshot-base  # refresh sandbox base snapshot
+bun run web                # run dev server
+bun run check              # lint + format check
+bun run fix                # lint + format fix
+bun run typecheck          # typecheck all packages
+bun run ci                 # full CI: check, typecheck, tests, migration check
+bun run sandbox:snapshot-base  # refresh sandbox base snapshot
 ```
 
 ## Repo layout

@@ -1,4 +1,4 @@
-import type { SandboxHooks } from "../interface.ts";
+import type { SandboxHooks } from "../interface";
 
 export interface VercelSandboxConfig {
   /**

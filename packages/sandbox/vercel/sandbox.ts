@@ -6,13 +6,10 @@ import type {
   SandboxHooks,
   SandboxStats,
   SnapshotResult,
-} from "../interface.ts";
-import type { SandboxStatus } from "../types.ts";
-import type {
-  VercelSandboxConfig,
-  VercelSandboxConnectConfig,
-} from "./config.ts";
-import type { VercelState } from "./state.ts";
+} from "../interface";
+import type { SandboxStatus } from "../types";
+import type { VercelSandboxConfig, VercelSandboxConnectConfig } from "./config";
+import type { VercelState } from "./state";
 
 const MAX_OUTPUT_LENGTH = 50_000;
 const DEFAULT_WORKING_DIRECTORY = "/vercel/sandbox";

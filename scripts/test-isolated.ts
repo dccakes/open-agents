@@ -1,6 +1,3 @@
-import { spawn } from "node:child_process";
-import { glob } from "node:fs/promises";
-
 const testPatterns = ["**/*.test.ts", "**/*.test.tsx"];
 
 function isIgnoredPath(path: string): boolean {
@@ -11,7 +8,8 @@ async function collectTestFiles(): Promise<string[]> {
   const files = new Set<string>();
 
   for (const pattern of testPatterns) {
-    for await (const path of glob(pattern)) {
+    const glob = new Bun.Glob(pattern);
+    for await (const path of glob.scan(".")) {
       if (isIgnoredPath(path)) {
         continue;
       }
@@ -26,15 +24,12 @@ async function runTestsIndividually(files: string[]): Promise<void> {
   for (const file of files) {
     console.log(`\nRunning ${file}`);
 
-    const exitCode = await new Promise<number | null>((resolve, reject) => {
-      const childProcess = spawn("bun", ["test", file], {
-        stdio: "inherit",
-      });
-
-      childProcess.on("error", reject);
-      childProcess.on("close", resolve);
+    const process = Bun.spawn(["bun", "test", file], {
+      stdout: "inherit",
+      stderr: "inherit",
     });
 
+    const exitCode = await process.exited;
     if (exitCode !== 0) {
       throw new Error(`Test failed: ${file}`);
     }

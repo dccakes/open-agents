@@ -7,10 +7,10 @@ export type {
   SandboxStats,
   SandboxType,
   SnapshotResult,
-} from "./interface.ts";
+} from "./interface";
 
 // shared types
-export type { Source, FileEntry, SandboxStatus } from "./types.ts";
+export type { Source, FileEntry, SandboxStatus } from "./types";
 
 // factory
 export {
@@ -18,7 +18,7 @@ export {
   type SandboxState,
   type ConnectOptions,
   type SandboxConnectConfig,
-} from "./factory.ts";
+} from "./factory";
 
 // git helpers
 export {
@@ -37,7 +37,7 @@ export {
   type FileChange,
   type FileChangeStatus,
   type FileWithContent,
-} from "./git.ts";
+} from "./git";
 
 // vercel
 export {
@@ -46,4 +46,4 @@ export {
   type VercelSandboxConfig,
   type VercelSandboxConnectConfig,
   type VercelState,
-} from "./vercel/index.ts";
+} from "./vercel";
