@@ -7,6 +7,17 @@ Each workstream below is independently executable and should land as its own PR.
 Workstreams are ordered by suggested execution, but only WS-0.4's postgres step depends on
 anything else (nothing). All can run in parallel.
 
+## Status
+
+| Workstream | State |
+| --- | --- |
+| WS-0.2a Bun version bump | ✅ Done — see [sub-plan](./ws-0.2a-bun-version-bump.md). Bun `1.2.14` → `1.3.14`; soaking before WS-0.2b. |
+| WS-0.2b bunfig cooldown | ⬜ Not started — blocked on WS-0.2a soak |
+| WS-0.3 knip | ⬜ Not started |
+| WS-0.4 CI hardening | ⬜ Not started |
+| WS-0.1 config boundary | ⬜ Not started |
+| WS-0.5 SECURITY.md | ⬜ Not started |
+
 ## Ground rules for executing agents
 
 - Follow `AGENTS.md` / `docs/agents/*` conventions: Bun only, kebab-case files, no `any`,
@@ -74,13 +85,15 @@ the window in which npm supply-chain attacks live. QM enforces a 7-day cooldown 
 `.npmrc min-release-age`.
 
 **Steps.**
-1. **Bun bump as its own PR first** — this is a runtime upgrade across a monorepo whose
+1. ✅ **Bun bump as its own PR first** — this is a runtime upgrade across a monorepo whose
    tests, workflow execution, and toolchain are all Bun-native, not an "S" config
-   change. The repo pins `bun@1.2.14` in `packageManager` and CI; bump
-   `packageManager` in root `package.json` and `bun-version` in
-   `.github/workflows/ci.yml` to the current stable Bun, run the full suite, and let it
-   soak on main for a couple of days before the next step.
-2. Then create root `bunfig.toml` with `[install]` → `minimumReleaseAge = 604800`
+   change. **Done:** `packageManager` and `.github/workflows/ci.yml` now both pin
+   `bun@1.3.14` (was `1.2.14`), which clears the `1.2.20` floor step 2 requires.
+   `bun run ci` passes on the new version. Detail, scope decisions, and the
+   pre-existing failures this PR had to absorb are in
+   [WS-0.2a — Bun version bump](./ws-0.2a-bun-version-bump.md). **Let this soak on main
+   for a couple of days before step 2.**
+2. ⬜ Then create root `bunfig.toml` with `[install]` → `minimumReleaseAge = 604800`
    (seconds; 7 days — requires Bun ≥ 1.2.20).
 3. Verify enforcement: temporarily add a dependency version published < 7 days ago and
    confirm `bun install` blocks/warns per Bun's documented behavior; remove it.
@@ -93,9 +106,10 @@ the window in which npm supply-chain attacks live. QM enforces a 7-day cooldown 
    re-screened — the cooldown protects the moment a version enters the lockfile, not
    every install after.
 
-**Acceptance criteria.** Bun bump landed and soaked as its own PR; `bunfig.toml`
-committed; CI and `packageManager` on the same Bun version;
-`bun install --frozen-lockfile` green in CI; behavior verified per step 3.
+**Acceptance criteria.** Bun bump landed and soaked as its own PR (✅ landed, soak
+pending); `bunfig.toml` committed (⬜); CI and `packageManager` on the same Bun version
+(✅ both `1.3.14`); `bun install --frozen-lockfile` green in CI (✅ — it was red before
+WS-0.2a from stale-lockfile drift, now fixed); behavior verified per step 3 (⬜).
 
 ---
 
