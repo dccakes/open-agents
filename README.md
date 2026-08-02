@@ -51,7 +51,7 @@ A few details that matter for understanding the current implementation:
 
 ## Environment variables
 
-See `apps/web/.env.example` for the full list. Summary:
+See `.env.example` in the repo root for the full list. Summary:
 
 ### Minimum runtime
 
@@ -84,6 +84,8 @@ GITHUB_WEBHOOK_SECRET=
 REDIS_URL=
 KV_URL=
 OPEN_AGENTS_RESOURCE_PROFILE=
+VERCEL_SANDBOX_TIMEOUT_MS=
+BOTID_EXTRA_ALLOWED_HOSTS=
 VERCEL_PROJECT_PRODUCTION_URL=
 NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL=
 VERCEL_SANDBOX_BASE_SNAPSHOT_ID=
@@ -91,7 +93,9 @@ ELEVENLABS_API_KEY=
 ```
 
 - `REDIS_URL` / `KV_URL`: optional skills metadata cache (falls back to in-memory when not configured).
-- `OPEN_AGENTS_RESOURCE_PROFILE`: optional deployment resource profile. Set to `hobby` to use Hobby-compatible defaults for chat and sandbox resources; leave unset for standard behavior.
+- `OPEN_AGENTS_RESOURCE_PROFILE`: optional deployment resource profile. **Leave unset on Pro/Enterprise accounts** — that keeps the standard profile (5 hour sandboxes, 4 vCPUs). Set to `hobby` only when deploying to a Vercel Hobby account, which downgrades sandboxes to 40 minutes and 1 vCPU.
+- `VERCEL_SANDBOX_TIMEOUT_MS`: optional override for the sandbox lifetime. Clamped to the 5 hour Vercel Sandbox maximum; invalid values are ignored.
+- `BOTID_EXTRA_ALLOWED_HOSTS`: comma-separated extra frontend hosts allowed to call BotID-protected routes. Add your custom production domain here when the app is not served from a `*.vercel.app` domain.
 - `VERCEL_PROJECT_PRODUCTION_URL` / `NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL`: canonical production URL for metadata and some callback behavior.
 - `VERCEL_SANDBOX_BASE_SNAPSHOT_ID`: optional base snapshot for fresh sandboxes. If unset, sandboxes start from Vercel's standard Sandbox runtime. Use a snapshot created in/accessible to your own Vercel scope.
 - `ELEVENLABS_API_KEY`: voice transcription.
@@ -138,7 +142,7 @@ ELEVENLABS_API_KEY=
    - make the app public if you want org installs to work cleanly
 
 9. Add the GitHub App env vars and redeploy.
-10. Optionally add Redis/KV, `OPEN_AGENTS_RESOURCE_PROFILE=hobby` for Hobby-compatible resource defaults, the canonical production URL vars, and your own `VERCEL_SANDBOX_BASE_SNAPSHOT_ID` if you want fresh sandboxes to start from a preconfigured image.
+10. Optionally add Redis/KV, the canonical production URL vars, `BOTID_EXTRA_ALLOWED_HOSTS` if you serve the app from a custom domain, and your own `VERCEL_SANDBOX_BASE_SNAPSHOT_ID` if you want fresh sandboxes to start from a preconfigured image. Only set `OPEN_AGENTS_RESOURCE_PROFILE=hobby` if the project lives on a Vercel Hobby account.
 
 ## Local setup
 
@@ -151,10 +155,10 @@ ELEVENLABS_API_KEY=
 2. Create your local env file:
 
    ```bash
-   cp apps/web/.env.example apps/web/.env
+   cp .env.example apps/web/.env.local
    ```
 
-3. Fill in the required values in `apps/web/.env`.
+3. Fill in the required values in `apps/web/.env.local` (`drizzle-kit` reads this file too).
 4. Start the app:
 
    ```bash
