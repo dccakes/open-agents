@@ -51,6 +51,16 @@
   --radius-4xl: calc(var(--radius) + 16px);
 }
 
+/*
+ * Pickle brand palette — shared with withpickle.com. Values mirror the
+ * marketing site's design system so QuackOps reads as part of the same family.
+ */
+:root {
+  --pk-dark-teal: hsl(178 79% 8%);
+  --pk-primary: hsl(178 79% 16%);
+  --pk-accent: hsl(79 70% 72%);
+}
+
 :root {
   --radius: 0.625rem;
   --background: oklch(1 0 0);
@@ -125,178 +135,15 @@
 }
 
 .landing {
-  --l-stage-slate-bg: #d4d4d4;
-  --l-stage-slate-img:
-    radial-gradient(
-      900px 420px at 26% 18%,
-      rgba(255, 255, 255, 0.5) 0%,
-      rgba(255, 255, 255, 0) 62%
-    ),
-    radial-gradient(
-      720px 520px at 82% 72%,
-      rgba(0, 0, 0, 0.12) 0%,
-      rgba(0, 0, 0, 0) 58%
-    ),
-    linear-gradient(180deg, rgba(0, 0, 0, 0.06) 0%, rgba(0, 0, 0, 0) 55%);
-  --l-stage-slate-shadow:
-    0 50px 90px rgba(0, 0, 0, 0.1), 0 2px 0 rgba(255, 255, 255, 0.5) inset,
-    0 -1px 0 rgba(0, 0, 0, 0.08) inset;
-  --l-stage-ash-bg: #cccccc;
-  --l-stage-ash-img:
-    radial-gradient(
-      900px 420px at 22% 20%,
-      rgba(255, 255, 255, 0.55) 0%,
-      rgba(255, 255, 255, 0) 62%
-    ),
-    radial-gradient(
-      820px 560px at 80% 74%,
-      rgba(0, 0, 0, 0.1) 0%,
-      rgba(0, 0, 0, 0) 60%
-    ),
-    linear-gradient(180deg, rgba(0, 0, 0, 0.05) 0%, rgba(0, 0, 0, 0) 55%);
-  --l-stage-ash-shadow:
-    0 50px 90px rgba(0, 0, 0, 0.1), 0 2px 0 rgba(255, 255, 255, 0.5) inset,
-    0 -1px 0 rgba(0, 0, 0, 0.08) inset;
-  --l-stage-iron-bg: #d0cec9;
-  --l-stage-iron-img:
-    radial-gradient(
-      900px 420px at 24% 18%,
-      rgba(255, 255, 255, 0.5) 0%,
-      rgba(255, 255, 255, 0) 62%
-    ),
-    radial-gradient(
-      780px 560px at 82% 72%,
-      rgba(0, 0, 0, 0.1) 0%,
-      rgba(0, 0, 0, 0) 60%
-    ),
-    linear-gradient(180deg, rgba(0, 0, 0, 0.06) 0%, rgba(0, 0, 0, 0) 55%);
-  --l-stage-iron-shadow:
-    0 10px 20px rgba(0, 0, 0, 0.1), 0 2px 0 rgba(255, 255, 255, 0.5) inset,
-    0 -1px 0 rgba(0, 0, 0, 0.08) inset;
-  --l-stage-overlay: rgba(0, 0, 0, 0.02);
-  --l-bg: #fafafa;
-  --l-surface: #ffffff;
-  --l-surface-2: #f0f0f0;
-  --l-surface-3: rgba(0, 0, 0, 0.04);
-  --l-surface-4: rgba(0, 0, 0, 0.07);
-  --l-border: rgba(0, 0, 0, 0.12);
-  --l-border-subtle: rgba(0, 0, 0, 0.06);
-  --l-fg: #0a0a0a;
-  --l-fg-2: rgba(0, 0, 0, 0.7);
-  --l-fg-3: rgba(0, 0, 0, 0.5);
-  --l-fg-4: rgba(0, 0, 0, 0.35);
-  --l-fg-5: rgba(0, 0, 0, 0.18);
-  --l-fg-6: rgba(0, 0, 0, 0.08);
-  --l-accent: #ff8a3d;
-  --l-panel: #ffffff;
-  --l-panel-fg: rgba(0, 0, 0, 0.85);
-  --l-panel-fg-2: rgba(0, 0, 0, 0.6);
-  --l-panel-fg-3: rgba(0, 0, 0, 0.4);
-  --l-panel-fg-4: rgba(0, 0, 0, 0.22);
-  --l-panel-fg-5: rgba(0, 0, 0, 0.1);
-  --l-panel-border: rgba(0, 0, 0, 0.12);
-  --l-panel-surface: rgba(0, 0, 0, 0.05);
-  --l-panel-active: rgba(0, 0, 0, 0.07);
-  --l-panel-dot: rgba(0, 0, 0, 0.35);
-  --l-btn-bg: #0a0a0a;
-  --l-btn-fg: #ffffff;
-  --l-btn-hover: rgba(0, 0, 0, 0.8);
-  --l-code-bg: #eaeaea;
-  --l-window-shadow:
-    0 40px 80px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.06);
-  --l-nav-bg: rgb(250, 250, 250);
-}
-
-.dark .landing {
-  --l-stage-slate-bg: #b8b8b8;
-  --l-stage-slate-img:
-    radial-gradient(
-      900px 420px at 26% 18%,
-      rgba(255, 255, 255, 0.55) 0%,
-      rgba(255, 255, 255, 0) 62%
-    ),
-    radial-gradient(
-      720px 520px at 82% 72%,
-      rgba(0, 0, 0, 0.18) 0%,
-      rgba(0, 0, 0, 0) 58%
-    ),
-    linear-gradient(180deg, rgba(0, 0, 0, 0.12) 0%, rgba(0, 0, 0, 0) 55%);
-  --l-stage-slate-shadow:
-    0 50px 90px rgba(0, 0, 0, 0.55), 0 2px 0 rgba(255, 255, 255, 0.06) inset,
-    0 -1px 0 rgba(0, 0, 0, 0.24) inset;
-  --l-stage-ash-bg: #a8a8a8;
-  --l-stage-ash-img:
-    radial-gradient(
-      900px 420px at 22% 20%,
-      rgba(255, 255, 255, 0.6) 0%,
-      rgba(255, 255, 255, 0) 62%
-    ),
-    radial-gradient(
-      820px 560px at 80% 74%,
-      rgba(0, 0, 0, 0.16) 0%,
-      rgba(0, 0, 0, 0) 60%
-    ),
-    linear-gradient(180deg, rgba(0, 0, 0, 0.1) 0%, rgba(0, 0, 0, 0) 55%);
-  --l-stage-ash-shadow:
-    0 50px 90px rgba(0, 0, 0, 0.55), 0 2px 0 rgba(255, 255, 255, 0.06) inset,
-    0 -1px 0 rgba(0, 0, 0, 0.24) inset;
-  --l-stage-iron-bg: #c0bdb8;
-  --l-stage-iron-img:
-    radial-gradient(
-      900px 420px at 24% 18%,
-      rgba(255, 255, 255, 0.55) 0%,
-      rgba(255, 255, 255, 0) 62%
-    ),
-    radial-gradient(
-      780px 560px at 82% 72%,
-      rgba(0, 0, 0, 0.17) 0%,
-      rgba(0, 0, 0, 0) 60%
-    ),
-    linear-gradient(180deg, rgba(0, 0, 0, 0.12) 0%, rgba(0, 0, 0, 0) 55%);
-  --l-stage-iron-shadow:
-    0 50px 90px rgba(0, 0, 0, 0.55), 0 2px 0 rgba(255, 255, 255, 0.06) inset,
-    0 -1px 0 rgba(0, 0, 0, 0.24) inset;
-  --l-stage-overlay: rgba(0, 0, 0, 0.1);
-  --l-bg: #0a0a0a;
-  --l-surface: #111111;
-  --l-surface-2: #0a0a0a;
-  --l-surface-3: rgba(255, 255, 255, 0.03);
-  --l-surface-4: rgba(255, 255, 255, 0.05);
-  --l-border: rgba(255, 255, 255, 0.06);
-  --l-border-subtle: rgba(255, 255, 255, 0.04);
-  --l-fg: #ffffff;
-  --l-fg-2: rgba(255, 255, 255, 0.7);
-  --l-fg-3: rgba(255, 255, 255, 0.5);
-  --l-fg-4: rgba(255, 255, 255, 0.35);
-  --l-fg-5: rgba(255, 255, 255, 0.2);
-  --l-fg-6: rgba(255, 255, 255, 0.1);
-  --l-accent: #ff8a3d;
-  --l-panel: #0a0a0a;
-  --l-panel-fg: rgba(255, 255, 255, 0.6);
-  --l-panel-fg-2: rgba(255, 255, 255, 0.4);
-  --l-panel-fg-3: rgba(255, 255, 255, 0.25);
-  --l-panel-fg-4: rgba(255, 255, 255, 0.15);
-  --l-panel-fg-5: rgba(255, 255, 255, 0.08);
-  --l-panel-border: rgba(255, 255, 255, 0.06);
-  --l-panel-surface: rgba(255, 255, 255, 0.03);
-  --l-panel-active: rgba(255, 255, 255, 0.05);
-  --l-panel-dot: rgba(255, 255, 255, 0.25);
-  --l-btn-bg: #ffffff;
-  --l-btn-fg: #000000;
-  --l-btn-hover: rgba(255, 255, 255, 0.9);
-  --l-code-bg: #050505;
-  --l-window-shadow: 0 40px 80px rgba(0, 0, 0, 0.55);
-  --l-nav-bg: rgb(10, 10, 10);
-}
-
-.grain::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvmHAAAAP0lEQVR4nO3QoQkAIBAEwZ//aQ0YzZzJq8M0p7oJ9A8jzq0AAACAvw9Yx0n4Kkq6qgAAAAAAAAAAAPw4b8m8wN8bK9yS8yZ0bA9x5wAAc2u7oQAAAABJRU5ErkJggg==");
-  mix-blend-mode: overlay;
-  opacity: 0.06;
+  /* Inter is Pickle's brand typeface. */
+  font-family:
+    var(--font-inter),
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
 }
 
 .scrollbar-fade {
@@ -439,5 +286,73 @@
   .wrapped-bar-fill {
     animation: none;
     transform: scaleX(1);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Pickle-brand motion: the slowly tumbling brand cube from withpickle.com.
+ * ------------------------------------------------------------------------ */
+
+/*
+ * Y spins continuously while X oscillates twice per revolution, matching the
+ * sin()-driven rotation of the marketing site's WebGL cube.
+ */
+@keyframes pk-cube-tumble {
+  0% {
+    transform: rotateX(0deg) rotateY(0deg);
+  }
+  12.5% {
+    transform: rotateX(28deg) rotateY(45deg);
+  }
+  25% {
+    transform: rotateX(0deg) rotateY(90deg);
+  }
+  37.5% {
+    transform: rotateX(-28deg) rotateY(135deg);
+  }
+  50% {
+    transform: rotateX(0deg) rotateY(180deg);
+  }
+  62.5% {
+    transform: rotateX(28deg) rotateY(225deg);
+  }
+  75% {
+    transform: rotateX(0deg) rotateY(270deg);
+  }
+  87.5% {
+    transform: rotateX(-28deg) rotateY(315deg);
+  }
+  100% {
+    transform: rotateX(0deg) rotateY(360deg);
+  }
+}
+
+.pk-cube-tumble {
+  animation: pk-cube-tumble 18s linear infinite;
+  transform-style: preserve-3d;
+}
+
+@keyframes pk-pulse-ring {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.35);
+  }
+}
+
+.pk-pulse-ring {
+  animation: pk-pulse-ring 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pk-cube-tumble,
+  .pk-pulse-ring {
+    animation: none;
+    opacity: 1;
+    transform: none;
   }
 }

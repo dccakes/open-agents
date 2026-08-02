@@ -1,6 +1,7 @@
 "use client";
 
 import { History } from "lucide-react";
+import { Logo } from "@/components/landing/logo";
 import { SessionStarter } from "@/components/session-starter";
 
 const NOOP = () => {};
@@ -14,7 +15,7 @@ export function HomeSkeleton({ lastRepo = null }: HomeSkeletonProps) {
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       <header className="flex items-center justify-between px-6 py-4 sm:grid sm:grid-cols-[1fr_auto_1fr]">
         <div className="flex items-center gap-2 sm:justify-self-start">
-          <span className="text-lg font-semibold">Open Agents</span>
+          <Logo showSuffix={false} />
         </div>
         <div className="hidden sm:block" />
         <div className="flex items-center gap-2 sm:justify-self-end">
