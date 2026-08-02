@@ -45,8 +45,12 @@ later, replace the script with the rule.
 
 **Steps.**
 1. Inventory all non-test `process.env` reads (`grep -rn "process.env" --include="*.ts" --include="*.tsx"`), grouping by concern.
-2. Create the config modules with Zod schemas; `z.infer` the types. Distinguish
-   required/optional/dev-only vars explicitly.
+2. Create the config modules with Zod schemas; `z.infer` the types. Give every var an
+   explicit environment axis: `required-prod | optional | dev-only` — several vars are
+   legitimately absent in previews but must fail a production boot (e.g.
+   `LINEAR_WEBHOOK_SECRET`, whose absence today turns the webhook route into a 500 at
+   request time). Boot validation in `instrumentation.ts` enforces the axis per
+   `VERCEL_ENV`, not one flat "required" list.
 3. Migrate call sites incrementally (one concern per commit), keeping behavior identical —
    including current default values and error messages where user-facing.
 4. Add the boundary-check script + wire into root `ci` script.
@@ -70,19 +74,28 @@ the window in which npm supply-chain attacks live. QM enforces a 7-day cooldown 
 `.npmrc min-release-age`.
 
 **Steps.**
-1. Create root `bunfig.toml` with `[install]` → `minimumReleaseAge = 604800` (seconds; 7 days).
-2. This requires Bun ≥ 1.2.20 — the repo pins `bun@1.2.14` in `packageManager` and CI.
-   Bump `packageManager` in root `package.json` and `bun-version` in
-   `.github/workflows/ci.yml` to the current stable Bun **in the same PR**, and run the
-   full suite to catch runtime regressions.
+1. **Bun bump as its own PR first** — this is a runtime upgrade across a monorepo whose
+   tests, workflow execution, and toolchain are all Bun-native, not an "S" config
+   change. The repo pins `bun@1.2.14` in `packageManager` and CI; bump
+   `packageManager` in root `package.json` and `bun-version` in
+   `.github/workflows/ci.yml` to the current stable Bun, run the full suite, and let it
+   soak on main for a couple of days before the next step.
+2. Then create root `bunfig.toml` with `[install]` → `minimumReleaseAge = 604800`
+   (seconds; 7 days — requires Bun ≥ 1.2.20).
 3. Verify enforcement: temporarily add a dependency version published < 7 days ago and
    confirm `bun install` blocks/warns per Bun's documented behavior; remove it.
 4. If a genuinely urgent security patch is ever needed inside the window, use
    `minimumReleaseAgeExcludes` for that one package — document this escape hatch in a
    comment in `bunfig.toml`.
+5. Be honest about the protection window in the `bunfig.toml` comment:
+   `minimumReleaseAge` gates **new resolutions** (adding/updating deps). CI's
+   `bun install --frozen-lockfile` installs exactly what the lockfile pins and is not
+   re-screened — the cooldown protects the moment a version enters the lockfile, not
+   every install after.
 
-**Acceptance criteria.** `bunfig.toml` committed; CI and `packageManager` on the same Bun
-version; `bun install --frozen-lockfile` green in CI; behavior verified per step 3.
+**Acceptance criteria.** Bun bump landed and soaked as its own PR; `bunfig.toml`
+committed; CI and `packageManager` on the same Bun version;
+`bun install --frozen-lockfile` green in CI; behavior verified per step 3.
 
 ---
 
@@ -142,14 +155,23 @@ known-limitations) is the model.
    Better Auth sessions, DB contents, sandbox contents, model API keys.
 2. **Trust boundaries**: browser ↔ web app; web app ↔ agent loop; agent ↔ sandbox
    (untrusted code execution); sandbox ↔ network egress; webhooks (GitHub, Linear)
-   ↔ web app (signature verification — audit that both webhook routes verify signatures
-   and document how); model provider ↔ agent (prompt-injection surface: repo content,
-   fetched URLs, issue text are all attacker-controlled inputs to the model).
-3. **Operator assumptions**: Vercel/Neon/provider trust, who holds admin.
-4. **Known limitations** — honest list (e.g. no command policy yet — pending Phase 1;
-   sandbox has open egress; no audit log yet — pending Phase 2). Keep this section
-   maintained as phases land.
-5. Reporting channel for vulnerabilities.
+   ↔ web app; model provider ↔ agent (prompt-injection surface: repo content,
+   fetched URLs, issue text are all attacker-controlled inputs to the model);
+   production ↔ preview (Neon forks the prod DB into every preview, and previews share
+   env secrets — anything in a table is preview-readable).
+3. **Existing protections — document as facts, not gaps** (pre-verified): both webhook
+   routes verify HMAC signatures with `timingSafeEqual`; better-auth OAuth tokens are
+   encrypted at rest (`encryptOAuthTokens: true`); the Linear workspace token is
+   AES-GCM encrypted (`apps/web/lib/linear/token.ts`).
+4. **Operator assumptions**: Vercel/Neon/provider trust, who holds admin.
+5. **Known limitations** — honest list, verified against code: open sign-up (any
+   Vercel/GitHub account becomes a signed-in user — until Phase 1 WS-1.0's membership
+   gate); no command policy yet (Phase 1); sandbox has open egress; share links are
+   public-by-shareId with no auth; `user_sandbox_configs` stores provider API keys as
+   plaintext jsonb (fixed in WS-1.0); migrations auto-run on every deploy with no
+   rollback procedure documented (runbook lands in Phase 1 WS-1.5); no audit log yet
+   (Phase 2). Keep this section maintained as phases land.
+6. Reporting channel for vulnerabilities.
 
 **Acceptance criteria.** SECURITY.md exists; every claim about current behavior verified
 against code (not aspirational); webhook signature verification confirmed or fixed;
@@ -161,8 +183,9 @@ follow-up gaps filed as issues referencing the Phase 1/2 plans.
 
 | PR | Workstream | Size |
 | --- | --- | --- |
-| 1 | WS-0.2 bunfig cooldown + Bun bump | S |
-| 2 | WS-0.3 knip + dead-code sweep | S–M |
-| 3 | WS-0.4 CI hardening + Dependabot triage | M |
-| 4 | WS-0.1 config boundary (can start immediately; largest) | L |
-| 5 | WS-0.5 SECURITY.md (after 0.1/0.4 land, so it documents reality) | S |
+| 1 | WS-0.2a Bun version bump (own PR, soak before 1b) | S, risk-carrying |
+| 2 | WS-0.2b bunfig cooldown | S |
+| 3 | WS-0.3 knip + dead-code sweep | S–M |
+| 4 | WS-0.4 CI hardening + Dependabot triage | M |
+| 5 | WS-0.1 config boundary (can start immediately; largest) | L |
+| 6 | WS-0.5 SECURITY.md (after 0.1/0.4 land, so it documents reality) | S |
