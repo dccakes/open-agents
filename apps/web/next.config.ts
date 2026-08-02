@@ -19,6 +19,15 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  /*
+   * Sandbox provider SDKs must load from node_modules at runtime rather than
+   * being bundled:
+   *  - dockerode pulls in ssh2's native crypto addon, which Turbopack cannot
+   *    place in an ESM chunk
+   *  - @daytonaio/sdk is deliberately not installed (the provider is a stub),
+   *    so a bundler that follows its lazy import fails to resolve it
+   */
+  serverExternalPackages: ["@daytonaio/sdk", "dockerode", "ssh2"],
   experimental: {
     optimizePackageImports: ["lucide-react"],
   },

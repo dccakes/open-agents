@@ -1,19 +1,26 @@
 import { type ComponentProps } from "react";
 import { Button } from "@/components/ui/button";
 
-const GITHUB_URL = "https://github.com/vercel-labs/open-agents";
+const GITHUB_URL = "https://github.com/Next-Degree/quack-ops";
 
 export function GitHubLink({
   children,
   variant = "ghost",
   size,
+  className,
 }: {
   readonly children?: React.ReactNode;
   readonly variant?: ComponentProps<typeof Button>["variant"];
   readonly size?: ComponentProps<typeof Button>["size"];
+  readonly className?: string;
 }) {
   return (
-    <Button variant={variant} size={size ?? (children ? "lg" : "icon")} asChild>
+    <Button
+      variant={variant}
+      size={size ?? (children ? "lg" : "icon")}
+      className={className}
+      asChild
+    >
       <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer">
         <GitHubIcon />
         {children}

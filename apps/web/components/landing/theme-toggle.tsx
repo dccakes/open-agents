@@ -53,10 +53,7 @@ export function ThemeToggle() {
   ];
 
   return (
-    <div
-      className="inline-flex items-center gap-0.5 rounded-full border border-(--l-border) p-[3px]"
-      style={{ backgroundColor: "var(--l-surface-2)" }}
-    >
+    <div className="inline-flex items-center gap-0.5 rounded-full border border-white/10 bg-white/5 p-[3px]">
       {options.map((option) => {
         const active = theme === option.value;
         return (
@@ -66,9 +63,10 @@ export function ThemeToggle() {
             onClick={() => pick(option.value)}
             className="flex size-7 items-center justify-center rounded-full transition-all duration-200"
             style={{
-              backgroundColor: active ? "var(--l-surface)" : "transparent",
-              boxShadow: active ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
-              color: active ? "var(--l-fg)" : "var(--l-fg-2)",
+              backgroundColor: active
+                ? "rgba(255,255,255,0.12)"
+                : "transparent",
+              color: active ? "#ffffff" : "rgba(255,255,255,0.5)",
             }}
             aria-label={`${option.value} theme`}
           >
