@@ -1,0 +1,118 @@
+<svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Define the isometric grid pattern -->
+    <pattern id="grid" width="60" height="34.64" patternUnits="userSpaceOnUse">
+      <path d="M0,17.32 L30,0 L60,17.32 M0,17.32 L30,34.64 M60,17.32 L30,34.64" 
+            stroke="hsl(178, 79%, 16%)" stroke-width="1.5" fill="none" opacity="0.3"/>
+    </pattern>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="1200" height="800" fill="hsl(178, 79%, 8%)"/>
+  <rect width="1200" height="800" fill="url(#grid)"/>
+  
+  <!-- Isometric blocks - each block has top, left, and right faces -->
+  
+  <!-- Block 1 - Teal (top left) -->
+  <g transform="translate(200, 100)">
+    <path d="M0,0 L60,34.64 L60,104 L0,69.28 Z" fill="hsl(178, 79%, 16%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    <path d="M60,34.64 L120,0 L120,69.28 L60,104 Z" fill="hsl(178, 79%, 25%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    <path d="M0,0 L60,-34.64 L120,0 L60,34.64 Z" fill="hsl(173, 80%, 40%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+  </g>
+  
+  <!-- Block 2 - Pickle Green block (top right) -->
+  <g transform="translate(650, 80)">
+    <path d="M0,0 L60,34.64 L60,138.56 L0,104 Z" fill="hsl(79, 70%, 60%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    <path d="M60,34.64 L120,0 L120,104 L60,138.56 Z" fill="hsl(79, 70%, 50%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    <path d="M0,0 L60,-34.64 L120,0 L60,34.64 Z" fill="hsl(79, 70%, 72%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+  </g>
+  
+  <!-- Block 3 - Coral block (middle left) -->
+  <g transform="translate(280, 380)">
+    <path d="M0,0 L60,34.64 L60,104 L0,69.28 Z" fill="hsl(0, 79%, 69%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    <path d="M60,34.64 L120,0 L120,69.28 L60,104 Z" fill="hsl(0, 79%, 59%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    <path d="M0,0 L60,-34.64 L120,0 L60,34.64 Z" fill="hsl(0, 79%, 79%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+  </g>
+  
+  <!-- Block 4 - Purple hexagon (center) -->
+  <g transform="translate(520, 420)">
+    <path d="M0,0 L30,17.32 L30,51.96 L0,34.64 Z" fill="hsl(255, 48%, 68%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    <path d="M30,17.32 L60,0 L60,34.64 L30,51.96 Z" fill="hsl(255, 48%, 58%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    <path d="M0,0 L30,-17.32 L60,0 L30,17.32 Z" fill="hsl(255, 48%, 78%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+  </g>
+  
+  <!-- Block 5 - Blue L-shaped block (center right) -->
+  <g transform="translate(700, 320)">
+    <!-- Vertical part of L - left face -->
+    <path d="M0,0 L60,34.64 L60,173.2 L0,138.56 Z" fill="hsl(210, 79%, 58%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    <!-- Vertical part of L - right face -->
+    <path d="M60,34.64 L120,0 L120,138.56 L60,173.2 Z" fill="hsl(210, 79%, 48%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    <!-- Vertical part of L - top face -->
+    <path d="M0,0 L60,-34.64 L120,0 L60,34.64 Z" fill="hsl(210, 79%, 68%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    
+    <!-- Horizontal part of L - top face -->
+    <path d="M60,173.2 L120,138.56 L180,173.2 L120,207.84 Z" fill="hsl(210, 79%, 68%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    <!-- Horizontal part of L - left face (visible small part) -->
+    <path d="M60,173.2 L60,207.84 L120,242.48 L120,207.84 Z" fill="hsl(210, 79%, 58%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    <!-- Horizontal part of L - right face -->
+    <path d="M120,207.84 L180,173.2 L180,207.84 L120,242.48 Z" fill="hsl(210, 79%, 48%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+  </g>
+  
+  <!-- Block 6 - Amber block (bottom left) -->
+  <g transform="translate(150, 580)">
+    <path d="M0,0 L60,34.64 L60,69.28 L0,34.64 Z" fill="hsl(38, 92%, 50%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    <path d="M60,34.64 L120,0 L120,34.64 L60,69.28 Z" fill="hsl(38, 92%, 40%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    <path d="M0,0 L60,-34.64 L120,0 L60,34.64 Z" fill="hsl(38, 92%, 60%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+  </g>
+  
+  <!-- Block 7 - Teal long block (bottom center) -->
+  <g transform="translate(420, 600)">
+    <path d="M0,0 L90,51.96 L90,86.6 L0,34.64 Z" fill="hsl(178, 79%, 25%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    <path d="M90,51.96 L180,0 L180,34.64 L90,86.6 Z" fill="hsl(178, 79%, 16%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    <path d="M0,0 L90,-51.96 L180,0 L90,51.96 Z" fill="hsl(173, 80%, 40%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+  </g>
+  
+  <!-- Block 8 - Purple block (top center) -->
+  <g transform="translate(500, 20)">
+    <path d="M0,0 L60,34.64 L60,69.28 L0,34.64 Z" fill="hsl(255, 48%, 58%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    <path d="M60,34.64 L120,0 L120,34.64 L60,69.28 Z" fill="hsl(255, 48%, 48%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    <path d="M0,0 L60,-34.64 L120,0 L60,34.64 Z" fill="hsl(255, 48%, 68%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+  </g>
+  
+  <!-- Block 9 - Blue block (right side) -->
+  <g transform="translate(950, 280)">
+    <path d="M0,0 L60,34.64 L60,104 L0,69.28 Z" fill="hsl(210, 79%, 68%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    <path d="M60,34.64 L90,17.32 L90,86.6 L60,104 Z" fill="hsl(210, 79%, 58%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    <path d="M0,0 L30,-17.32 L90,17.32 L60,34.64 Z" fill="hsl(210, 79%, 78%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+  </g>
+  
+  <!-- Block 10 - Pickle Green small (bottom right) -->
+  <g transform="translate(980, 560)">
+    <path d="M0,0 L40,23.09 L40,69.28 L0,46.19 Z" fill="hsl(79, 70%, 60%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    <path d="M40,23.09 L80,0 L80,46.19 L40,69.28 Z" fill="hsl(79, 70%, 50%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    <path d="M0,0 L40,-23.09 L80,0 L40,23.09 Z" fill="hsl(79, 70%, 72%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+  </g>
+  
+  <!-- Additional accent blocks for more variety -->
+  
+  <!-- Small coral block -->
+  <g transform="translate(100, 240)">
+    <path d="M0,0 L30,17.32 L30,51.96 L0,34.64 Z" fill="hsl(0, 79%, 69%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    <path d="M30,17.32 L60,0 L60,34.64 L30,51.96 Z" fill="hsl(0, 79%, 59%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    <path d="M0,0 L30,-17.32 L60,0 L30,17.32 Z" fill="hsl(0, 79%, 79%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+  </g>
+  
+  <!-- Blue cube top right -->
+  <g transform="translate(850, 120)">
+    <path d="M0,0 L45,25.98 L45,51.96 L0,25.98 Z" fill="hsl(210, 79%, 68%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    <path d="M45,25.98 L90,0 L90,25.98 L45,51.96 Z" fill="hsl(210, 79%, 58%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    <path d="M0,0 L45,-25.98 L90,0 L45,25.98 Z" fill="hsl(210, 79%, 78%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+  </g>
+  
+  <!-- Teal block lower left -->
+  <g transform="translate(50, 480)">
+    <path d="M0,0 L50,28.87 L50,86.6 L0,57.74 Z" fill="hsl(178, 79%, 16%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    <path d="M50,28.87 L100,0 L100,57.74 L50,86.6 Z" fill="hsl(178, 79%, 25%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+    <path d="M0,0 L50,-28.87 L100,0 L50,28.87 Z" fill="hsl(173, 80%, 40%)" stroke="hsl(178, 79%, 8%)" stroke-width="2"/>
+  </g>
+</svg>

@@ -51,6 +51,29 @@
   --radius-4xl: calc(var(--radius) + 16px);
 }
 
+/*
+ * Pickle brand palette — shared with withpickle.com.
+ * Values mirror the marketing site's design system so QuackOps reads as part
+ * of the same family. All hues are HSL to match the source of truth.
+ */
+:root {
+  --pk-dark-teal: hsl(178 79% 8%);
+  --pk-deep-teal: hsl(178 79% 12%);
+  --pk-primary: hsl(178 79% 16%);
+  --pk-primary-hover: hsl(178 79% 22%);
+  --pk-accent: hsl(79 70% 72%);
+  --pk-accent-strong: hsl(70 100% 48%);
+  --pk-cloud: hsl(0 0% 97%);
+  --pk-teal: hsl(173 80% 40%);
+  --pk-amber: hsl(38 92% 50%);
+}
+
+.dark {
+  /* The cloud surface is a light neutral on the marketing site; in dark mode
+     it becomes a teal-tinted panel so banded sections still separate. */
+  --pk-cloud: hsl(178 30% 7%);
+}
+
 :root {
   --radius: 0.625rem;
   --background: oklch(1 0 0);
@@ -125,6 +148,15 @@
 }
 
 .landing {
+  /* Inter is Pickle's brand typeface. */
+  font-family:
+    var(--font-inter),
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
   --l-stage-slate-bg: #d4d4d4;
   --l-stage-slate-img:
     radial-gradient(
@@ -173,7 +205,7 @@
   --l-stage-iron-shadow:
     0 10px 20px rgba(0, 0, 0, 0.1), 0 2px 0 rgba(255, 255, 255, 0.5) inset,
     0 -1px 0 rgba(0, 0, 0, 0.08) inset;
-  --l-stage-overlay: rgba(0, 0, 0, 0.02);
+  --l-stage-overlay: rgba(4, 35, 31, 0.03);
   --l-bg: #fafafa;
   --l-surface: #ffffff;
   --l-surface-2: #f0f0f0;
@@ -187,7 +219,7 @@
   --l-fg-4: rgba(0, 0, 0, 0.35);
   --l-fg-5: rgba(0, 0, 0, 0.18);
   --l-fg-6: rgba(0, 0, 0, 0.08);
-  --l-accent: #ff8a3d;
+  --l-accent: var(--pk-primary);
   --l-panel: #ffffff;
   --l-panel-fg: rgba(0, 0, 0, 0.85);
   --l-panel-fg-2: rgba(0, 0, 0, 0.6);
@@ -198,9 +230,9 @@
   --l-panel-surface: rgba(0, 0, 0, 0.05);
   --l-panel-active: rgba(0, 0, 0, 0.07);
   --l-panel-dot: rgba(0, 0, 0, 0.35);
-  --l-btn-bg: #0a0a0a;
+  --l-btn-bg: var(--pk-primary);
   --l-btn-fg: #ffffff;
-  --l-btn-hover: rgba(0, 0, 0, 0.8);
+  --l-btn-hover: var(--pk-primary-hover);
   --l-code-bg: #eaeaea;
   --l-window-shadow:
     0 40px 80px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.06);
@@ -256,10 +288,10 @@
   --l-stage-iron-shadow:
     0 50px 90px rgba(0, 0, 0, 0.55), 0 2px 0 rgba(255, 255, 255, 0.06) inset,
     0 -1px 0 rgba(0, 0, 0, 0.24) inset;
-  --l-stage-overlay: rgba(0, 0, 0, 0.1);
-  --l-bg: #0a0a0a;
-  --l-surface: #111111;
-  --l-surface-2: #0a0a0a;
+  --l-stage-overlay: rgba(4, 35, 31, 0.12);
+  --l-bg: hsl(178 45% 4%);
+  --l-surface: hsl(178 35% 7%);
+  --l-surface-2: hsl(178 45% 4%);
   --l-surface-3: rgba(255, 255, 255, 0.03);
   --l-surface-4: rgba(255, 255, 255, 0.05);
   --l-border: rgba(255, 255, 255, 0.06);
@@ -270,7 +302,7 @@
   --l-fg-4: rgba(255, 255, 255, 0.35);
   --l-fg-5: rgba(255, 255, 255, 0.2);
   --l-fg-6: rgba(255, 255, 255, 0.1);
-  --l-accent: #ff8a3d;
+  --l-accent: var(--pk-accent);
   --l-panel: #0a0a0a;
   --l-panel-fg: rgba(255, 255, 255, 0.6);
   --l-panel-fg-2: rgba(255, 255, 255, 0.4);
@@ -281,12 +313,12 @@
   --l-panel-surface: rgba(255, 255, 255, 0.03);
   --l-panel-active: rgba(255, 255, 255, 0.05);
   --l-panel-dot: rgba(255, 255, 255, 0.25);
-  --l-btn-bg: #ffffff;
-  --l-btn-fg: #000000;
-  --l-btn-hover: rgba(255, 255, 255, 0.9);
+  --l-btn-bg: var(--pk-accent);
+  --l-btn-fg: hsl(178 79% 12%);
+  --l-btn-hover: hsl(79 70% 78%);
   --l-code-bg: #050505;
   --l-window-shadow: 0 40px 80px rgba(0, 0, 0, 0.55);
-  --l-nav-bg: rgb(10, 10, 10);
+  --l-nav-bg: hsl(178 45% 4%);
 }
 
 .grain::before {
@@ -439,5 +471,91 @@
   .wrapped-bar-fill {
     animation: none;
     transform: scaleX(1);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Pickle-brand landing animations.
+ * Mirrors the motion language of withpickle.com: staggered fade-ins on scroll
+ * entry and a slowly tumbling brand cube.
+ * ------------------------------------------------------------------------ */
+
+@keyframes pk-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.pk-fade-in {
+  animation: pk-fade-in 600ms ease-out both;
+}
+
+/*
+ * Y spins continuously while X oscillates twice per revolution, matching the
+ * sin()-driven rotation of the marketing site's WebGL cube.
+ */
+@keyframes pk-cube-tumble {
+  0% {
+    transform: rotateX(0deg) rotateY(0deg);
+  }
+  12.5% {
+    transform: rotateX(28deg) rotateY(45deg);
+  }
+  25% {
+    transform: rotateX(0deg) rotateY(90deg);
+  }
+  37.5% {
+    transform: rotateX(-28deg) rotateY(135deg);
+  }
+  50% {
+    transform: rotateX(0deg) rotateY(180deg);
+  }
+  62.5% {
+    transform: rotateX(28deg) rotateY(225deg);
+  }
+  75% {
+    transform: rotateX(0deg) rotateY(270deg);
+  }
+  87.5% {
+    transform: rotateX(-28deg) rotateY(315deg);
+  }
+  100% {
+    transform: rotateX(0deg) rotateY(360deg);
+  }
+}
+
+.pk-cube-tumble {
+  animation: pk-cube-tumble 18s linear infinite;
+  transform-style: preserve-3d;
+}
+
+@keyframes pk-pulse-ring {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.35);
+  }
+}
+
+.pk-pulse-ring {
+  animation: pk-pulse-ring 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pk-fade-in,
+  .pk-cube-tumble,
+  .pk-pulse-ring {
+    animation: none;
+    opacity: 1;
+    transform: none;
   }
 }

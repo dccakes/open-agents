@@ -43,7 +43,7 @@ function Spotlight({
               key={b}
               className="flex items-center gap-3 text-(--l-fg-2) sm:text-lg"
             >
-              <span className="h-1.5 w-1.5 bg-(--l-fg-2)" />
+              <span className="size-1.5 rounded-full bg-(--pk-primary)" />
               {b}
             </li>
           ))}
@@ -74,8 +74,8 @@ export function LandingFeatures() {
         <div>
           <Spotlight
             tone="slate"
-            title="Agents that ship real code."
-            description="Each agent gets a full sandbox environment with filesystem, network, and runtime access. Describe what to build and let the agent work autonomously until it's done."
+            title="Agents that ship real Pickle code."
+            description="Each agent gets a full sandbox with filesystem, network, and runtime access. Hand it a ticket and it works autonomously until the branch is pushed and the PR is open."
             bullets={[
               "File ops, search, shell, and task delegation built in",
               "Explorer and executor subagents for parallel work",
@@ -86,8 +86,8 @@ export function LandingFeatures() {
 
           <Spotlight
             tone="ash"
-            title="Cloud sandboxes, not local machines."
-            description="Every session runs in an isolated Vercel sandbox with its own branch. Work is committed and pushed automatically — nothing is lost when the sandbox expires."
+            title="Cloud sandboxes, not your laptop."
+            description="Every session runs in an isolated sandbox on its own branch, scoped to the repos our GitHub App can reach. Work is committed and pushed automatically — nothing is lost when the sandbox expires."
             bullets={[
               "Ephemeral environments with full git integration",
               "Auto-hibernate on inactivity, instant restore",
@@ -100,7 +100,7 @@ export function LandingFeatures() {
           <Spotlight
             tone="iron"
             title="Durable workflows that survive anything."
-            description="Agent loops run as durable workflows that survive restarts, retry on failure, and coordinate multi-step operations over time. No work is ever lost mid-run."
+            description="Agent loops run as durable workflows that survive restarts, retry on failure, and coordinate multi-step operations over time. Close the tab — the run keeps going."
             bullets={[
               "Resumable agent loops with automatic checkpointing",
               "Post-finish: usage tracking, diff caching, auto-commit",

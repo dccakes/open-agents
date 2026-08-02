@@ -1,4 +1,5 @@
 import { SignInButton } from "@/components/auth/sign-in-button";
+import { brandButton } from "./brand-button";
 
 type BentoItem = {
   readonly id: string;
@@ -69,9 +70,9 @@ function mark(index: number) {
 
 export function LandingBento() {
   return (
-    <section>
+    <section className="scroll-mt-24" id="platform">
       <div className="mx-auto max-w-[1320px] border-t border-(--l-border-subtle)">
-        <div className="grid gap-6 border-b border-(--l-border) px-6 py-14 pb-10 sm:gap-10 sm:px-10 md:grid-cols-2 md:gap-0 md:pb-14 md:py-28">
+        <div className="grid gap-6 border-b border-(--l-border) px-6 py-14 pb-10 sm:gap-10 sm:px-10 md:grid-cols-2 md:gap-0 md:py-28 md:pb-14">
           <div>
             <h2 className="text-balance text-3xl font-semibold leading-[1.05] tracking-tighter sm:text-4xl md:text-6xl">
               Infrastructure
@@ -81,11 +82,15 @@ export function LandingBento() {
           </div>
           <div className="md:pl-10">
             <p className="max-w-md text-balance text-base leading-relaxed text-(--l-fg-2)">
-              Built on production-grade primitives from the Vercel ecosystem. No
-              synthetic demos &mdash; real infrastructure for real agents.
+              Built on production-grade primitives from the Vercel ecosystem and
+              wired into Pickle&apos;s own GitHub, Linear, and deploy pipelines.
             </p>
             <div className="mt-6">
-              <SignInButton />
+              <SignInButton
+                variant="ghost"
+                callbackUrl="/sessions"
+                className={brandButton({ tone: "primary", scale: "md" })}
+              />
             </div>
           </div>
         </div>
