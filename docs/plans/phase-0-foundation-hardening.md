@@ -104,11 +104,12 @@ the window in which npm supply-chain attacks live. QM enforces a 7-day cooldown 
    included. Full test matrix in the sub-plan.
 4. ✅ If a genuinely urgent security patch is ever needed inside the window, use
    `minimumReleaseAgeExcludes` for that one package — document this escape hatch in a
-   comment in `bunfig.toml`. **Done**, and the hatch was needed on day one:
+   comment in `bunfig.toml`. **Done, but documented in the sub-plan rather than inline:**
+   `bunfig.toml` is kept to its three config lines. The hatch was needed on day one:
    `@daytonaio/sdk@^0.203.0` is a `0.x` caret range containing a single two-day-old
    release, so it has no eligible version and blocks every install. Excluded with a
    justification and a removal path.
-5. ✅ Be honest about the protection window in the `bunfig.toml` comment:
+5. ✅ Be honest about the protection window (in the sub-plan, per step 4):
    `minimumReleaseAge` gates **new resolutions** (adding/updating deps). CI's
    `bun install --frozen-lockfile` installs exactly what the lockfile pins and is not
    re-screened — the cooldown protects the moment a version enters the lockfile, not

@@ -15,9 +15,9 @@ minimumReleaseAge = 604800            # 7 days
 minimumReleaseAgeExcludes = ["@daytonaio/sdk"]
 ```
 
-The file carries the rationale, the honest description of the protection window, and the
-justification for the one exclusion. Nothing else changed — `bun.lock` is byte-identical
-after installing under the new config.
+The file itself is kept bare — the rationale, the protection window, and the justification
+for the one exclusion live in this document rather than in inline comments. Nothing else
+changed: `bun.lock` is byte-identical after installing under the new config.
 
 ## Verified behavior (Bun 1.3.14, against the live npm registry)
 
@@ -77,7 +77,10 @@ Options considered:
   config-only PR, and still re-breaks on the next bump.
 
 The exclusion is not an assertion that Daytona is trustworthy. It records that a cooldown
-cannot be expressed for a package whose caret range is a single days-old release.
+cannot be expressed for a package whose caret range is a single days-old release. Anything
+added to `minimumReleaseAgeExcludes` — including the urgent-security-patch case the escape
+hatch exists for — should be justified here and given a removal path, since the file
+carries no inline explanation.
 
 **Follow-up:** widen or pin the `@daytonaio/sdk` range in `packages/sandbox/package.json`
 so an aged version is reachable (for example `>=0.200.1`, or an exact pin bumped
@@ -103,9 +106,10 @@ optional Daytona provider should be a hard dependency of `packages/sandbox` at a
 - [x] `bunfig.toml` committed at the repo root with `minimumReleaseAge = 604800`.
 - [x] Enforcement verified against the live registry (table above), including the escape
       hatch and workspace-subdirectory behavior.
-- [x] Escape hatch documented in a `bunfig.toml` comment, with the one live exclusion
-      justified and given a removal path.
-- [x] The protection window described honestly in the same comment.
+- [x] Escape hatch documented, with the one live exclusion justified and given a removal
+      path. Plan steps 4 and 5 asked for this as `bunfig.toml` comments; it lives in this
+      document instead, to keep the config file bare.
+- [x] The protection window described honestly (see above).
 - [x] `bun install --frozen-lockfile` clean, with no `bun.lock` diff
       (`Checked 1299 installs across 1338 packages (no changes)`).
 - [x] `bun run ci` green.
