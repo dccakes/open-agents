@@ -24,6 +24,7 @@
     "@open-agents/sandbox": "workspace:*",
     "@open-agents/shared": "workspace:*",
     "@pierre/diffs": "^1.0.10",
+    "@pierre/trees": "^1.0.0-beta.3",
     "@radix-ui/react-avatar": "^1.1.11",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
@@ -39,6 +40,7 @@
     "@streamdown/code": "^1.1.1",
     "@vercel/analytics": "^1.4.1",
     "@vercel/oidc": "^2.0.0",
+    "@workflow/ai": "^5.0.0-beta.4",
     "ai": "catalog:",
     "arctic": "^3.7.0",
     "better-auth": "^1.6.5",
@@ -63,7 +65,7 @@
     "swr": "^2.3.8",
     "tailwind-merge": "^3.4.0",
     "vaul": "^1.1.2",
-    "workflow": "^4.2.0-beta.72",
+    "workflow": "^5.0.0-beta.5",
     "zod": "catalog:"
   },
   "devDependencies": {

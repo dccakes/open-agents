@@ -1,24 +1,27 @@
-import { checkBotId } from "botid/server";
-import {
-  connectSandbox,
-  defaultRegistry,
-  type SandboxProviderType,
-  type SandboxState,
-} from "@open-agents/sandbox";
+import { connectSandbox, type SandboxState } from "@open-agents/sandbox";
 import {
   requireAuthenticatedUser,
   requireOwnedSession,
   type SessionRecord,
 } from "@/app/api/sessions/_lib/session-context";
-import { botIdConfig } from "@/lib/botid";
-import { getGitHubUserProfile, getUserGitHubToken } from "@/lib/github/token";
-import { getUserSandboxConfigs } from "@/lib/db/sandbox-configs";
+import { checkBotProtection } from "@/lib/botid";
+import { getGitHubUserProfile } from "@/lib/github/users";
 import { updateSession } from "@/lib/db/sessions";
-import { parseGitHubUrl } from "@/lib/github/client";
+import { parseGitHubHttpsUrl } from "@/lib/github/urls";
+import {
+  verifyRepoAccess,
+  getRepoAccessErrorMessage,
+} from "@/lib/github/access";
+import {
+  mintInstallationToken,
+  revokeInstallationToken,
+  type ScopedInstallationToken,
+} from "@/lib/github/app";
 import {
   DEFAULT_SANDBOX_BASE_SNAPSHOT_ID,
   DEFAULT_SANDBOX_PORTS,
   DEFAULT_SANDBOX_TIMEOUT_MS,
+  DEFAULT_SANDBOX_VCPUS,
 } from "@/lib/sandbox/config";
 import {
   buildActiveLifecycleUpdate,
@@ -32,16 +35,8 @@ import {
   getSessionSandboxName,
   hasResumableSandboxState,
 } from "@/lib/sandbox/utils";
-import { getEnvResolver } from "@/lib/sandbox/env-resolver";
-import {
-  buildEffectiveProviderConfig,
-  isConfiguredProvider,
-} from "@/lib/sandbox-provider-settings";
-import {
-  getDbProvisioner,
-  type DbTeardownMetadata,
-} from "@/lib/sandbox/db-provisioner";
 import { getServerSession } from "@/lib/session/get-server-session";
+import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 // import { buildDevelopmentDotenvFromVercelProject } from "@/lib/vercel/projects";
 // import { getUserVercelToken } from "@/lib/vercel/token";
 
@@ -50,46 +45,7 @@ interface CreateSandboxRequest {
   branch?: string;
   isNewBranch?: boolean;
   sessionId?: string;
-  sandboxType?: SandboxProviderType | "cloud";
-}
-
-function isValidRequestSandboxType(
-  type: unknown,
-): type is SandboxProviderType | "cloud" {
-  return (
-    type === "vercel" ||
-    type === "docker" ||
-    type === "daytona" ||
-    type === "cloud"
-  );
-}
-
-function toProviderType(type: unknown): SandboxProviderType {
-  if (type === "docker" || type === "daytona" || type === "vercel") {
-    return type;
-  }
-
-  // Backward compatibility for legacy persisted states.
-  if (type === "cloud") {
-    return "vercel";
-  }
-
-  return "vercel";
-}
-
-function extractDbTeardownMetadata(
-  sessionRecord: SessionRecord,
-): DbTeardownMetadata | null {
-  const rawMetadata = sessionRecord.dbTeardownMetadata;
-  if (!rawMetadata) {
-    return null;
-  }
-
-  if (!rawMetadata.identifier) {
-    return null;
-  }
-
-  return rawMetadata;
+  sandboxType?: "vercel";
 }
 
 // async function syncVercelProjectEnvVarsToSandbox(params: {
@@ -145,14 +101,15 @@ export async function POST(req: Request) {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  if (
-    body.sandboxType !== undefined &&
-    !isValidRequestSandboxType(body.sandboxType)
-  ) {
+  if (body.sandboxType && body.sandboxType !== "vercel") {
     return Response.json({ error: "Invalid sandbox type" }, { status: 400 });
   }
 
   const { repoUrl, branch = "main", isNewBranch = false, sessionId } = body;
+
+  if (!sessionId) {
+    return Response.json({ error: "Missing sessionId" }, { status: 400 });
+  }
 
   // Get session for auth
   const session = await getServerSession();
@@ -160,116 +117,33 @@ export async function POST(req: Request) {
     return Response.json({ error: "Not authenticated" }, { status: 401 });
   }
 
-  const botVerification = await checkBotId(botIdConfig);
+  const botVerification = await checkBotProtection();
   if (botVerification.isBot) {
     return Response.json({ error: "Access denied" }, { status: 403 });
   }
 
-  if (repoUrl) {
-    const parsedRepo = parseGitHubUrl(repoUrl);
-    if (!parsedRepo) {
-      return Response.json(
-        { error: "Invalid GitHub repository URL" },
-        { status: 400 },
-      );
-    }
+  const limited = await checkRateLimit({
+    key: rateLimitKey(["sandbox-create", session.user.id]),
+    limit: 20,
+    windowMs: 60_000,
+  });
+  if (limited) {
+    return limited;
   }
 
-  // Validate session ownership
+  // Validate session ownership before minting any short-lived setup tokens.
   let sessionRecord: SessionRecord | undefined;
-  if (sessionId) {
-    const sessionContext = await requireOwnedSession({
-      userId: session.user.id,
-      sessionId,
-    });
-    if (!sessionContext.ok) {
-      return sessionContext.response;
-    }
-
-    sessionRecord = sessionContext.sessionRecord;
+  const sessionContext = await requireOwnedSession({
+    userId: session.user.id,
+    sessionId,
+  });
+  if (!sessionContext.ok) {
+    return sessionContext.response;
   }
 
-  const requestedType = toProviderType(
-    body.sandboxType ?? sessionRecord?.sandboxState?.type,
-  );
-  const githubToken = await getUserGitHubToken(session.user.id);
+  sessionRecord = sessionContext.sessionRecord;
 
-  if (repoUrl && requestedType !== "vercel") {
-    return Response.json(
-      {
-        error:
-          "Repository bootstrap is currently only supported for the vercel sandbox provider for secure auth reasons. Set sandboxType to 'vercel' or omit repoUrl.",
-      },
-      { status: 400 },
-    );
-  }
-
-  if (repoUrl && !githubToken) {
-    return Response.json(
-      { error: "Connect GitHub to access repositories" },
-      { status: 403 },
-    );
-  }
-
-  const providerDef = defaultRegistry.get(requestedType);
-  if (!providerDef?.isAvailable()) {
-    const reason =
-      providerDef?.reasonUnavailable() ??
-      (providerDef
-        ? `Provider '${requestedType}' is currently unavailable`
-        : `Provider '${requestedType}' is not registered`);
-    return Response.json(
-      { error: `Sandbox provider unavailable: ${reason}` },
-      { status: 400 },
-    );
-  }
-
-  const userSandboxConfigs = await getUserSandboxConfigs(session.user.id);
-  const requestedProviderUserConfig = userSandboxConfigs.find(
-    (config) => config.providerType === requestedType,
-  );
-  const requestedProviderConfig = requestedProviderUserConfig?.config ?? {};
-  const requestedProviderEnabled =
-    requestedProviderUserConfig?.enabled ?? false;
-  const requestedProviderIsConfigured = isConfiguredProvider(
-    providerDef.configFields ?? [],
-    requestedProviderConfig,
-  );
-
-  if (!requestedProviderEnabled || !requestedProviderIsConfigured) {
-    return Response.json(
-      {
-        error:
-          "Sandbox provider unavailable: Provider unavailable. Enable and configure this provider in Settings > Sandboxes.",
-      },
-      { status: 400 },
-    );
-  }
-
-  const providerRuntimeEnv = buildEffectiveProviderConfig(
-    providerDef.configFields ?? [],
-    requestedProviderConfig,
-  );
-
-  const sandboxName = sessionId ? getSessionSandboxName(sessionId) : undefined;
-  const ghProfile = await getGitHubUserProfile(session.user.id);
-  const githubNoreplyEmail =
-    ghProfile?.externalUserId && ghProfile.username
-      ? `${ghProfile.externalUserId}+${ghProfile.username}@users.noreply.github.com`
-      : undefined;
-
-  const gitUser = {
-    name: session.user.name ?? ghProfile?.username ?? session.user.username,
-    email:
-      githubNoreplyEmail ??
-      session.user.email ??
-      `${session.user.username}@users.noreply.github.com`,
-  };
-
-  // ============================================
-  // CREATE OR RESUME: Create a named persistent sandbox for this session.
-  // ============================================
-  const startTime = Date.now();
+  const sandboxName = getSessionSandboxName(sessionId);
 
   const source = repoUrl
     ? {
@@ -279,114 +153,82 @@ export async function POST(req: Request) {
       }
     : undefined;
 
-  let resolvedEnv: Record<string, string> | undefined;
-  try {
-    const envResolver = getEnvResolver();
-    if (envResolver) {
-      resolvedEnv = await envResolver.resolve({
-        projectId: sessionRecord?.vercelProjectId ?? undefined,
-        environment: "production",
-      });
+  // verify repo access (user permissions ∩ installation scope) and get
+  // a repo-scoped read token for clone/setup when a repo is provided
+  let setupToken: ScopedInstallationToken | undefined;
+
+  if (repoUrl) {
+    const parsedRepo = parseGitHubHttpsUrl(repoUrl);
+    if (!parsedRepo) {
+      return Response.json(
+        { error: "Invalid GitHub repository URL" },
+        { status: 400 },
+      );
     }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error("Failed to resolve sandbox environment variables:", error);
-    return Response.json(
-      {
-        error: `Failed to resolve sandbox environment variables. Verify SANDBOX_ENV_RESOLVER configuration and provider credentials. ${message}`,
-      },
-      { status: 500 },
-    );
+
+    const access = await verifyRepoAccess({
+      userId: session.user.id,
+      owner: parsedRepo.owner,
+      repo: parsedRepo.repo,
+    });
+
+    if (!access.ok) {
+      return Response.json(
+        { error: getRepoAccessErrorMessage(access.reason) },
+        { status: 403 },
+      );
+    }
+
+    setupToken = await mintInstallationToken({
+      installationId: access.installationId,
+      repositoryIds: [access.repositoryId],
+      permissions: { contents: "read" },
+    });
   }
 
-  let dbTeardownMetadata: DbTeardownMetadata | undefined;
-  const shouldProvisionDb = sessionRecord?.provisionDb === true;
-
-  if (shouldProvisionDb && sessionId) {
-    const provisioner = await getDbProvisioner(requestedType);
-    if (provisioner) {
-      try {
-        const dbResult = await provisioner.provision(sessionId);
-        resolvedEnv = {
-          ...resolvedEnv,
-          POSTGRES_URL: dbResult.postgresUrl,
-        };
-        dbTeardownMetadata = dbResult.teardownMetadata;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        console.error(
-          `DB provisioning failed for session ${sessionId}:`,
-          error,
-        );
-        return Response.json(
-          { error: `Database provisioning failed: ${message}` },
-          { status: 500 },
-        );
-      }
-    }
-  }
-
-  const mergedEnv =
-    Object.keys(providerRuntimeEnv).length > 0
-      ? {
-          ...resolvedEnv,
-          ...providerRuntimeEnv,
-        }
-      : resolvedEnv;
-
-  const effectiveBaseSnapshotId =
-    providerRuntimeEnv.VERCEL_SANDBOX_BASE_SNAPSHOT_ID ??
-    DEFAULT_SANDBOX_BASE_SNAPSHOT_ID;
-
-  const requestedState: SandboxState =
-    requestedType === "vercel"
-      ? {
-          ...(sessionRecord?.sandboxState &&
-          (sessionRecord.sandboxState.type === "vercel" ||
-            sessionRecord.sandboxState.type === "cloud")
-            ? sessionRecord.sandboxState
-            : {}),
-          type: "vercel",
-          ...(sandboxName ? { sandboxName } : {}),
-          ...(source ? { source } : {}),
-        }
-      : requestedType === "docker"
-        ? {
-            ...(sessionRecord?.sandboxState?.type === "docker"
-              ? sessionRecord.sandboxState
-              : {}),
-            type: "docker",
-          }
-        : {
-            ...(sessionRecord?.sandboxState?.type === "daytona"
-              ? sessionRecord.sandboxState
-              : {}),
-            type: "daytona",
-          };
+  // ============================================
+  // CREATE OR RESUME: Create a named persistent sandbox for this session.
+  // ============================================
+  const startTime = Date.now();
 
   let sandbox: Awaited<ReturnType<typeof connectSandbox>>;
   try {
-    // TODO(quality-review): Extract provider-specific connect option builders
-    // so this route stays focused on orchestration.
+    const ghProfile = await getGitHubUserProfile(session.user.id);
+    const githubNoreplyEmail =
+      ghProfile?.externalUserId && ghProfile.username
+        ? `${ghProfile.externalUserId}+${ghProfile.username}@users.noreply.github.com`
+        : undefined;
+
+    const gitUser = {
+      name: session.user.name ?? ghProfile?.username ?? session.user.username,
+      email:
+        githubNoreplyEmail ??
+        session.user.email ??
+        `${session.user.username}@users.noreply.github.com`,
+    };
+
     sandbox = await connectSandbox({
-      state: requestedState,
+      state: {
+        type: "vercel",
+        ...(sandboxName ? { sandboxName } : {}),
+        source,
+      },
       options: {
-        ...(requestedType === "vercel" && githubToken ? { githubToken } : {}),
+        githubToken: setupToken?.token,
         gitUser,
         timeout: DEFAULT_SANDBOX_TIMEOUT_MS,
+        vcpus: DEFAULT_SANDBOX_VCPUS,
         ports: DEFAULT_SANDBOX_PORTS,
-        baseSnapshotId: effectiveBaseSnapshotId,
-        persistent: requestedType === "vercel" && !!sandboxName,
-        resume: requestedType === "vercel" && !!sandboxName,
-        createIfMissing: requestedType === "vercel" && !!sandboxName,
-        ...(mergedEnv !== undefined ? { env: mergedEnv } : {}),
+        baseSnapshotId: DEFAULT_SANDBOX_BASE_SNAPSHOT_ID,
+        persistent: !!sandboxName,
+        resume: !!sandboxName,
+        createIfMissing: !!sandboxName,
       },
     });
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Unknown sandbox error";
-    console.error(`[sandbox] Failed to connect/create sandbox:`, error);
-    return Response.json({ error: message }, { status: 500 });
+  } finally {
+    if (setupToken) {
+      await revokeInstallationToken(setupToken.token);
+    }
   }
 
   if (sessionId && sandbox.getState) {
@@ -398,7 +240,6 @@ export async function POST(req: Request) {
       lifecycleVersion: getNextLifecycleVersion(
         sessionRecord?.lifecycleVersion,
       ),
-      ...(dbTeardownMetadata ? { dbTeardownMetadata } : {}),
       ...buildActiveLifecycleUpdate(nextState),
     });
 
@@ -442,7 +283,7 @@ export async function POST(req: Request) {
     createdAt: Date.now(),
     timeout: DEFAULT_SANDBOX_TIMEOUT_MS,
     currentBranch: repoUrl ? branch : undefined,
-    mode: requestedType,
+    mode: "vercel",
     timing: { readyMs },
   });
 }
@@ -451,6 +292,20 @@ export async function DELETE(req: Request) {
   const authResult = await requireAuthenticatedUser();
   if (!authResult.ok) {
     return authResult.response;
+  }
+
+  const botVerification = await checkBotProtection();
+  if (botVerification.isBot) {
+    return Response.json({ error: "Access denied" }, { status: 403 });
+  }
+
+  const limited = await checkRateLimit({
+    key: rateLimitKey(["sandbox-delete", authResult.userId]),
+    limit: 10,
+    windowMs: 60_000,
+  });
+  if (limited) {
+    return limited;
   }
 
   let body: unknown;
@@ -489,20 +344,6 @@ export async function DELETE(req: Request) {
   // Connect and stop using unified API
   const sandbox = await connectSandbox(sessionRecord.sandboxState);
   await sandbox.stop();
-
-  const dbTeardownMetadata = extractDbTeardownMetadata(sessionRecord);
-  if (dbTeardownMetadata) {
-    const providerType = toProviderType(sessionRecord.sandboxState?.type);
-    const provisioner = await getDbProvisioner(providerType);
-    if (provisioner) {
-      try {
-        await provisioner.teardown(dbTeardownMetadata);
-      } catch (error) {
-        console.error(`DB teardown failed for session ${sessionId}:`, error);
-        // Best-effort teardown should not block sandbox termination.
-      }
-    }
-  }
 
   const clearedState = clearSandboxState(sessionRecord.sandboxState);
   await updateSession(sessionId, {

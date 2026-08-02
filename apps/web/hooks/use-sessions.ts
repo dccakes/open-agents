@@ -3,7 +3,6 @@
 import { useCallback, useEffect } from "react";
 import { toast } from "sonner";
 import useSWR, { useSWRConfig } from "swr";
-import type { SandboxType } from "@/components/sandbox-selector-compact";
 import type { Chat, Session } from "@/lib/db/schema";
 import type { VercelProjectSelection } from "@/lib/vercel/types";
 import { fetcher } from "@/lib/swr";
@@ -35,8 +34,7 @@ interface CreateSessionInput {
   branch?: string;
   cloneUrl?: string;
   isNewBranch: boolean;
-  sandboxType: SandboxType;
-  provisionDb?: boolean;
+  sandboxType: "vercel";
   autoCommitPush: boolean;
   autoCreatePr: boolean;
   vercelProject?: VercelProjectSelection | null;

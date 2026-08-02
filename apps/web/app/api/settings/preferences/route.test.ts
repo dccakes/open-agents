@@ -10,7 +10,7 @@ let currentSession: {
 const preferencesState = {
   defaultModelId: "anthropic/claude-haiku-4.5",
   defaultSubagentModelId: null as string | null,
-  defaultSandboxType: "vercel" as "vercel" | "docker" | "daytona",
+  defaultSandboxType: "vercel" as const,
   defaultDiffMode: "unified" as const,
   autoCommitPush: false,
   autoCreatePr: false,
@@ -39,32 +39,6 @@ mock.module("@/lib/db/user-preferences", () => ({
       ...preferencesState,
       ...updates,
     };
-  },
-}));
-
-mock.module("@/lib/model-access", () => ({
-  sanitizeUserPreferencesForSession: (
-    preferences: typeof preferencesState,
-    session: typeof currentSession,
-    requestUrl: string,
-  ) => {
-    const isManagedTrial =
-      session?.authProvider === "vercel" &&
-      requestUrl.startsWith("https://open-agents.dev/");
-
-    if (
-      isManagedTrial &&
-      preferences.defaultModelId === "anthropic/claude-opus-4.6"
-    ) {
-      return {
-        ...preferences,
-        defaultModelId: "openai/gpt-5.4",
-        defaultSubagentModelId: "openai/gpt-5.4",
-        modelVariants: [],
-      };
-    }
-
-    return preferences;
   },
 }));
 
@@ -156,22 +130,6 @@ describe("/api/settings/preferences", () => {
     expect(response.status).toBe(400);
     expect(body.error).toBe("Invalid sandbox type");
     expect(updateCalls).toHaveLength(0);
-  });
-
-  test("PATCH accepts docker sandbox type", async () => {
-    const { PATCH } = await routeModulePromise;
-
-    const response = await PATCH(
-      createJsonRequest("PATCH", { defaultSandboxType: "docker" }),
-    );
-    const body = (await response.json()) as {
-      preferences: typeof preferencesState;
-    };
-
-    expect(response.status).toBe(200);
-    expect(updateCalls).toHaveLength(1);
-    expect(updateCalls[0]).toEqual({ defaultSandboxType: "docker" });
-    expect(body.preferences.defaultSandboxType).toBe("docker");
   });
 
   test("PATCH rejects invalid autoCommitPush values", async () => {

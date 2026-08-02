@@ -1,6 +1,11 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import type {
+  GithubProfile,
+  VercelProfile,
+} from "better-auth/social-providers";
 import { nanoid } from "nanoid";
+import { deriveAuthUsername } from "@/lib/auth/username";
 import { db } from "@/lib/db/client";
 import * as schema from "@/lib/db/schema";
 
@@ -66,6 +71,28 @@ function getAllowedAuthHosts(): string[] {
   return [...hosts];
 }
 
+function mapVercelProfileToUser(profile: VercelProfile): { username: string } {
+  return {
+    username: deriveAuthUsername({
+      id: profile.sub,
+      preferred_username: profile.preferred_username,
+      email: profile.email,
+      name: profile.name,
+    }),
+  };
+}
+
+function mapGitHubProfileToUser(profile: GithubProfile): { username: string } {
+  return {
+    username: deriveAuthUsername({
+      id: profile.id,
+      username: profile.login,
+      email: profile.email,
+      name: profile.name,
+    }),
+  };
+}
+
 const authBaseURLFallback = getAuthBaseURLFallback();
 const authAllowedHosts = getAllowedAuthHosts();
 
@@ -97,6 +124,18 @@ export const auth = betterAuth({
     },
   },
 
+  databaseHooks: {
+    user: {
+      create: {
+        before: async (user) => ({
+          data: {
+            username: deriveAuthUsername(user),
+          },
+        }),
+      },
+    },
+  },
+
   session: {
     modelName: "auth_sessions",
   },
@@ -116,26 +155,12 @@ export const auth = betterAuth({
       clientSecret: process.env.VERCEL_APP_CLIENT_SECRET ?? "",
       scope: ["openid", "email", "profile", "offline_access"],
       overrideUserInfoOnSignIn: true,
+      mapProfileToUser: mapVercelProfileToUser,
     },
     github: {
       clientId: process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID ?? "",
       clientSecret: process.env.GITHUB_CLIENT_SECRET ?? "",
-    },
-  },
-
-  databaseHooks: {
-    user: {
-      create: {
-        before: async (user) => {
-          if (!user.username) {
-            const base = (user.email?.split("@")[0] ?? nanoid(8))
-              .toLowerCase()
-              .replace(/[^a-z0-9_-]/g, "");
-            return { data: { ...user, username: base || nanoid(8) } };
-          }
-          return { data: user };
-        },
-      },
+      mapProfileToUser: mapGitHubProfileToUser,
     },
   },
 

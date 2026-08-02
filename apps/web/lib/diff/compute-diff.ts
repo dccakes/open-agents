@@ -93,13 +93,6 @@ export async function computeAndCacheDiff(params: {
       if (isSandboxUnavailableError(stderr)) {
         throw new Error(stderr);
       }
-      // No git repo in sandbox (blank workspace) — return empty diff, not an error.
-      if (stderr.toLowerCase().includes("not a git repository")) {
-        return {
-          files: [],
-          summary: { totalFiles: 0, totalAdditions: 0, totalDeletions: 0 },
-        };
-      }
       console.error("Git command failed:", stderr);
       throw new DiffComputationError(
         "Git command failed. Ensure this is a git repository.",

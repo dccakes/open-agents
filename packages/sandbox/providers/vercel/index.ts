@@ -1,21 +1,24 @@
 import type { SandboxProviderDef } from "../../provider";
 import { defaultRegistry } from "../../registry";
-import { connectVercel } from "./connect";
-import type { VercelState } from "./state";
+import { connectVercel } from "../../vercel/connect";
+import type { VercelState } from "../../vercel/state";
 
-export { VercelSandbox, connectVercelSandbox } from "./sandbox";
-export type { VercelSandboxConfig, VercelSandboxConnectConfig } from "./config";
-export type { VercelState } from "./state";
-export { connectVercel } from "./connect";
+export { VercelSandbox, connectVercelSandbox } from "../../vercel/sandbox";
+export type {
+  VercelSandboxConfig,
+  VercelSandboxConnectConfig,
+} from "../../vercel/config";
+export type { VercelState } from "../../vercel/state";
+export { connectVercel } from "../../vercel/connect";
 export {
   DEFAULT_BASE_SNAPSHOT_COMMAND_TIMEOUT_MS,
   refreshBaseSnapshot,
-} from "./snapshot-refresh";
+} from "../../vercel/snapshot-refresh";
 export type {
   RefreshBaseSnapshotCommandResult,
   RefreshBaseSnapshotOptions,
   RefreshBaseSnapshotResult,
-} from "./snapshot-refresh";
+} from "../../vercel/snapshot-refresh";
 
 export const vercelProvider: SandboxProviderDef<VercelState> = {
   type: "vercel",

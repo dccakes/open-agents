@@ -38,7 +38,6 @@ export function HomePage({ hasSessionCookie, lastRepo }: HomePageProps) {
     cloneUrl?: string;
     isNewBranch: boolean;
     sandboxType: SandboxType;
-    provisionDb: boolean;
     autoCommitPush: boolean;
     autoCreatePr: boolean;
     vercelProject?: VercelProjectSelection | null;
@@ -52,7 +51,6 @@ export function HomePage({ hasSessionCookie, lastRepo }: HomePageProps) {
         cloneUrl: input.cloneUrl,
         isNewBranch: input.isNewBranch,
         sandboxType: input.sandboxType,
-        provisionDb: input.provisionDb,
         autoCommitPush: input.autoCommitPush,
         autoCreatePr: input.autoCreatePr,
         vercelProject: input.vercelProject,

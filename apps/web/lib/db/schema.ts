@@ -181,6 +181,7 @@ export const sessions = pgTable(
     sandboxExpiresAt: timestamp("sandbox_expires_at"),
     hibernateAfter: timestamp("hibernate_after"),
     lifecycleRunId: text("lifecycle_run_id"),
+    sandboxProvisioningRunId: text("sandbox_provisioning_run_id"),
     lifecycleError: text("lifecycle_error"),
     // Git stats (for display in session list)
     linesAdded: integer("lines_added").default(0),
@@ -449,7 +450,7 @@ export const linearWorkspaces = pgTable(
     accessToken: text("access_token").notNull(),
     webhookSecret: text("webhook_secret"),
     webhookId: text("webhook_id"),
-    installedByUserId: text("installed_by_user_id"), // tracking only — workspace-level, not per-user
+    installedByUserId: text("installed_by_user_id"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },

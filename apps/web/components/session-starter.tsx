@@ -11,7 +11,6 @@ import {
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useGitHubConnectionStatus } from "@/hooks/use-github-connection-status";
-import { useSettingsSandboxProviders } from "@/hooks/use-settings-sandbox-providers";
 import { useSession } from "@/hooks/use-session";
 import { useUserPreferences } from "@/hooks/use-user-preferences";
 import { useVercelRepoProjects } from "@/hooks/use-vercel-repo-projects";
@@ -25,25 +24,9 @@ import {
   type SandboxType,
 } from "./sandbox-selector-compact";
 import { SessionStarterVercelSyncSection } from "./session-starter-vercel-sync-section";
-import { Label } from "./ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "./ui/select";
 import { Switch } from "./ui/switch";
 
 type SessionMode = "empty" | "repo";
-
-const SANDBOX_TYPE_SET = new Set<SandboxType>(
-  SANDBOX_OPTIONS.map((option) => option.id),
-);
-
-function isSandboxType(value: string): value is SandboxType {
-  return SANDBOX_TYPE_SET.has(value as SandboxType);
-}
 
 interface SessionStarterProps {
   onSubmit: (session: {
@@ -53,7 +36,6 @@ interface SessionStarterProps {
     cloneUrl?: string;
     isNewBranch: boolean;
     sandboxType: SandboxType;
-    provisionDb: boolean;
     autoCommitPush: boolean;
     autoCreatePr: boolean;
     vercelProject?: VercelProjectSelection | null;
@@ -81,6 +63,7 @@ export function SessionStarter({
   >(undefined);
 
   const { session, loading: sessionLoading, hasGitHub } = useSession();
+  const isTrialUser = session?.isManagedTemplateTrialUser ?? false;
   const { reconnectRequired, isLoading: githubConnectionLoading } =
     useGitHubConnectionStatus({
       enabled: hasGitHub,
@@ -90,48 +73,15 @@ export function SessionStarter({
   const defaultAutoCreatePr = preferences?.autoCreatePr ?? false;
   const [autoCommitPush, setAutoCommitPush] = useState<boolean | null>(null);
   const [autoCreatePr, setAutoCreatePr] = useState<boolean | null>(null);
-  const [provisionDb, setProvisionDb] = useState(false);
   const [gitSettingsExpanded, setGitSettingsExpanded] = useState(false);
-  const [selectedSandboxType, setSelectedSandboxType] =
-    useState<SandboxType | null>(null);
-  const defaultSandboxType =
-    preferences?.defaultSandboxType ?? DEFAULT_SANDBOX_TYPE;
-  const { selectableProviders, loading: sandboxProvidersLoading } =
-    useSettingsSandboxProviders();
-  const fallbackSandboxProvider =
-    selectableProviders.find((provider) => provider.type === "vercel") ??
-    selectableProviders[0];
-
-  useEffect(() => {
-    const selectableTypes = new Set(
-      selectableProviders.map((provider) => provider.type),
-    );
-    const fallbackType = fallbackSandboxProvider?.type ?? null;
-    const preferredType = selectableTypes.has(defaultSandboxType)
-      ? defaultSandboxType
-      : fallbackType;
-
-    setSelectedSandboxType((currentType) => {
-      if (currentType && selectableTypes.has(currentType)) {
-        return currentType;
-      }
-
-      return preferredType;
-    });
-  }, [defaultSandboxType, selectableProviders, fallbackSandboxProvider?.type]);
-
-  const selectedSandboxProvider =
-    selectableProviders.find(
-      (provider) => provider.type === selectedSandboxType,
-    ) ?? fallbackSandboxProvider;
-  const sandboxType = selectedSandboxProvider?.type ?? DEFAULT_SANDBOX_TYPE;
-  const sandboxName = selectedSandboxProvider?.label ?? "Provider unavailable";
-  const hasConfiguredProviders = selectableProviders.length > 0;
-  const sandboxSelectOptions = selectableProviders;
-  const canProvisionDb = selectedSandboxProvider?.capabilities.db ?? true;
+  const sandboxType = preferences?.defaultSandboxType ?? DEFAULT_SANDBOX_TYPE;
+  const sandboxName =
+    SANDBOX_OPTIONS.find((s) => s.id === sandboxType)?.name ?? sandboxType;
+  const isRepoModeDisabled = sessionLoading || isTrialUser;
 
   const shouldLoadVercelProjects =
     mode === "repo" &&
+    !isTrialUser &&
     !githubConnectionLoading &&
     !reconnectRequired &&
     !!selectedOwner &&
@@ -146,6 +96,18 @@ export function SessionStarter({
     repoOwner: selectedOwner,
     repoName: selectedRepo,
   });
+
+  useEffect(() => {
+    if (!isTrialUser || mode === "empty") return;
+
+    setMode("empty");
+    setSelectedOwner("");
+    setSelectedRepo("");
+    setSelectedBranch(null);
+    setIsNewBranch(false);
+    setVercelProjectChoice(undefined);
+    setGitSettingsExpanded(false);
+  }, [isTrialUser, mode]);
 
   useEffect(() => {
     if (!shouldLoadVercelProjects) {
@@ -186,6 +148,8 @@ export function SessionStarter({
   };
 
   const handleModeChange = (newMode: SessionMode) => {
+    if (isRepoModeDisabled && newMode === "repo") return;
+
     setMode(newMode);
     if (newMode === "empty") handleRepoClear();
   };
@@ -205,13 +169,11 @@ export function SessionStarter({
     repoProjects.projects.length > 0 &&
     repoProjects.selectedProjectId === null &&
     vercelProjectChoice === undefined;
-  const controlsDisabled =
-    isLoading || preferencesLoading || sandboxProvidersLoading;
-  const sandboxSelectorDisabled = controlsDisabled || !hasConfiguredProviders;
+  const controlsDisabled = isLoading || preferencesLoading;
   const isSubmitDisabled =
     controlsDisabled ||
+    (isRepoModeDisabled && mode === "repo") ||
     (mode === "repo" && (githubConnectionLoading || reconnectRequired)) ||
-    !selectedSandboxProvider ||
     !isRepoSelectionComplete ||
     isVercelLookupPending ||
     requiresVercelChoice;
@@ -219,6 +181,7 @@ export function SessionStarter({
   const effectiveAutoCreatePr = autoCreatePr ?? defaultAutoCreatePr;
   const showVercelProjectSection =
     mode === "repo" &&
+    !isTrialUser &&
     !githubConnectionLoading &&
     !reconnectRequired &&
     !!selectedOwner &&
@@ -254,7 +217,6 @@ export function SessionStarter({
           : undefined,
       isNewBranch: mode === "repo" ? isNewBranch : false,
       sandboxType,
-      provisionDb: canProvisionDb ? provisionDb : false,
       autoCommitPush: effectiveAutoCommitPush,
       autoCreatePr: effectiveAutoCommitPush ? effectiveAutoCreatePr : false,
       vercelProject,
@@ -291,11 +253,14 @@ export function SessionStarter({
           <button
             type="button"
             onClick={() => handleModeChange("repo")}
+            disabled={isRepoModeDisabled}
             className={cn(
               "flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-all",
-              mode === "repo"
-                ? "border border-border/70 bg-background text-foreground shadow-sm dark:border-transparent dark:bg-white/10 dark:text-neutral-100"
-                : "text-muted-foreground hover:text-foreground dark:text-neutral-400 dark:hover:text-neutral-300",
+              isRepoModeDisabled
+                ? "cursor-not-allowed text-muted-foreground/50 dark:text-neutral-600"
+                : mode === "repo"
+                  ? "border border-border/70 bg-background text-foreground shadow-sm dark:border-transparent dark:bg-white/10 dark:text-neutral-100"
+                  : "text-muted-foreground hover:text-foreground dark:text-neutral-400 dark:hover:text-neutral-300",
             )}
           >
             <GitBranch className="h-3.5 w-3.5" />
@@ -339,48 +304,11 @@ export function SessionStarter({
 
         {mode === "empty" && (
           <p className="text-center text-sm text-muted-foreground dark:text-neutral-500">
-            Start a new chat -- no repository required.
+            {isTrialUser
+              ? "In the hosted demo, you can start chats without connecting GitHub."
+              : "Start a new chat -- no repository required."}
           </p>
         )}
-
-        <div className="grid gap-2">
-          <Label htmlFor="session-sandbox-type">Sandbox</Label>
-          <Select
-            value={selectedSandboxProvider?.type}
-            onValueChange={(value) => {
-              if (!isSandboxType(value)) {
-                return;
-              }
-
-              setSelectedSandboxType(value);
-            }}
-            disabled={sandboxSelectorDisabled}
-          >
-            <SelectTrigger id="session-sandbox-type" className="w-full">
-              <SelectValue placeholder="Select a sandbox provider" />
-            </SelectTrigger>
-            <SelectContent>
-              {sandboxSelectOptions.map((provider) => (
-                <SelectItem key={provider.type} value={provider.type}>
-                  {provider.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          {!hasConfiguredProviders ? (
-            <p className="text-xs text-muted-foreground">
-              Provider unavailable.{" "}
-              <Link
-                href="/settings/sandboxes"
-                className="underline decoration-muted-foreground/60 underline-offset-2 hover:text-foreground"
-              >
-                Configure sandboxes
-              </Link>
-              .
-            </p>
-          ) : null}
-        </div>
 
         {mode === "repo" && !gitSettingsExpanded && (
           <button
@@ -449,22 +377,6 @@ export function SessionStarter({
           </div>
         )}
 
-        {canProvisionDb && (
-          <div className="flex items-center justify-between gap-4 rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5 dark:border-white/10 dark:bg-white/[0.02]">
-            <div className="space-y-0.5">
-              <p className="text-sm font-medium">Provision database</p>
-              <p className="text-xs text-muted-foreground">
-                Inject a session-scoped <code>POSTGRES_URL</code>.
-              </p>
-            </div>
-            <Switch
-              checked={provisionDb}
-              onCheckedChange={setProvisionDb}
-              disabled={controlsDisabled}
-            />
-          </div>
-        )}
-
         <button
           type="button"
           onClick={handleSubmit}
@@ -484,10 +396,10 @@ export function SessionStarter({
           Using {sandboxName} sandbox{" "}
           <span className="text-muted-foreground/60">&middot;</span>{" "}
           <Link
-            href="/settings/sandboxes"
+            href="/settings/preferences"
             className="text-muted-foreground underline decoration-muted-foreground/40 underline-offset-2 transition-colors hover:text-foreground hover:decoration-foreground/40"
           >
-            Manage
+            Change
           </Link>
         </p>
       </div>

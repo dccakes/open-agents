@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { getInstallationsByUserId } from "@/lib/db/installations";
-import { isGitHubAppConfigured } from "@/lib/github/app-auth";
-import { getInstallationManageUrl } from "@/lib/github/installation-url";
-import { getUserGitHubToken, hasGitHubAccount } from "@/lib/github/token";
+import { isGitHubAppConfigured } from "@/lib/github/app";
+import { getInstallationManageUrl } from "@/lib/github/urls";
+import { syncUserInstallations } from "@/lib/github/sync";
+import { getUserGitHubToken } from "@/lib/github/token";
+import { hasGitHubAccount } from "@/lib/github/users";
 import { getServerSession } from "@/lib/session/get-server-session";
 
 interface GitHubOrg {
@@ -177,6 +179,13 @@ export async function GET() {
       orgsResponse.json(),
       userResponse.json(),
     ])) as [GitHubOrg[], GitHubUser];
+
+    // sync installations from GitHub before reading from DB
+    await syncUserInstallations(session.user.id, token, user.login).catch(
+      (err) => {
+        console.error("Failed to sync installations in install-status:", err);
+      },
+    );
 
     // Get all installations from DB
     const installations = await getInstallationsByUserId(session.user.id);

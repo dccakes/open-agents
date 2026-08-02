@@ -257,36 +257,15 @@
     {
       "idx": 36,
       "version": "7",
-      "when": 1777032646436,
-      "tag": "0036_rainy_hulk",
+      "when": 1778835412125,
+      "tag": "0036_faulty_yellow_claw",
       "breakpoints": true
     },
     {
       "idx": 37,
       "version": "7",
-      "when": 1777064225634,
-      "tag": "0037_many_mastermind",
-      "breakpoints": true
-    },
-    {
-      "idx": 38,
-      "version": "7",
-      "when": 1778062261226,
-      "tag": "0038_next_timeslip",
-      "breakpoints": true
-    },
-    {
-      "idx": 39,
-      "version": "7",
-      "when": 1778062437121,
-      "tag": "0039_gorgeous_mysterio",
-      "breakpoints": true
-    },
-    {
-      "idx": 40,
-      "version": "7",
-      "when": 1778425783139,
-      "tag": "0040_loving_tarot",
+      "when": 1784655357701,
+      "tag": "0037_smiling_tyger_tiger",
       "breakpoints": true
     }
   ]

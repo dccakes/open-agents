@@ -447,6 +447,20 @@ export class DockerSandbox implements Sandbox {
     return result.stdout;
   }
 
+  async readFileBuffer(path: string): Promise<Buffer> {
+    const result = await this.exec(
+      `base64 ${quoteForShell(path)}`,
+      this.workingDirectory,
+      10_000,
+    );
+
+    if (!result.success) {
+      throw new Error(`Failed to read file: ${path}`);
+    }
+
+    return Buffer.from(result.stdout, "base64");
+  }
+
   async writeFile(
     path: string,
     content: string,

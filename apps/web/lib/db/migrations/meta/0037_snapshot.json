@@ -1,6 +1,6 @@
 {
-  "id": "3b0a2b8f-278f-4f75-ba14-f0fe4e2ab11e",
-  "prevId": "35be057e-54ad-40d5-a671-0d2bfe05f569",
+  "id": "5af10c7c-ef0d-42e8-ab46-f550c61925e2",
+  "prevId": "43c6497a-ed2b-472e-8eb9-ffa907c2b669",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -538,6 +538,91 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.linear_workspaces": {
+      "name": "linear_workspaces",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "workspace_name": {
+          "name": "workspace_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "access_token": {
+          "name": "access_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "webhook_secret": {
+          "name": "webhook_secret",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "webhook_id": {
+          "name": "webhook_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "installed_by_user_id": {
+          "name": "installed_by_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "linear_workspaces_workspace_id_idx": {
+          "name": "linear_workspaces_workspace_id_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.sessions": {
       "name": "sessions",
       "schema": "",
@@ -697,6 +782,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "sandbox_provisioning_run_id": {
+          "name": "sandbox_provisioning_run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "lifecycle_error": {
           "name": "lifecycle_error",
           "type": "text",
@@ -756,6 +847,24 @@
         "cached_diff_updated_at": {
           "name": "cached_diff_updated_at",
           "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "linear_issue_id": {
+          "name": "linear_issue_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "linear_issue_url": {
+          "name": "linear_issue_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "linear_agent_session_id": {
+          "name": "linear_agent_session_id",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },

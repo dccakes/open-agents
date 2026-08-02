@@ -3,7 +3,7 @@ import type { Dirent } from "fs";
 /**
  * The type of sandbox environment.
  */
-export type SandboxType = "vercel" | "docker" | "daytona";
+export type SandboxType = "cloud" | "vercel" | "docker" | "daytona";
 
 /**
  * Result of a successful snapshot operation.
@@ -77,7 +77,8 @@ export interface ExecResult {
  */
 export interface Sandbox {
   /**
-   * Provider type for this sandbox.
+   * Identifier for the sandbox implementation type.
+   * Used to conditionally adjust agent behavior.
    */
   readonly type: SandboxType;
 
@@ -122,6 +123,7 @@ export interface Sandbox {
   readonly timeout?: number;
 
   readFile(path: string, encoding: "utf-8"): Promise<string>;
+  readFileBuffer(path: string): Promise<Buffer>;
   writeFile(path: string, content: string, encoding: "utf-8"): Promise<void>;
   stat(path: string): Promise<SandboxStats>;
   access(path: string): Promise<void>;
@@ -138,6 +140,12 @@ export interface Sandbox {
    * Execute a shell command in detached mode (returns immediately).
    */
   execDetached?(command: string, cwd: string): Promise<{ commandId: string }>;
+
+  /**
+   * Temporarily update GitHub credential brokering for trusted broker work.
+   * Callers must clear the token as soon as the trusted operation completes.
+   */
+  setGitHubAuthToken?(token?: string): Promise<void>;
 
   /**
    * Get the public URL for an exposed port.

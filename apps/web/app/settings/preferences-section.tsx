@@ -2,8 +2,11 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Plus, Search, Trash2, X } from "lucide-react";
-import Link from "next/link";
 import { type ThemePreference, useTheme } from "@/app/providers";
+import {
+  DEFAULT_SANDBOX_TYPE,
+  type SandboxType,
+} from "@/components/sandbox-selector-compact";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,7 +21,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { ModelCombobox } from "@/components/model-combobox";
 import { useModelOptions } from "@/hooks/use-model-options";
-import { useSettingsSandboxProviders } from "@/hooks/use-settings-sandbox-providers";
 import { useSession } from "@/hooks/use-session";
 import {
   type DiffMode,
@@ -34,6 +36,10 @@ import {
   withMissingModelOption,
 } from "@/lib/model-options";
 
+const SANDBOX_OPTIONS: Array<{ id: SandboxType; name: string }> = [
+  { id: "vercel", name: "Vercel" },
+];
+
 const THEME_OPTIONS: Array<{ id: ThemePreference; name: string }> = [
   { id: "system", name: "System" },
   { id: "light", name: "Light" },
@@ -47,14 +53,6 @@ const DIFF_MODE_OPTIONS: Array<{ id: DiffMode; name: string }> = [
 
 function isThemePreference(value: string): value is ThemePreference {
   return THEME_OPTIONS.some((option) => option.id === value);
-}
-
-function formatSandboxTypeLabel(type: string): string {
-  if (!type) {
-    return "Unknown";
-  }
-
-  return type.charAt(0).toUpperCase() + type.slice(1);
 }
 
 function getGlobalSkillRefError(params: {
@@ -192,9 +190,6 @@ function usePreferencesSectionState() {
   const { theme, setTheme } = useTheme();
   const { session } = useSession();
   const { preferences, loading, updatePreferences } = useUserPreferences();
-  const { providers: sandboxProviders } = useSettingsSandboxProviders({
-    enabled: !!preferences,
-  });
   const { modelOptions, loading: modelOptionsLoading } = useModelOptions();
   const [isSaving, setIsSaving] = useState(false);
   const [globalSkillSource, setGlobalSkillSource] = useState("");
@@ -220,10 +215,6 @@ function usePreferencesSectionState() {
       withMissingModelOption(modelOptions, preferences?.defaultSubagentModelId),
     [modelOptions, preferences?.defaultSubagentModelId],
   );
-  const defaultSandboxType = preferences?.defaultSandboxType ?? "vercel";
-  const defaultSandboxLabel =
-    sandboxProviders.find((provider) => provider.type === defaultSandboxType)
-      ?.label ?? formatSandboxTypeLabel(defaultSandboxType);
 
   const handleThemeChange = (nextTheme: string) => {
     if (isThemePreference(nextTheme)) {
@@ -250,6 +241,17 @@ function usePreferencesSectionState() {
       });
     } catch (error) {
       console.error("Failed to update subagent model preference:", error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSandboxChange = async (sandboxType: SandboxType) => {
+    setIsSaving(true);
+    try {
+      await updatePreferences({ defaultSandboxType: sandboxType });
+    } catch (error) {
+      console.error("Failed to update sandbox preference:", error);
     } finally {
       setIsSaving(false);
     }
@@ -468,10 +470,10 @@ function usePreferencesSectionState() {
     publicProfilePath,
     defaultModelOptions,
     subagentModelOptions,
-    defaultSandboxLabel,
     handleThemeChange,
     handleModelChange,
     handleSubagentModelChange,
+    handleSandboxChange,
     handleDiffModeChange,
     handleAutoCommitPushChange,
     handleAutoCreatePrChange,
@@ -506,8 +508,8 @@ export function PreferencesSection() {
     globalSkillSource,
     setGlobalSkillSource,
     globalSkillsError,
-    defaultSandboxLabel,
     handleThemeChange,
+    handleSandboxChange,
     handleDiffModeChange,
     handleAutoCommitPushChange,
     handleAutoCreatePrChange,
@@ -547,20 +549,25 @@ export function PreferencesSection() {
             </div>
 
             <div className="grid gap-2">
-              <Label>Default Sandbox</Label>
-              <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2.5">
-                <p className="text-sm font-medium">{defaultSandboxLabel}</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Manage providers and default selection in{" "}
-                  <Link
-                    href="/settings/sandboxes"
-                    className="underline decoration-muted-foreground/60 underline-offset-2 hover:text-foreground"
-                  >
-                    Sandboxes
-                  </Link>
-                  .
-                </p>
-              </div>
+              <Label htmlFor="sandbox">Default Sandbox</Label>
+              <Select
+                value={preferences?.defaultSandboxType ?? DEFAULT_SANDBOX_TYPE}
+                onValueChange={(value) =>
+                  handleSandboxChange(value as SandboxType)
+                }
+                disabled={isSaving}
+              >
+                <SelectTrigger id="sandbox" className="w-full">
+                  <SelectValue placeholder="Select a sandbox type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {SANDBOX_OPTIONS.map((option) => (
+                    <SelectItem key={option.id} value={option.id}>
+                      {option.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="grid gap-2">

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { VercelProjectSelection } from "@/lib/vercel/types";
 
 let currentSession: {
@@ -20,13 +20,12 @@ let existingSessionCount = 0;
 let savedLink: VercelProjectSelection | null = null;
 let currentVercelToken: string | null = "vercel-token";
 let matchingProjects: VercelProjectSelection[] = [];
+let matchingProjectsError: Error | null = null;
 const createCalls: Array<Record<string, unknown>> = [];
 const upsertCalls: Array<Record<string, unknown>> = [];
-const providerAvailability: Record<string, boolean> = {
-  vercel: true,
-  docker: true,
-  daytona: true,
-};
+const provisioningKickCalls: string[] = [];
+
+const originalNodeEnv = process.env.NODE_ENV;
 
 mock.module("@/lib/session/get-server-session", () => ({
   getServerSession: async () => currentSession,
@@ -65,13 +64,17 @@ mock.module("@/lib/vercel/token", () => ({
 }));
 
 mock.module("@/lib/vercel/projects", () => ({
-  listMatchingVercelProjects: async () => matchingProjects,
+  isVercelInvalidTokenError: (error: unknown) =>
+    matchingProjectsError !== null && error === matchingProjectsError,
+  listMatchingVercelProjects: async () => {
+    if (matchingProjectsError) {
+      throw matchingProjectsError;
+    }
+    return matchingProjects;
+  },
 }));
 
 mock.module("@/lib/db/sessions", () => ({
-  getSessionById: async () => null,
-  getChatById: async () => null,
-  updateSession: async () => null,
   countSessionsByUserId: async () => existingSessionCount,
   createSessionWithInitialChat: async (input: {
     session: Record<string, unknown>;
@@ -97,31 +100,12 @@ mock.module("@/lib/db/sessions", () => ({
   getArchivedSessionCountByUserId: async () => 0,
   getSessionsWithUnreadByUserId: async () => [],
   getUsedSessionTitles: async () => new Set<string>(),
-  getChatsBySessionId: async () => [],
 }));
 
-mock.module("@open-agents/sandbox", () => ({
-  connectSandbox: async () => ({
-    stop: async () => {},
-  }),
-  defaultRegistry: {
-    get: (type: string) => {
-      if (!(type in providerAvailability)) {
-        return undefined;
-      }
-
-      return {
-        type,
-        capabilities: {
-          persistent: type !== "docker",
-          db: true,
-          envInjection: true,
-          credentialBrokering: type !== "docker",
-        },
-        isAvailable: () => providerAvailability[type],
-        reasonUnavailable: () => undefined,
-      };
-    },
+mock.module("@/lib/sandbox/provisioning-kick", () => ({
+  kickSandboxProvisioningWorkflow: async (sessionId: string) => {
+    provisioningKickCalls.push(sessionId);
+    return { status: "started", runId: `provision-${sessionId}` };
   },
 }));
 
@@ -139,6 +123,10 @@ function createJsonRequest(
 }
 
 describe("/api/sessions POST vercel project linking", () => {
+  afterEach(() => {
+    Object.assign(process.env, { NODE_ENV: originalNodeEnv });
+  });
+
   beforeEach(() => {
     currentSession = {
       user: {
@@ -151,14 +139,13 @@ describe("/api/sessions POST vercel project linking", () => {
     savedLink = null;
     currentVercelToken = "vercel-token";
     matchingProjects = [];
+    matchingProjectsError = null;
     createCalls.length = 0;
     upsertCalls.length = 0;
-    providerAvailability.vercel = true;
-    providerAvailability.docker = true;
-    providerAvailability.daytona = true;
+    provisioningKickCalls.length = 0;
   });
 
-  test("blocks additional sessions for non-Vercel trial users on the managed deployment", async () => {
+  test("blocks additional sessions for managed template trial users", async () => {
     const { POST } = await routeModulePromise;
 
     currentSession = {
@@ -187,7 +174,38 @@ describe("/api/sessions POST vercel project linking", () => {
 
     expect(response.status).toBe(403);
     expect(body.error).toBe(
-      "This hosted deployment includes 1 trial session for non-Vercel accounts. Deploy your own copy to start more.",
+      "This hosted demo includes 1 trial session. Deploy your own copy to unlock the full Open Agents template.",
+    );
+    expect(createCalls).toHaveLength(0);
+  });
+
+  test("blocks repo-backed sessions for trial users", async () => {
+    Object.assign(process.env, { NODE_ENV: "development" });
+    const { POST } = await routeModulePromise;
+
+    currentSession = {
+      authProvider: "vercel",
+      user: {
+        id: "user-1",
+        username: "nico",
+        name: "Nico",
+        email: "person@example.com",
+      },
+    };
+
+    const response = await POST(
+      createJsonRequest({
+        branch: "main",
+        cloneUrl: "https://github.com/vercel-labs/open-agents",
+        repoOwner: "vercel-labs",
+        repoName: "open-agents",
+      }),
+    );
+    const body = (await response.json()) as { error: string };
+
+    expect(response.status).toBe(403);
+    expect(body.error).toBe(
+      "GitHub-backed sessions are disabled in the hosted demo. Deploy your own copy to unlock repository support, or start a new chat without a repository.",
     );
     expect(createCalls).toHaveLength(0);
   });
@@ -242,6 +260,7 @@ describe("/api/sessions POST vercel project linking", () => {
     });
     expect(body.session.vercelProjectId).toBe("project-1");
     expect(body.session.vercelProjectName).toBe("app");
+    expect(provisioningKickCalls).toEqual([String(body.session.id)]);
   });
 
   test("rejects explicit Vercel projects that are not a live match for the repo", async () => {

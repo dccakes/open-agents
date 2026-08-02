@@ -17,7 +17,7 @@ export type {
 // shared types
 export type { Source, FileEntry, SandboxStatus } from "./types";
 
-// providers
+// providers / registry
 export type {
   SandboxProviderType,
   SandboxCapabilities,
@@ -34,7 +34,26 @@ export {
   type SandboxConnectConfig,
 } from "./factory";
 
-// vercel
+// git helpers (used by many app-level callers)
+export {
+  hasUncommittedChanges,
+  stageAll,
+  getCurrentBranch,
+  getHeadSha,
+  getStagedDiff,
+  getChangedFiles,
+  detectBinaryFiles,
+  readFileContents,
+  getFileModes,
+  syncToRemote,
+  syncToRemotePreservingChanges,
+  withTemporaryGitHubAuth,
+  type FileChange,
+  type FileChangeStatus,
+  type FileWithContent,
+} from "./git";
+
+// vercel (re-exported from provider registration)
 export {
   connectVercelSandbox,
   VercelSandbox,

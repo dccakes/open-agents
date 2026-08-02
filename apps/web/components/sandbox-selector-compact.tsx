@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { ChevronDown, CheckIcon } from "lucide-react";
-import type { SandboxProviderType } from "@open-agents/sandbox";
 import { cn } from "@/lib/utils";
 import {
   Popover,
@@ -17,13 +16,12 @@ import {
   CommandList,
 } from "@/components/ui/command";
 
-export type SandboxType = SandboxProviderType;
+export type SandboxType = "vercel";
 
 interface SandboxOption {
   id: SandboxType;
   name: string;
   description: string;
-  beta?: boolean;
 }
 
 export const SANDBOX_OPTIONS: SandboxOption[] = [
@@ -32,17 +30,6 @@ export const SANDBOX_OPTIONS: SandboxOption[] = [
     name: "Vercel",
     description: "Cloud sandbox",
   },
-  {
-    id: "docker",
-    name: "Docker",
-    description: "Local container sandbox",
-  },
-  {
-    id: "daytona",
-    name: "Daytona",
-    description: "Persistent cloud workspace",
-    beta: true,
-  },
 ];
 
 export const DEFAULT_SANDBOX_TYPE: SandboxType = "vercel";
@@ -50,13 +37,11 @@ export const DEFAULT_SANDBOX_TYPE: SandboxType = "vercel";
 interface SandboxSelectorCompactProps {
   value: SandboxType;
   onChange: (sandboxType: SandboxType) => void;
-  availableTypes?: SandboxType[];
 }
 
 export function SandboxSelectorCompact({
   value,
   onChange,
-  availableTypes,
 }: SandboxSelectorCompactProps) {
   const [open, setOpen] = useState(false);
 
@@ -65,9 +50,6 @@ export function SandboxSelectorCompact({
     setOpen(false);
   };
 
-  const availableOptions = availableTypes
-    ? SANDBOX_OPTIONS.filter((sandbox) => availableTypes.includes(sandbox.id))
-    : SANDBOX_OPTIONS;
   const selectedSandbox = SANDBOX_OPTIONS.find((s) => s.id === value);
   const displayText = selectedSandbox?.name ?? value;
 
@@ -87,7 +69,7 @@ export function SandboxSelectorCompact({
           <CommandList>
             <CommandEmpty>No sandbox types found.</CommandEmpty>
             <CommandGroup>
-              {availableOptions.map((sandbox) => (
+              {SANDBOX_OPTIONS.map((sandbox) => (
                 <CommandItem
                   key={sandbox.id}
                   value={sandbox.id}
@@ -99,15 +81,8 @@ export function SandboxSelectorCompact({
                       value === sandbox.id ? "opacity-100" : "opacity-0",
                     )}
                   />
-                  <div className="flex flex-col gap-0.5">
-                    <div className="flex items-center gap-1.5">
-                      <span>{sandbox.name}</span>
-                      {sandbox.beta ? (
-                        <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-300">
-                          beta
-                        </span>
-                      ) : null}
-                    </div>
+                  <div className="flex flex-col">
+                    <span>{sandbox.name}</span>
                     <span className="text-xs text-muted-foreground">
                       {sandbox.description}
                     </span>

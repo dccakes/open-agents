@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import {
-  DEFAULT_SANDBOX_BASE_SNAPSHOT_ID,
   DEFAULT_SANDBOX_TIMEOUT_MS,
+  DEFAULT_SANDBOX_VCPUS,
 } from "@/lib/sandbox/config";
 
 mock.module("server-only", () => ({}));
@@ -34,7 +34,7 @@ interface KickCall {
 
 interface ConnectConfig {
   state: {
-    type: "vercel" | "docker" | "daytona";
+    type: "vercel";
     sandboxName?: string;
     source?: {
       repo?: string;
@@ -47,11 +47,11 @@ interface ConnectConfig {
     gitUser?: {
       email?: string;
     };
-    env?: Record<string, string>;
-    baseSnapshotId?: string;
     persistent?: boolean;
     resume?: boolean;
     createIfMissing?: boolean;
+    timeout?: number;
+    vcpus?: number;
   };
 }
 
@@ -65,23 +65,11 @@ const writeFileCalls: Array<{ path: string; content: string }> = [];
 const execCalls: Array<{ command: string; cwd: string; timeoutMs: number }> =
   [];
 const dotenvSyncCalls: Array<Record<string, unknown>> = [];
-const providerAvailability: Record<string, boolean> = {
-  vercel: true,
-  docker: true,
-  daytona: true,
-};
-const providerUnavailableReason: Record<string, string | undefined> = {};
 
 let sessionRecord: TestSessionRecord;
 let currentVercelAuthInfo: TestVercelAuthInfo | null;
-let currentGitHubToken: string | null;
 let currentDotenvContent: string;
 let currentDotenvError: Error | null;
-let currentUserSandboxConfigs: Array<{
-  providerType: "vercel" | "docker" | "daytona";
-  enabled?: boolean;
-  config: Record<string, string>;
-}>;
 
 mock.module("@/lib/session/get-server-session", () => ({
   getServerSession: async () => ({
@@ -94,12 +82,51 @@ mock.module("@/lib/session/get-server-session", () => ({
   }),
 }));
 
-mock.module("@/lib/github/token", () => ({
+mock.module("@/lib/github/users", () => ({
   getGitHubUserProfile: async () => ({
     externalUserId: "12345",
     username: "nico-gh",
   }),
-  getUserGitHubToken: async () => currentGitHubToken,
+}));
+
+mock.module("@/lib/github/urls", () => ({
+  parseGitHubHttpsUrl: (repoUrl: string) => {
+    let parsed: URL;
+    try {
+      parsed = new URL(repoUrl);
+    } catch {
+      return null;
+    }
+    if (parsed.protocol !== "https:" || parsed.hostname !== "github.com") {
+      return null;
+    }
+    const match = parsed.pathname.match(/^\/([^/]+)\/([^/]+?)(\.git)?$/);
+    if (!match?.[1] || !match[2]) {
+      return null;
+    }
+    return { owner: match[1], repo: match[2] };
+  },
+}));
+
+mock.module("@/lib/github/access", () => ({
+  verifyRepoAccess: async () => ({
+    ok: true,
+    installationId: 999,
+    repositoryId: 123,
+    defaultBranch: "main",
+  }),
+  getRepoAccessErrorMessage: () => "Access denied",
+}));
+
+mock.module("@/lib/github/app", () => ({
+  mintInstallationToken: async () => ({
+    token: "installation-token-mock",
+    expiresAt: null,
+    installationId: 999,
+    repositoryIds: [123],
+    permissions: { contents: "read" },
+  }),
+  revokeInstallationToken: async () => {},
 }));
 
 mock.module("@/lib/vercel/token", () => ({
@@ -131,79 +158,48 @@ mock.module("@/lib/db/sessions", () => ({
   },
 }));
 
-mock.module("@/lib/db/sandbox-configs", () => ({
-  upsertUserSandboxConfig: async () => null,
-  getUserSandboxConfigs: async () =>
-    currentUserSandboxConfigs.map((item, index) => ({
-      id: `sandbox-config-${index}`,
-      userId: "user-1",
-      providerType: item.providerType,
-      enabled: item.enabled ?? true,
-      config: item.config,
-      createdAt: new Date("2026-01-01T00:00:00Z"),
-      updatedAt: new Date("2026-01-01T00:00:00Z"),
-    })),
-}));
-
 mock.module("@/lib/sandbox/lifecycle-kick", () => ({
   kickSandboxLifecycleWorkflow: (input: KickCall) => {
     kickCalls.push(input);
   },
 }));
 
-mock.module("@open-agents/sandbox", () => ({
-  defaultRegistry: {
-    get: (type: string) => {
-      if (!(type in providerAvailability)) {
-        return undefined;
-      }
+mock.module("@/lib/skills/global-skill-installer", () => ({
+  installGlobalSkills: async (params: {
+    sandbox: {
+      workingDirectory: string;
+      exec: (
+        command: string,
+        cwd: string,
+        timeoutMs: number,
+      ) => Promise<unknown>;
+    };
+    globalSkillRefs: Array<{ source: string; skillName: string }>;
+  }) => {
+    const homeResult = await params.sandbox.exec(
+      'printf %s "$HOME"',
+      params.sandbox.workingDirectory,
+      5000,
+    );
+    const home =
+      typeof homeResult === "object" &&
+      homeResult !== null &&
+      "stdout" in homeResult &&
+      typeof homeResult.stdout === "string"
+        ? homeResult.stdout
+        : "/root";
 
-      return {
-        type,
-        capabilities: {
-          persistent: type !== "docker",
-          db: true,
-          envInjection: true,
-          credentialBrokering: type !== "docker",
-        },
-        configFields:
-          type === "daytona"
-            ? [
-                {
-                  key: "DAYTONA_SERVER_URL",
-                  label: "Server URL",
-                  type: "url",
-                  required: true,
-                },
-                {
-                  key: "DAYTONA_API_KEY",
-                  label: "API Key",
-                  type: "password",
-                  required: true,
-                },
-              ]
-            : type === "docker"
-              ? [
-                  {
-                    key: "DOCKER_SANDBOX_IMAGE",
-                    label: "Sandbox Image",
-                    type: "text",
-                    required: true,
-                  },
-                ]
-              : [
-                  {
-                    key: "VERCEL_SANDBOX_BASE_SNAPSHOT_ID",
-                    label: "Base Snapshot ID",
-                    type: "text",
-                    required: false,
-                  },
-                ],
-        isAvailable: () => providerAvailability[type],
-        reasonUnavailable: () => providerUnavailableReason[type],
-      };
-    },
+    for (const ref of params.globalSkillRefs) {
+      await params.sandbox.exec(
+        `HOME='${home}' npx skills add '${ref.source}' --skill '${ref.skillName}' --agent amp -g -y --copy`,
+        params.sandbox.workingDirectory,
+        120000,
+      );
+    }
   },
+}));
+
+mock.module("@open-agents/sandbox", () => ({
   connectSandbox: async (config: ConnectConfig) => {
     connectConfigs.push(config);
 
@@ -258,39 +254,8 @@ describe("/api/sandbox lifecycle kicks", () => {
       expiresAt: 1_700_000_000,
       externalId: "user_ext_1",
     };
-    currentGitHubToken = null;
     currentDotenvContent = 'API_KEY="secret"\n';
     currentDotenvError = null;
-    providerAvailability.vercel = true;
-    providerAvailability.docker = true;
-    providerAvailability.daytona = true;
-    providerUnavailableReason.vercel = undefined;
-    providerUnavailableReason.docker = undefined;
-    providerUnavailableReason.daytona = undefined;
-    delete process.env.DAYTONA_API_KEY;
-    delete process.env.DAYTONA_SERVER_URL;
-    delete process.env.VERCEL_SANDBOX_BASE_SNAPSHOT_ID;
-    currentUserSandboxConfigs = [
-      {
-        providerType: "vercel",
-        config: {
-          VERCEL_SANDBOX_BASE_SNAPSHOT_ID: "default-snapshot-id",
-        },
-      },
-      {
-        providerType: "docker",
-        config: {
-          DOCKER_SANDBOX_IMAGE: "ghcr.io/open-agents/sandbox:latest",
-        },
-      },
-      {
-        providerType: "daytona",
-        config: {
-          DAYTONA_API_KEY: "saved-api-key",
-          DAYTONA_SERVER_URL: "https://saved.daytona.example.com",
-        },
-      },
-    ];
     sessionRecord = {
       id: "session-1",
       userId: "user-1",
@@ -335,6 +300,8 @@ describe("/api/sandbox lifecycle kicks", () => {
         sandboxName: "session_session-1",
       },
       options: {
+        timeout: DEFAULT_SANDBOX_TIMEOUT_MS,
+        vcpus: DEFAULT_SANDBOX_VCPUS,
         persistent: true,
         resume: true,
         createIfMissing: true,
@@ -343,10 +310,9 @@ describe("/api/sandbox lifecycle kicks", () => {
     expect(dotenvSyncCalls).toHaveLength(0);
   });
 
-  test("repo sandboxes broker the user GitHub token instead of embedding it", async () => {
+  test("repo sandboxes use a setup-only installation token instead of embedding it", async () => {
     const { POST } = await routeModulePromise;
 
-    currentGitHubToken = "github-user-token";
     sessionRecord.vercelProjectId = null;
     sessionRecord.vercelProjectName = null;
     sessionRecord.vercelTeamId = null;
@@ -356,6 +322,7 @@ describe("/api/sandbox lifecycle kicks", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          sessionId: "session-1",
           repoUrl: "https://github.com/acme/private-repo",
           branch: "main",
           sandboxType: "vercel",
@@ -367,30 +334,21 @@ describe("/api/sandbox lifecycle kicks", () => {
     expect(connectConfigs[0]).toMatchObject({
       state: {
         type: "vercel",
+        sandboxName: "session_session-1",
         source: {
           repo: "https://github.com/acme/private-repo",
           branch: "main",
         },
       },
       options: {
-        githubToken: "github-user-token",
+        githubToken: "installation-token-mock",
       },
     });
     expect(connectConfigs[0]?.state.source).not.toHaveProperty("token");
   });
 
-  test("rejects daytona when provider is enabled but required config is incomplete", async () => {
+  test("rejects repo URLs that only contain github.com in the path", async () => {
     const { POST } = await routeModulePromise;
-
-    process.env.DAYTONA_SERVER_URL = "https://env.daytona.example.com";
-    delete process.env.DAYTONA_API_KEY;
-    currentUserSandboxConfigs = [
-      {
-        providerType: "daytona",
-        enabled: true,
-        config: {},
-      },
-    ];
 
     const response = await POST(
       new Request("http://localhost/api/sandbox", {
@@ -398,164 +356,17 @@ describe("/api/sandbox lifecycle kicks", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sessionId: "session-1",
-          sandboxType: "daytona",
-        }),
-      }),
-    );
-    const payload = (await response.json()) as { error: string };
-
-    expect(response.status).toBe(400);
-    expect(payload.error).toBe(
-      "Sandbox provider unavailable: Provider unavailable. Enable and configure this provider in Settings > Sandboxes.",
-    );
-    expect(connectConfigs).toHaveLength(0);
-  });
-
-  test("daytona applies saved-over-env precedence for matching config keys", async () => {
-    const { POST } = await routeModulePromise;
-
-    process.env.DAYTONA_API_KEY = "env-api-key";
-    process.env.DAYTONA_SERVER_URL = "https://env.daytona.example.com";
-    currentUserSandboxConfigs = [
-      {
-        providerType: "daytona",
-        config: {
-          DAYTONA_API_KEY: "saved-api-key",
-        },
-      },
-    ];
-
-    const response = await POST(
-      new Request("http://localhost/api/sandbox", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId: "session-1",
-          sandboxType: "daytona",
-        }),
-      }),
-    );
-
-    expect(response.ok).toBe(true);
-    expect(connectConfigs[0]).toMatchObject({
-      state: {
-        type: "daytona",
-      },
-      options: {
-        env: {
-          DAYTONA_API_KEY: "saved-api-key",
-          DAYTONA_SERVER_URL: "https://env.daytona.example.com",
-        },
-      },
-    });
-  });
-
-  test("vercel uses host env base snapshot when saved config is absent", async () => {
-    const { POST } = await routeModulePromise;
-
-    process.env.VERCEL_SANDBOX_BASE_SNAPSHOT_ID = "env-snapshot-id";
-    currentUserSandboxConfigs = [
-      {
-        providerType: "vercel",
-        enabled: true,
-        config: {},
-      },
-    ];
-
-    const response = await POST(
-      new Request("http://localhost/api/sandbox", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId: "session-1",
+          repoUrl: "https://attacker.example/github.com/acme/private-repo",
+          branch: "main",
           sandboxType: "vercel",
         }),
       }),
     );
 
-    expect(response.ok).toBe(true);
-    expect(connectConfigs[0]?.options?.baseSnapshotId).toBe("env-snapshot-id");
-    expect(connectConfigs[0]?.options?.env).toMatchObject({
-      VERCEL_SANDBOX_BASE_SNAPSHOT_ID: "env-snapshot-id",
-    });
-  });
-
-  test("vercel saved base snapshot overrides host env and default fallback", async () => {
-    const { POST } = await routeModulePromise;
-
-    process.env.VERCEL_SANDBOX_BASE_SNAPSHOT_ID = "env-snapshot-id";
-    currentUserSandboxConfigs = [
-      {
-        providerType: "vercel",
-        config: {
-          VERCEL_SANDBOX_BASE_SNAPSHOT_ID: "saved-snapshot-id",
-        },
-      },
-    ];
-
-    const response = await POST(
-      new Request("http://localhost/api/sandbox", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId: "session-1",
-          sandboxType: "vercel",
-        }),
-      }),
-    );
-
-    expect(response.ok).toBe(true);
-    expect(connectConfigs[0]?.options?.baseSnapshotId).toBe(
-      "saved-snapshot-id",
-    );
-    expect(connectConfigs[0]?.options?.baseSnapshotId).not.toBe(
-      DEFAULT_SANDBOX_BASE_SNAPSHOT_ID,
-    );
-    expect(connectConfigs[0]?.options?.env).toMatchObject({
-      VERCEL_SANDBOX_BASE_SNAPSHOT_ID: "saved-snapshot-id",
-    });
-  });
-
-  test("rejects repo bootstrap for non-vercel providers", async () => {
-    const { POST } = await routeModulePromise;
-
-    const response = await POST(
-      new Request("http://localhost/api/sandbox", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          repoUrl: "https://github.com/acme/private-repo",
-          sandboxType: "docker",
-        }),
-      }),
-    );
     const payload = (await response.json()) as { error: string };
-
     expect(response.status).toBe(400);
-    expect(payload.error).toBe(
-      "Repository bootstrap is currently only supported for the vercel sandbox provider for secure auth reasons. Set sandboxType to 'vercel' or omit repoUrl.",
-    );
+    expect(payload.error).toBe("Invalid GitHub repository URL");
     expect(connectConfigs).toHaveLength(0);
-  });
-
-  test("non-vercel providers do not receive githubToken in connect options", async () => {
-    const { POST } = await routeModulePromise;
-
-    currentGitHubToken = "github-user-token";
-
-    const response = await POST(
-      new Request("http://localhost/api/sandbox", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sandboxType: "docker",
-        }),
-      }),
-    );
-
-    expect(response.ok).toBe(true);
-    expect(connectConfigs[0]?.state.type).toBe("docker");
-    expect(connectConfigs[0]?.options).not.toHaveProperty("githubToken");
   });
 
   test("new vercel sandbox does not sync linked Development env vars while code is commented out", async () => {
@@ -670,62 +481,5 @@ describe("/api/sandbox lifecycle kicks", () => {
     expect(payload.error).toBe("Invalid sandbox type");
     expect(connectConfigs).toHaveLength(0);
     expect(kickCalls).toHaveLength(0);
-  });
-
-  test("returns actionable error when provider is unavailable", async () => {
-    const { POST } = await routeModulePromise;
-
-    providerAvailability.vercel = false;
-    providerUnavailableReason.vercel = "Vercel credentials are missing";
-
-    const response = await POST(
-      new Request("http://localhost/api/sandbox", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId: "session-1",
-          sandboxType: "vercel",
-        }),
-      }),
-    );
-    const payload = (await response.json()) as { error: string };
-
-    expect(response.status).toBe(400);
-    expect(payload.error).toBe(
-      "Sandbox provider unavailable: Vercel credentials are missing",
-    );
-    expect(connectConfigs).toHaveLength(0);
-  });
-
-  test("returns actionable error when provider is disabled in user settings", async () => {
-    const { POST } = await routeModulePromise;
-
-    currentUserSandboxConfigs = [
-      {
-        providerType: "vercel",
-        enabled: false,
-        config: {
-          VERCEL_SANDBOX_BASE_SNAPSHOT_ID: "saved-snapshot-id",
-        },
-      },
-    ];
-
-    const response = await POST(
-      new Request("http://localhost/api/sandbox", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId: "session-1",
-          sandboxType: "vercel",
-        }),
-      }),
-    );
-    const payload = (await response.json()) as { error: string };
-
-    expect(response.status).toBe(400);
-    expect(payload.error).toBe(
-      "Sandbox provider unavailable: Provider unavailable. Enable and configure this provider in Settings > Sandboxes.",
-    );
-    expect(connectConfigs).toHaveLength(0);
   });
 });

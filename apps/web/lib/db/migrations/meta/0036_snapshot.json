@@ -1,5 +1,5 @@
 {
-  "id": "35be057e-54ad-40d5-a671-0d2bfe05f569",
+  "id": "43c6497a-ed2b-472e-8eb9-ffa907c2b669",
   "prevId": "658fc007-9ce5-461d-86a6-0d256e413d2d",
   "version": "7",
   "dialect": "postgresql",
@@ -641,21 +641,8 @@
           "notNull": true,
           "default": "'[]'::jsonb"
         },
-        "provision_db": {
-          "name": "provision_db",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
         "sandbox_state": {
           "name": "sandbox_state",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "db_teardown_metadata": {
-          "name": "db_teardown_metadata",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
@@ -693,6 +680,12 @@
         },
         "lifecycle_run_id": {
           "name": "lifecycle_run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sandbox_provisioning_run_id": {
+          "name": "sandbox_provisioning_run_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false
