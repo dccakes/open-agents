@@ -37,7 +37,13 @@ const FACES = [
   },
 ] as const;
 
-export function RotatingCube({ className }: { readonly className?: string }) {
+export function RotatingCube({
+  className,
+  size = "9rem",
+}: {
+  readonly className?: string;
+  readonly size?: string;
+}) {
   return (
     <div
       className={cn(
@@ -46,7 +52,7 @@ export function RotatingCube({ className }: { readonly className?: string }) {
       )}
       style={
         {
-          "--pk-cube-size": "clamp(10rem, 26vw, 19rem)",
+          "--pk-cube-size": size,
           "--pk-cube-half": "calc(var(--pk-cube-size) / 2)",
         } as React.CSSProperties
       }

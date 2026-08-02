@@ -6,34 +6,21 @@ import { cn } from "@/lib/utils";
  */
 export function InternalAccessNote({
   className,
-  tone = "dark",
 }: {
   readonly className?: string;
-  readonly tone?: "light" | "dark";
 }) {
-  const onDark = tone === "dark";
-
   return (
     <p
       className={cn(
-        "flex items-start gap-2 text-sm leading-relaxed",
-        onDark ? "text-white/55" : "text-(--l-fg-3)",
+        "flex items-start gap-2 text-sm leading-relaxed text-white/55",
         className,
       )}
     >
-      <LockIcon
-        className={cn(
-          "mt-0.5 size-3.5 shrink-0",
-          onDark ? "text-(--pk-accent)" : "text-(--pk-primary)",
-        )}
-      />
+      <LockIcon className="mt-0.5 size-3.5 shrink-0 text-(--pk-accent)" />
       <span>
         Pickle employees only. Sign in with the Vercel account on the Pickle
         team — access requests go to{" "}
-        <span className={onDark ? "text-white/75" : "text-(--l-fg-2)"}>
-          #eng-platform
-        </span>
-        .
+        <span className="text-white/75">#eng-platform</span>.
       </span>
     </p>
   );
@@ -42,14 +29,14 @@ export function InternalAccessNote({
 function LockIcon({ className }: { readonly className?: string }) {
   return (
     <svg
-      viewBox="0 0 16 16"
+      aria-hidden="true"
       className={className}
       fill="none"
       stroke="currentColor"
       strokeWidth="1.4"
-      aria-hidden="true"
+      viewBox="0 0 16 16"
     >
-      <rect x="3" y="7" width="10" height="7" rx="1.5" />
+      <rect height="7" rx="1.5" width="10" x="3" y="7" />
       <path d="M5.5 7V4.75a2.5 2.5 0 015 0V7" />
     </svg>
   );
