@@ -37,6 +37,14 @@ and fast to start (durable sandboxes).
 
 ## WS-1.0 — Org settings & roles (integration protection)
 
+> **Status:** OpenSpec change `openspec/changes/org-roles-and-settings/` is the authority
+> for this workstream. It revises the design below: rather than hand-rolling a `users.role`
+> enum and a fixed-id `orgSettings` singleton, WS-1.0 adopts Better Auth's **organization**
+> and **admin** plugins (single seeded org; teams and dynamic access control off) with one
+> shared `createAccessControl` statement set that WS-1.1–1.5 consume instead of each
+> inventing its own admin check. See that change's `design.md` for the decisions, the
+> rejected alternatives, and three open questions that need answers before implementation.
+
 **Problem.** Integrations are currently unprotected shared state: GitHub App
 installations are per-user rows, and the Linear workspace connection can be created or
 deleted by any signed-in user. Phase 1 adds more org-shared, high-blast-radius
@@ -54,22 +62,31 @@ covers "who may manage shared org configuration."
   account who signs in becomes a "member"**, and Phase 1 would hand members org PostHog
   data, the shared Linear integration, and org-billed sandbox runs. Gate membership
   before gating roles: an `ALLOWED_EMAIL_DOMAINS` config allowlist (`nextdegree.org`)
-  plus a `pending` role state for anyone outside it — pending users can sign in but see
-  only an "ask an admin to approve you" screen; admins approve from the admin area.
-  Every "member" capability in this phase means *approved* member.
-- **Org settings entity.** Single-org model for now: an `orgSettings` singleton table
-  (id fixed, one row) holding org-wide toggles introduced by later workstreams (default
+  auto-grants membership; anyone outside it gets **no membership row** and is therefore
+  pending — they can sign in but see only an "ask an admin to approve you" screen; admins
+  approve from the admin area. Every "member" capability in this phase means *approved*
+  member. Note `accountLinking.allowDifferentEmails` is enabled today, so the allowlist
+  decision is made once at user creation and linking a second account never grants access.
+- **Org settings entity.** *(Revised — keyed by `organizationId`, not a fixed id, so the
+  Phase 2 multi-org migration is a no-op for this table. Typed columns, not the org
+  plugin's `metadata` JSON: the kill switch is read before every run start and a malformed
+  blob must not fail open.)* An `org_settings` table holding org-wide toggles introduced by later workstreams (default
   posture, default sandbox provider, observability config *references* — env keys, never
   token values, per the ground rules — and feature flags). Two rows this phase needs:
   a **global kill switch** (`agentRunsPaused` — no new workflow run starts anywhere while
   set; the "the agent is doing something bad at 3am" control) and an **org daily token
   budget** consumed by WS-1.1's run budgets. Phase 2's scope model will generalize this;
   keeping it one table makes that migration mechanical.
-- **Roles.** Extend `users.isAdmin` into `users.role` (`"admin" | "member" | "pending"`,
-  default per the membership gate; migrate `isAdmin=true` → `admin`). Keep `isUserAdmin()`
-  as a compatibility wrapper so existing call sites don't churn. Admin bootstrap: an
-  `ADMIN_EMAILS` allowlist in config (via the Phase 0 config module) grants `admin` on
-  first sign-in, so a fresh deploy is never adminless.
+- **Roles.** *(Revised — see the OpenSpec change.)* Two distinct concepts rather than one
+  enum: `users.role` (Better Auth admin plugin) is the **platform** role governing
+  instance-level operations (bulk token revocation, ban, impersonate, session revocation);
+  `org_members.role` (organization plugin) is the **org** role (`owner | admin | member`)
+  governing shared configuration. `pending` is *not* a role value — it is the absence of a
+  membership row, which fails closed. `users.isAdmin` migrates to `users.role` by
+  expand-contract (migrations run on every deploy, so add-and-drop in one migration would
+  break the rollout window); `isUserAdmin()` stays as a compatibility wrapper. Admin
+  bootstrap remains an `ADMIN_EMAILS` config allowlist — the plugin's `adminUserIds` takes
+  IDs, which are nanoid-generated at first sign-in and unknowable pre-deploy.
 - **Gate integration lifecycle.** Behind `requireAdmin()`: Linear workspace
   connect/disconnect (`/api/linear/connect`, disconnect path), GitHub App
   installation removal for org-shared installs, sandbox provider settings, observability
