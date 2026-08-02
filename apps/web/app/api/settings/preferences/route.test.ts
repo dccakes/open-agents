@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { APP_DEFAULT_MODEL_ID } from "@/lib/models";
 
 let currentSession: {
   authProvider?: "vercel" | "github";
@@ -114,8 +115,8 @@ describe("/api/settings/preferences", () => {
       preferences: typeof preferencesState;
     };
 
-    expect(body.preferences.defaultModelId).toBe("openai/gpt-5.4");
-    expect(body.preferences.defaultSubagentModelId).toBe("openai/gpt-5.4");
+    expect(body.preferences.defaultModelId).toBe(APP_DEFAULT_MODEL_ID);
+    expect(body.preferences.defaultSubagentModelId).toBe(APP_DEFAULT_MODEL_ID);
     expect(body.preferences.modelVariants).toEqual([]);
   });
 
