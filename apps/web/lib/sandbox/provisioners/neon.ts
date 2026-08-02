@@ -71,10 +71,10 @@ export class NeonProvisioner implements DbProvisioner {
     }
 
     try {
-      await this.client.deleteProjectBranch(
-        this.projectId,
-        metadata.identifier,
-      );
+      await this.client.deleteProjectBranch({
+        projectId: this.projectId,
+        branchId: metadata.identifier,
+      });
     } catch (error) {
       console.error(
         `Failed to delete Neon branch ${metadata.identifier}:`,
