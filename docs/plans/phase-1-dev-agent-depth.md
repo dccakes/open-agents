@@ -22,6 +22,58 @@ and fast to start (durable sandboxes).
 
 ---
 
+## WS-1.0 — Org settings & roles (integration protection)
+
+**Problem.** Integrations are currently unprotected shared state: GitHub App
+installations are per-user rows, and the Linear workspace connection can be created or
+deleted by any signed-in user. Phase 1 adds more org-shared, high-blast-radius
+configuration (observability tokens, Linear repo mappings, sandbox provider settings) —
+none of it should be editable or deletable by non-admins, and nothing destructive should
+be one click away. A `users.isAdmin` boolean and a `requireAdmin()` helper
+(`apps/web/lib/admin/actions.ts`) already exist; this workstream extends that seed into a
+minimal org layer. It is deliberately thin — full multi-scope RBAC is Phase 2; this only
+covers "who may manage shared org configuration."
+
+**Design.**
+- **Org settings entity.** Single-org model for now: an `orgSettings` singleton table
+  (id fixed, one row) holding org-wide toggles introduced by later workstreams (default
+  posture, default sandbox provider, observability config references, feature flags).
+  Phase 2's scope model will generalize this; keeping it one table makes that migration
+  mechanical.
+- **Roles.** Extend `users.isAdmin` into `users.role` (`"admin" | "member"`, default
+  `member`; migrate `isAdmin=true` → `admin`). Keep `isUserAdmin()` as a compatibility
+  wrapper so existing call sites don't churn. Admin bootstrap: an `ADMIN_EMAILS`
+  allowlist in config (via the Phase 0 config module) grants `admin` on first sign-in,
+  so a fresh deploy is never adminless.
+- **Gate integration lifecycle.** Behind `requireAdmin()`: Linear workspace
+  connect/disconnect (`/api/linear/connect`, disconnect path), GitHub App
+  installation removal for org-shared installs, sandbox provider settings, observability
+  configuration, and (from WS-1.3) Linear repo mappings. Read/use paths stay open to all
+  members — members use integrations, admins manage them.
+- **Deletion protection.** Destructive actions on shared config (disconnect Linear
+  workspace, remove GitHub installation, delete repo mapping) require typed
+  confirmation in the UI, are **soft-deleted** (disabled with a `deletedAt`, purged
+  after 14 days) so accidental removal is reversible, and emit an audit event
+  (who/what/when) into a `config_audit` table — the seed of the Phase 2 audit log
+  alongside WS-1.1's `policy_event`.
+
+**Tasks / PRs.**
+1. Schema: `role` column + migration, `orgSettings` singleton, `config_audit` table.
+2. Admin bootstrap via `ADMIN_EMAILS` + role management UI in the existing admin area
+   (promote/demote, cannot demote the last admin).
+3. Gate the integration lifecycle endpoints; audit events on every mutation.
+4. Soft-delete + confirmation UX for destructive integration actions.
+
+**Acceptance criteria.**
+- A `member` cannot disconnect the Linear workspace, remove a shared GitHub
+  installation, or edit org settings — API returns 403, UI hides the controls.
+- Disconnecting an integration as admin requires typed confirmation, and the
+  integration can be restored within 14 days.
+- Every shared-config mutation appears in `config_audit` with actor and timestamp.
+- The last remaining admin cannot be demoted or deleted.
+
+---
+
 ## WS-1.1 — Command policy & security postures
 
 **Problem.** The agent's `bash` tool executes whatever the loop decides, in a sandbox with
@@ -104,7 +156,8 @@ integrations); migrate onto the Phase 2 connector framework later.
   pattern); secret-shaped string redaction on responses; per-session rate limit reusing
   `apps/web/lib/rate-limit.ts`; tool descriptions instruct read-only intent, but
   enforcement is that only GET/query endpoints are implemented — there is no write path
-  to guard.
+  to guard. Configuration of these integrations (tokens, enable/disable) is org-shared
+  state and admin-only per WS-1.0.
 - Session-level toggle: which context tools are enabled per session (default on for org
   members once configured), stored alongside existing sandbox-provider settings.
 
@@ -139,7 +192,8 @@ end-to-end loop from a delegated Linear issue to a finished PR.
   delegation. First: audit the current webhook route's handling and signature
   verification; extend rather than replace.
 - **Repo mapping.** New table `linearRepoMapping` (linearTeamId → repoFullName +
-  default sandbox provider + posture). Managed in the existing settings/admin UI. An
+  default sandbox provider + posture). Managed in the admin UI, admin-only per WS-1.0
+  (mappings decide which repos webhook-triggered agents can touch). An
   event with no mapping → post a Linear activity explaining how to configure, stop.
 - **Run lifecycle.** Webhook → verify signature → idempotency check (store delivered
   event ids; Linear redelivers) → create a session (reusing the exact session-creation
@@ -220,13 +274,17 @@ refresh script exists (`scripts/vercel-refresh-base-snapshot.ts`) — extend thi
 ## Execution order & dependencies
 
 ```
-WS-1.1 policy ──────────────┐
-WS-1.2 observability ───────┼──> WS-1.3 Linear runs (wants 1.1 postures; 1.2 optional)
-WS-1.4 durable sandboxes ───┘    (1.4 independent; benefits 1.3 start-up time)
+WS-1.0 org settings & roles ─┬─> WS-1.2 observability config (admin-gated)
+                             ├─> WS-1.3 Linear runs (mappings admin-gated)
+WS-1.1 policy ───────────────┴─> WS-1.3 (wants 1.1 postures)
+WS-1.4 durable sandboxes ───────> (independent; benefits 1.3 start-up time)
 ```
 
-- Start **WS-1.1** first — it unblocks trusting the agent with anything real, and WS-1.3
-  depends on postures existing.
-- **WS-1.2** and **WS-1.4** are independent and parallelizable with 1.1.
+- Start **WS-1.0** and **WS-1.1** first, in parallel — 1.0 protects the shared
+  configuration everything else introduces; 1.1 unblocks trusting the agent with
+  anything real.
+- **WS-1.2** and **WS-1.4** parallelize behind them (1.2's tool implementation can start
+  immediately; only its config surface waits on 1.0).
 - **WS-1.3** lands last and is the phase's demo: a Linear issue becomes a draft PR,
-  under policy, with telemetry context, on a warm sandbox.
+  under policy, with telemetry context, on a warm sandbox — with its mappings and
+  integrations manageable only by admins.

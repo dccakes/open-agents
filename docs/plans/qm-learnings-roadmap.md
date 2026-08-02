@@ -71,6 +71,12 @@ Cheap, independent, and everything later stands on it.
 
 Make the existing coding agent genuinely production-useful.
 
+0. **Org settings & roles**: a minimal org layer before anything shares state — an org
+   settings entity, an `admin`/`member` role (extending the existing `isAdmin` flag),
+   admin-only management of integrations (Linear/GitHub connections, repo mappings,
+   observability tokens, sandbox providers), and soft-delete + confirmation + audit
+   events on destructive config actions so no developer can accidentally disconnect a
+   shared integration. Deliberately thin; Phase 2 generalizes it into scopes and grants.
 1. **Command policy + security postures**: predeclared allow/deny/approve rules for sandbox
    commands and tool calls, with named postures (strict = human approves side effects,
    auto = screened, dangerous = dev-only). Surfaced in the chat UI as approval prompts.
@@ -87,7 +93,8 @@ Make the existing coding agent genuinely production-useful.
 This is the QM-shaped core that turns a coding agent into org infrastructure.
 
 1. **Scope model**: a first-class `scope` (user, team, project) in the schema owning
-   sessions, memory, files, credentials, and grants.
+   sessions, memory, files, credentials, and grants — generalizing Phase 1's org
+   settings singleton and admin/member roles into per-scope membership and grants.
 2. **Grant-based ACL store**: explicit, auditable grants (`scope × resource × capability`),
    with the memory/postgres store pattern for testability. Admin UI for granting.
 3. **Connector framework + keychain**: one abstraction for OAuth-style connectors with
