@@ -4,8 +4,8 @@ Detailed, self-contained work plan for programming agents. Parent context:
 [QM Learnings → QuackOps Roadmap](./qm-learnings-roadmap.md), Phase 0.
 
 Each workstream below is independently executable and should land as its own PR.
-Workstreams are ordered by suggested execution, but only WS-0.4's postgres step depends on
-anything else (nothing). All can run in parallel.
+Workstreams are ordered by suggested execution. Nothing depends on anything else; all can
+run in parallel.
 
 ## Status
 
@@ -14,7 +14,7 @@ anything else (nothing). All can run in parallel.
 | WS-0.2a Bun version bump | ✅ Done — see [sub-plan](./ws-0.2a-bun-version-bump.md). Bun `1.2.14` → `1.3.14`; soaking before WS-0.2b. |
 | WS-0.2b bunfig cooldown | ⬜ Not started — blocked on WS-0.2a soak |
 | WS-0.3 knip | ⬜ Not started |
-| WS-0.4 CI hardening | ⬜ Not started |
+| WS-0.4 CI hardening | ⬜ Not started — **rescoped**, see [evaluation](#ws-04--ci-hardening-revised-enforce-the-vercel-signal-dont-duplicate-it). Vercel previews already build + migrate per PR; the duplicate CI build job is cut. |
 | WS-0.1 config boundary | ⬜ Not started |
 | WS-0.5 SECURITY.md | ⬜ Not started |
 
@@ -25,7 +25,8 @@ anything else (nothing). All can run in parallel.
 - After any change: `bun run ci` must pass. After schema changes:
   `bun run --cwd apps/web db:generate` and commit the migration.
 - Substantial changes should go through the repo's OpenSpec process (`openspec/changes/`)
-  — WS-0.1 and WS-0.4 qualify; the rest are small enough to skip.
+  — WS-0.1 qualifies; the rest are small enough to skip (WS-0.4 did until it was
+  rescoped down to CI config plus a health route).
 - Record any surprises in `docs/agents/lessons-learned.md`.
 
 ---
@@ -127,34 +128,111 @@ deletions land as a separate commit from the config, so they're reviewable.
 
 ---
 
-## WS-0.4 — CI hardening: build + boot the artifact, DB-backed tests
+## WS-0.4 — CI hardening (revised: enforce the Vercel signal, don't duplicate it)
 
-**Problem.** `.github/workflows/ci.yml` runs lint/typecheck/`test:isolated`/`db:check`
-but never runs `turbo build` — a broken production build ships to Vercel to find out.
-QM's CI builds *and boots* every deployable image as a smoke test.
+**Original problem statement.** `.github/workflows/ci.yml` runs
+lint/typecheck/`test:isolated`/`db:check` but never runs `turbo build` — a broken
+production build ships to Vercel to find out. QM's CI builds *and boots* every
+deployable image as a smoke test.
 
-**Steps.**
-1. Split the single job into parallel jobs sharing a setup pattern: `lint`, `typecheck`,
-   `test`, `build`. Add `concurrency` with `cancel-in-progress: true` keyed on the PR.
-2. `build` job: `bun install --frozen-lockfile && turbo build` with a **placeholder env**
-   (dummy `DATABASE_URL` etc. — coordinate with WS-0.1 so the config schema documents which
-   vars the build needs). Note `lib/db/migrate.ts` runs during build: point it at a
-   `postgres:16` service container so migrations are actually exercised.
-3. Boot smoke: after build, `bun run start` (Next.js) in the background, poll
-   `GET /` (or a `/api/health` route — add one if absent, it's a one-liner) until 200
-   or a 60s timeout, then kill. Fail the job on timeout.
-4. DB-backed tests: add a `postgres:16` service container to the `test` job mirroring
-   `docker-compose.yml` credentials, so tests that need a real DB can run in CI (currently
-   only `db:check` runs).
-5. Pin all action versions to full commit SHAs (QM practice) with the tag in a comment.
-6. Dependabot hygiene (related but separate commit): main has 23 open alerts
-   (12 high). Run `bun update` for the flagged transitive deps where a compatible fix
-   exists; list any that need major-version work as follow-up issues rather than forcing
-   them into this PR.
+**That statement is wrong for this repo, and the original plan fixed the wrong thing.**
+QM has no preview environment, so its CI has to build the artifact itself. We deploy on
+Vercel with previews on every PR, which already builds — with real env and a real
+database. The scope below is cut accordingly.
 
-**Acceptance criteria.** A PR that breaks `next build` or crashes on boot now fails CI;
-CI wall-clock stays under ~10 minutes (parallel jobs); actions SHA-pinned; high-severity
-Dependabot alerts resolved or ticketed.
+### What Vercel previews already cover
+
+Verified against the `quack-ops-web` project (`prj_2Cqg…`, team `next-degree`):
+
+- **Every PR push builds a preview.** Deployments for PRs #2–#7 all carry `githubPrId`.
+  Broken builds do surface as `ERROR` deployments — several already have.
+- **Migrations are already exercised on every PR.** `apps/web` `build` is
+  `bun run db:migrate:apply && next build`, and Neon database branching forks a fresh
+  database per preview. That is a *more* faithful migration test than the `postgres:16`
+  service container step 2 proposed — real Neon, real forked production schema, real
+  `lib/db/migrate.ts` legacy-reconciliation path.
+- **The preview boots far enough to serve functions** (`lambdaRuntimeStats` populated on
+  every `READY` deployment).
+
+### The real gap: the signal exists, nothing enforces it
+
+Main has gone red at least twice, and neither time would a CI `build` job have helped —
+the build result was already known and was ignored:
+
+```
+53641c6  PR #3 preview deploy → ERROR   (t=1785703422)
+2c52253  PR #3 merged to main  → ERROR   (t=1785703444)   ← 22 seconds later
+```
+
+Commit `d1dfb66` documents the earlier occurrence ("main's own deployment of b9d1eec is
+in error state"). PR #5's check runs list only `lint-and-typecheck` and
+`Vercel Preview Comments` — the deployment status is not a required check, so a red
+preview does not block merge.
+
+Adding `turbo build` to GitHub Actions would have produced a *second* red signal next to
+the red signal already being ignored. The fix is branch protection, not a build job.
+
+### Why the duplicate build job is a net negative
+
+- `turbo.json` declares ~50 build-time env vars. A placeholder-env CI build means
+  maintaining a second, hand-written copy of that surface. WS-0.1 has not landed, so
+  there is no schema to derive it from — and a CI build that diverges from Vercel's is a
+  flake generator in both directions (green in CI / red on Vercel, and worse, the
+  reverse).
+- It roughly doubles CI wall-clock and runner minutes for a signal already produced.
+- The `postgres:16` migration step is strictly less faithful than the Neon branch.
+
+### Steps (revised)
+
+1. **Require the Vercel deployment check on `main`.** This is the whole fix for the
+   build gate. Add the Vercel deployment status to branch protection's required checks
+   alongside `lint-and-typecheck`. Not a code change — record it here and in
+   `docs/agents/lessons-learned.md` so it survives repo re-setup.
+2. **Boot smoke as a post-deploy probe** (the one thing previews genuinely miss —
+   `READY` means built and deployed, not that any page returns 200; a bad
+   `instrumentation.ts` or module-init env read still ships). Add `/api/health`
+   (a one-liner returning 200 — no DB call, so it tests boot, not dependencies), plus a
+   workflow triggered on `deployment_status` that polls the preview URL until 200 or a
+   60s timeout. **Note:** the project has `ssoProtection` enabled for
+   `all_except_custom_domains`, so the probe must send
+   `x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET` or it gets 401.
+   Do **not** implement this as `bun run start` in Actions — that boots a configuration
+   that exists nowhere.
+3. **Split the CI job** into parallel `lint` / `typecheck` / `test` jobs sharing a setup
+   pattern. Add `concurrency` with `cancel-in-progress: true` keyed on the PR. Unrelated
+   to Vercel; saves runner minutes on force-push-heavy agent branches.
+4. **Pin all action versions to full commit SHAs** with the tag in a comment. Unrelated
+   to Vercel; same supply-chain posture as WS-0.2.
+5. **Dependabot hygiene** (separate commit): main has 23 open alerts (12 high). Run
+   `bun update` for flagged transitive deps where a compatible fix exists; file
+   follow-up issues for anything needing major-version work rather than forcing it into
+   this PR.
+
+### Cut from the original plan
+
+- ~~`build` job running `turbo build` with placeholder env~~ — Vercel previews already
+  build with real env on every PR.
+- ~~`postgres:16` service container for `lib/db/migrate.ts`~~ — Neon preview branches
+  already exercise migrations more faithfully.
+- ~~`postgres:16` service container for the `test` job~~ — no test currently touches a
+  real database. Speculative infrastructure; add it in the PR that adds the first
+  DB-backed test, where it can actually be verified.
+
+### Acceptance criteria (revised)
+
+- A PR whose preview deployment fails cannot be merged (required check configured;
+  verify by observing a red deployment block the merge button).
+- `/api/health` exists and the post-deploy probe fails the workflow if the preview does
+  not serve 200 within 60s.
+- CI jobs run in parallel with `cancel-in-progress`; actions SHA-pinned.
+- High-severity Dependabot alerts resolved or ticketed.
+- **No `turbo build` in GitHub Actions** — if a future change makes CI-side building
+  necessary (e.g. leaving Vercel), revisit this section rather than reinstating it
+  silently.
+
+**Scope note.** This drops WS-0.4 from M to S and removes its OpenSpec trigger — the
+ground rules above flag WS-0.1 and WS-0.4 as OpenSpec-worthy, but what is left here is
+CI configuration plus a one-line route, not a substantial change. WS-0.1 still qualifies.
 
 ---
 
@@ -200,6 +278,6 @@ follow-up gaps filed as issues referencing the Phase 1/2 plans.
 | 1 | WS-0.2a Bun version bump (own PR, soak before 1b) | S, risk-carrying |
 | 2 | WS-0.2b bunfig cooldown | S |
 | 3 | WS-0.3 knip + dead-code sweep | S–M |
-| 4 | WS-0.4 CI hardening + Dependabot triage | M |
+| 4 | WS-0.4 CI hardening + Dependabot triage | S (was M — build job cut) |
 | 5 | WS-0.1 config boundary (can start immediately; largest) | L |
 | 6 | WS-0.5 SECURITY.md (after 0.1/0.4 land, so it documents reality) | S |

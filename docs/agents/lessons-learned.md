@@ -4,6 +4,10 @@ Hard-won knowledge from building this codebase. When you make a mistake or disco
 
 ## General / Tooling
 
+- Vercel preview deployments already build every PR with real env and a real (Neon-branched) database, and `apps/web`'s `build` script runs migrations, so CI does **not** need its own `turbo build` or a `postgres:16` service container to exercise the production build path. Duplicating it in GitHub Actions means hand-maintaining a second copy of the ~50 build-time env vars in `turbo.json`, which drifts. Before porting a CI practice from a repo without preview environments, check what the preview already covers.
+- A red Vercel preview does not block merge unless the deployment status is a **required** check in branch protection. PR #3 was merged with an `ERROR` preview and main's production deploy failed 22 seconds later. Adding more CI signal does not help when the existing signal is unenforced — check branch protection first.
+- Vercel deployment results arrive as commit *statuses*, not check runs, so they do not appear in `pull_request_read`'s `get_check_runs` output (only `Vercel Preview Comments` does). Use the Vercel API/MCP `list_deployments` to see actual per-PR build outcomes.
+- `quack-ops-web` has `ssoProtection` enabled for `all_except_custom_domains`, so any automated probe of a preview URL gets 401 unless it sends `x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET`.
 - Skill discovery de-duplicates by first-seen name, so project skill directories must be scanned before user-level directories to allow project overrides.
 - The system prompt should list all model-invocable skills (including non-user-invocable ones), and reserve user-invocable filtering for the slash-command UI.
 - Glob patterns ending in `**` (for example `"**"` or `"src/**"`) should be treated as recursive, even when `**` is the final segment.
