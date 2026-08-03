@@ -1,3 +1,5 @@
+import { getPublicConfig } from "@/lib/config/public";
+
 const GITHUB_REPO_PATH_SEGMENT_PATTERN = /^[.\w-]+$/;
 
 export function isValidGitHubRepoOwner(owner: string): boolean {
@@ -70,7 +72,7 @@ export function getInstallationManageUrl(
   installationId: number,
   fallbackUrl?: string | null,
 ): string | null {
-  const appSlug = process.env.NEXT_PUBLIC_GITHUB_APP_SLUG;
+  const { githubAppSlug: appSlug } = getPublicConfig();
 
   if (appSlug) {
     return `https://github.com/apps/${appSlug}/installations/${installationId}`;

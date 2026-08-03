@@ -3,6 +3,7 @@
  * All timeout values are in milliseconds.
  */
 
+import { getSandboxRuntimeConfig } from "@/lib/config/sandbox";
 import { isHobbyResourceProfile } from "@/lib/deployment/resource-profile";
 import { getSandboxTimeoutOverrideMs } from "@/lib/sandbox/timeout-override";
 
@@ -68,4 +69,4 @@ export const DEFAULT_WORKING_DIRECTORY = "/vercel/sandbox";
  * runtime so deployments are not tied to a private snapshot in another scope.
  */
 export const DEFAULT_SANDBOX_BASE_SNAPSHOT_ID =
-  process.env.VERCEL_SANDBOX_BASE_SNAPSHOT_ID;
+  getSandboxRuntimeConfig().baseSnapshotId;

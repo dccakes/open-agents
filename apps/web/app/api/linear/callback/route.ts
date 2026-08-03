@@ -1,13 +1,15 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { getLinearConfig } from "@/lib/config/linear";
+import { getPublicConfig } from "@/lib/config/public";
 import { upsertLinearWorkspace } from "@/lib/db/linear-workspaces";
 import { linearGraphQL } from "@/lib/linear/client";
 import { encryptLinearToken } from "@/lib/linear/token";
 import { getServerSession } from "@/lib/session/get-server-session";
 
 function getAppUrl(req: Request): string {
-  return process.env.NEXT_PUBLIC_APP_URL ?? new URL(req.url).origin;
+  return getPublicConfig().appUrl ?? new URL(req.url).origin;
 }
 
 function errorRedirect(url: URL): NextResponse {
@@ -62,8 +64,7 @@ export async function GET(req: Request): Promise<Response> {
     const appUrl = getAppUrl(req);
     const redirectUri = `${appUrl}/api/linear/callback`;
 
-    const clientId = process.env.LINEAR_CLIENT_ID;
-    const clientSecret = process.env.LINEAR_CLIENT_SECRET;
+    const { clientId, clientSecret } = getLinearConfig();
     if (!clientId || !clientSecret) {
       throw new Error("LINEAR_CLIENT_ID or LINEAR_CLIENT_SECRET is not set");
     }

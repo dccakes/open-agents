@@ -4,6 +4,7 @@ import type {
   SandboxProviderDef,
   SandboxProviderType,
 } from "@open-agents/sandbox";
+import { readProviderConfigValue } from "@/lib/config/sandbox";
 import type { UserSandboxConfigData } from "@/lib/db/sandbox-configs";
 
 interface ResolvedConfigEntry {
@@ -42,13 +43,11 @@ function resolveConfigEntries(
   configFields: SandboxConfigField[],
   savedConfig: Record<string, string>,
 ): ResolvedConfigEntry[] {
-  // TODO(quality-review): Accept an injected env map instead of reading
-  // process.env directly to reduce global-state coupling.
   const entries: ResolvedConfigEntry[] = [];
 
   for (const field of configFields) {
     const savedValue = normalizeConfigValue(savedConfig[field.key]);
-    const envValue = normalizeConfigValue(process.env[field.key]);
+    const envValue = normalizeConfigValue(readProviderConfigValue(field.key));
 
     if (savedValue) {
       entries.push({
@@ -120,7 +119,7 @@ export function buildSandboxProviderSettingsData(
   const overriddenEnvironmentConfigKeys: string[] = [];
 
   for (const entry of resolvedEntries) {
-    const envValue = normalizeConfigValue(process.env[entry.key]);
+    const envValue = normalizeConfigValue(readProviderConfigValue(entry.key));
     if (entry.source === "saved" && envValue) {
       overriddenEnvironmentConfigKeys.push(entry.key);
     }

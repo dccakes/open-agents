@@ -1,3 +1,4 @@
+import { getSandboxEnvResolverConfig } from "@/lib/config/sandbox";
 import type { EnvResolveOptions, EnvResolver } from "../env-resolver";
 
 interface VercelEnvVar {
@@ -45,8 +46,9 @@ export class VercelEnvResolver implements EnvResolver {
     projectId?: string;
     environment?: string;
   }): Promise<VercelEnvVar[]> {
-    const token = process.env.VERCEL_ACCESS_TOKEN;
-    const projectId = opts.projectId ?? process.env.VERCEL_PROJECT_ID;
+    const config = getSandboxEnvResolverConfig();
+    const token = config.vercelAccessToken;
+    const projectId = opts.projectId ?? config.vercelProjectId;
 
     if (!token || !projectId) {
       return [];

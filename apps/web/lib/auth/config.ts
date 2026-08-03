@@ -6,6 +6,13 @@ import type {
 } from "better-auth/social-providers";
 import { nanoid } from "nanoid";
 import { deriveAuthUsername } from "@/lib/auth/username";
+import {
+  getAuthConfig,
+  getGitHubOAuthCredentials,
+  getVercelOAuthCredentials,
+} from "@/lib/config/auth";
+import { getDeploymentConfig } from "@/lib/config/deployment";
+import { getPublicConfig } from "@/lib/config/public";
 import { db } from "@/lib/db/client";
 import * as schema from "@/lib/db/schema";
 
@@ -39,21 +46,23 @@ function getWildcardHostPattern(host: string): string | null {
 }
 
 function getAuthBaseURLFallback(): string | undefined {
-  return (
-    process.env.BETTER_AUTH_URL ??
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined)
-  );
+  const { baseUrl } = getAuthConfig();
+  const { deploymentUrl } = getDeploymentConfig();
+
+  return baseUrl ?? (deploymentUrl ? `https://${deploymentUrl}` : undefined);
 }
 
 function getAllowedAuthHosts(): string[] {
   const hosts = new Set<string>(["localhost:3000", "127.0.0.1:3000"]);
+  const deployment = getDeploymentConfig();
+  const publicConfig = getPublicConfig();
 
   for (const value of [
-    process.env.BETTER_AUTH_URL,
-    process.env.VERCEL_URL,
-    process.env.VERCEL_PROJECT_PRODUCTION_URL,
-    process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL,
-    process.env.NEXT_PUBLIC_APP_URL,
+    getAuthConfig().baseUrl,
+    deployment.deploymentUrl,
+    deployment.productionUrl,
+    publicConfig.productionUrl,
+    publicConfig.appUrl,
   ]) {
     const host = normalizeHost(value);
     if (!host) {
@@ -95,9 +104,11 @@ function mapGitHubProfileToUser(profile: GithubProfile): { username: string } {
 
 const authBaseURLFallback = getAuthBaseURLFallback();
 const authAllowedHosts = getAllowedAuthHosts();
+const vercelOAuth = getVercelOAuthCredentials();
+const githubOAuth = getGitHubOAuthCredentials();
 
 export const auth = betterAuth({
-  secret: process.env.BETTER_AUTH_SECRET,
+  secret: getAuthConfig().secret,
   baseURL: {
     allowedHosts: authAllowedHosts,
     ...(authBaseURLFallback ? { fallback: authBaseURLFallback } : {}),
@@ -151,15 +162,15 @@ export const auth = betterAuth({
 
   socialProviders: {
     vercel: {
-      clientId: process.env.NEXT_PUBLIC_VERCEL_APP_CLIENT_ID ?? "",
-      clientSecret: process.env.VERCEL_APP_CLIENT_SECRET ?? "",
+      clientId: vercelOAuth.clientId ?? "",
+      clientSecret: vercelOAuth.clientSecret ?? "",
       scope: ["openid", "email", "profile", "offline_access"],
       overrideUserInfoOnSignIn: true,
       mapProfileToUser: mapVercelProfileToUser,
     },
     github: {
-      clientId: process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID ?? "",
-      clientSecret: process.env.GITHUB_CLIENT_SECRET ?? "",
+      clientId: githubOAuth.clientId ?? "",
+      clientSecret: githubOAuth.clientSecret ?? "",
       mapProfileToUser: mapGitHubProfileToUser,
     },
   },

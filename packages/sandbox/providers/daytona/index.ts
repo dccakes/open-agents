@@ -1,19 +1,15 @@
+import { getDaytonaProviderConfig } from "../../config";
 import type { SandboxProviderDef } from "../../provider";
 import { defaultRegistry } from "../../registry";
 import { DaytonaSandbox } from "./sandbox";
 import type { DaytonaState } from "./state";
 
 function isDaytonaAvailable(): boolean {
-  const betaFlag = process.env.DAYTONA_BETA_ENABLED;
-  const betaEnabled = betaFlag === "true" || betaFlag === "1";
-  return betaEnabled;
+  return getDaytonaProviderConfig().betaEnabled;
 }
 
 function getDaytonaUnavailableReason(): string | undefined {
-  if (
-    process.env.DAYTONA_BETA_ENABLED !== "true" &&
-    process.env.DAYTONA_BETA_ENABLED !== "1"
-  ) {
+  if (!getDaytonaProviderConfig().betaEnabled) {
     return "DAYTONA_BETA_ENABLED environment variable must be set to true or 1";
   }
   return undefined;

@@ -7,6 +7,8 @@
  * and ignored when it is unset, non-numeric, or out of range.
  */
 
+import { getSandboxRuntimeConfig } from "@/lib/config/sandbox";
+
 /**
  * Parse a sandbox timeout override.
  *
@@ -45,7 +47,7 @@ export function parseSandboxTimeoutOverrideMs(
 /** Read the sandbox timeout override from the environment. */
 export function getSandboxTimeoutOverrideMs(maxMs: number): number | null {
   return parseSandboxTimeoutOverrideMs(
-    process.env.VERCEL_SANDBOX_TIMEOUT_MS,
+    getSandboxRuntimeConfig().timeoutMsOverride,
     maxMs,
   );
 }
