@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   authSessions,
   orgMembers,
+  orgSettings,
   organizations,
   users,
 } from "@/lib/db/schema";
@@ -163,6 +164,44 @@ describe("ensureSeededOrganization", () => {
     });
   });
 
+  // The settings row cannot come from a migration: migrations are static SQL
+  // and the organization they key off is created here, from configuration.
+  test("creates the organization settings row with the kill switch off", async () => {
+    insertReturns.set(organizations, [{ id: "org-1" }]);
+    insertReturns.set(orgSettings, [{ id: "settings-1" }]);
+    const { ensureSeededOrganization } = await modulePromise;
+
+    const result = await ensureSeededOrganization();
+
+    const settingsInsert = insertCalls.find(
+      (call) => call.table === orgSettings,
+    );
+    expect(settingsInsert?.values[0]).toMatchObject({
+      organizationId: "org-1",
+      agentRunsPaused: false,
+      dailyTokenBudget: null,
+    });
+    expect(result.createdSettings).toBe(true);
+  });
+
+  test("leaves an existing settings row untouched on a later boot", async () => {
+    insertReturns.set(organizations, []);
+    selectRows.set(organizations, [{ id: "org-1" }]);
+    insertReturns.set(orgSettings, []);
+    const { ensureSeededOrganization } = await modulePromise;
+
+    const result = await ensureSeededOrganization();
+
+    // Insert-with-conflict, not check-then-insert: a concurrent boot cannot
+    // reset an administrator's kill switch back to false.
+    const settingsInsert = insertCalls.find(
+      (call) => call.table === orgSettings,
+    );
+    expect(settingsInsert?.conflictTarget).toBe(orgSettings.organizationId);
+    expect(result.createdSettings).toBe(false);
+    expect(updateCalls.some((call) => call.table === orgSettings)).toBe(false);
+  });
+
   test("grants membership to every existing user", async () => {
     process.env.ADMIN_EMAILS = "ada@nextdegree.org";
     insertReturns.set(organizations, [{ id: "org-1" }]);
@@ -183,6 +222,28 @@ describe("ensureSeededOrganization", () => {
       { organizationId: "org-1", userId: "u3", role: "member" },
     ]);
     expect(result.grantedMemberships).toBe(3);
+  });
+
+  // The cutover backfill is a one-time action. If it re-ran on every boot it
+  // would re-approve everyone who had been left pending, which would turn the
+  // membership gate into a no-op on the next deploy.
+  test("does not re-grant membership to pending users on a later boot", async () => {
+    process.env.ADMIN_EMAILS = "ada@nextdegree.org";
+    insertReturns.set(organizations, []);
+    selectRows.set(organizations, [{ id: "org-1" }]);
+    selectRows.set(users, [
+      { id: "u1", email: "ada@nextdegree.org", emailVerified: true },
+      { id: "u2", email: "stranger@example.com", emailVerified: true },
+    ]);
+    const { ensureSeededOrganization } = await modulePromise;
+
+    await ensureSeededOrganization();
+
+    const memberInsert = insertCalls.find((call) => call.table === orgMembers);
+    // Only the configured admin, so an adminless deployment stays recoverable.
+    expect(memberInsert?.values).toMatchObject([
+      { organizationId: "org-1", userId: "u1", role: "owner" },
+    ]);
   });
 
   test("assigns owner and platform admin to configured admins", async () => {

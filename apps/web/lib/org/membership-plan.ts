@@ -8,10 +8,19 @@
 
 export type SeededMembershipRole = "owner" | "member";
 
-export interface SeedCandidateUser {
-  id: string;
+/**
+ * The only two fields any allowlist decision may read.
+ *
+ * Narrower than `SeedCandidateUser` so the sign-in-time approval hook, which
+ * has no user id yet when it evaluates the rule, shares the same check.
+ */
+export interface EmailIdentity {
   email: string | null;
   emailVerified: boolean;
+}
+
+export interface SeedCandidateUser extends EmailIdentity {
+  id: string;
 }
 
 export interface PlannedMembership {
@@ -28,7 +37,7 @@ export interface PlannedMembership {
  * withhold one.
  */
 export function isBootstrapAdmin(
-  user: SeedCandidateUser,
+  user: EmailIdentity,
   adminEmails: readonly string[],
 ): boolean {
   if (!(user.email && user.emailVerified)) {

@@ -29,6 +29,12 @@ const originalNodeEnv = process.env.NODE_ENV;
 
 mock.module("@/lib/session/get-server-session", () => ({
   getServerSession: async () => currentSession,
+  // The chokepoint's membership-aware export. This suite covers an
+  // approved member; the pending case is covered where the gate lives.
+  getSessionWithMembership: async () => ({
+    session: currentSession ?? undefined,
+    approved: Boolean(currentSession),
+  }),
 }));
 
 mock.module("@/lib/random-city", () => ({

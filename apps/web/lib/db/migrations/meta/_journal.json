@@ -274,6 +274,13 @@
       "when": 1785772669995,
       "tag": "0038_thick_nightshade",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1785789484338,
+      "tag": "0039_superb_captain_universe",
+      "breakpoints": true
     }
   ]
 }

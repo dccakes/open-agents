@@ -6,8 +6,10 @@ import type {
 } from "better-auth/social-providers";
 import { nanoid } from "nanoid";
 import { authDbSchemaMap } from "@/lib/auth/db-schema-map";
+import { impersonationAudit } from "@/lib/auth/impersonation-audit";
 import { lastAdminGuard } from "@/lib/auth/last-admin-guard";
 import { createAuthPlugins } from "@/lib/auth/plugins";
+import { applySignupMembership } from "@/lib/auth/signup-membership-hook";
 import { deriveAuthUsername } from "@/lib/auth/username";
 import {
   getAuthConfig,
@@ -126,6 +128,7 @@ export const auth = betterAuth({
 
   hooks: {
     before: lastAdminGuard,
+    after: impersonationAudit,
   },
 
   user: {
@@ -147,6 +150,11 @@ export const auth = betterAuth({
             username: deriveAuthUsername(user),
           },
         }),
+        // The membership allowlist runs exactly once per user, here. Linking a
+        // second provider account creates an `account` row rather than a
+        // `user` row, so it can never re-run this and can never grant
+        // membership — which is what makes `allowDifferentEmails` safe.
+        after: applySignupMembership,
       },
     },
     session: {

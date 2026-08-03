@@ -1,5 +1,7 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { orgSettings, organizations } from "@/lib/db/schema";
+
 mock.module("server-only", () => ({}));
 
 interface TestSessionRecord {
@@ -60,6 +62,8 @@ let preferencesState: {
 };
 let cachedSkillsState: unknown = null;
 let discoverSkillDirsCalls: string[][] = [];
+let agentRunsPaused = false;
+let orgSettingsReadError: Error | null = null;
 
 const claimChatActiveStreamIdSpy = mock(
   async () => claimActiveStreamDefaultResult,
@@ -218,6 +222,50 @@ mock.module("@/lib/sandbox/utils", () => ({
 
 mock.module("@/lib/session/get-server-session", () => ({
   getServerSession: async () => currentAuthSession,
+  // The chokepoint's membership-aware export. This suite covers an
+  // approved member; the pending case is covered where the gate lives.
+  getSessionWithMembership: async () => ({
+    session: currentAuthSession ?? undefined,
+    approved: Boolean(currentAuthSession),
+  }),
+}));
+
+// The kill switch is faked at the database, not at `@/lib/org/settings`: a
+// module mock would replace that module for every test file loaded after this
+// one, and reading through the real chain is what proves the route is gated.
+mock.module("@/lib/db/client", () => ({
+  db: {
+    select: () => ({
+      from: (table: unknown) => {
+        const rows = async (): Promise<Record<string, unknown>[]> => {
+          if (table === organizations) {
+            return [{ id: "org-1" }];
+          }
+          if (table === orgSettings) {
+            if (orgSettingsReadError) {
+              throw orgSettingsReadError;
+            }
+            return [
+              {
+                organizationId: "org-1",
+                agentRunsPaused,
+                dailyTokenBudget: null,
+              },
+            ];
+          }
+          return [];
+        };
+        const chain: {
+          where: () => typeof chain;
+          limit: () => Promise<Record<string, unknown>[]>;
+        } = {
+          where: () => chain,
+          limit: () => rows(),
+        };
+        return chain;
+      },
+    }),
+  },
 }));
 
 const routeModulePromise = import("./route");
@@ -265,6 +313,8 @@ describe("/api/chat route", () => {
     routeEvents = [];
     cachedSkillsState = null;
     discoverSkillDirsCalls = [];
+    agentRunsPaused = false;
+    orgSettingsReadError = null;
     existingUserMessageCount = 0;
     existingChatMessage = null;
     existingScopedChatMessage = null;
@@ -614,6 +664,52 @@ describe("/api/chat route", () => {
 
     expect(response.ok).toBe(true);
     expect(startCalls).toHaveLength(1);
+  });
+
+  test("refuses to start a run while the kill switch is on", async () => {
+    agentRunsPaused = true;
+    const { POST } = await routeModulePromise;
+
+    const response = await POST(createValidRequest());
+    const body = (await response.json()) as {
+      error: string;
+      code: string;
+      agentRunsPaused: boolean;
+    };
+
+    expect(response.status).toBe(503);
+    expect(body.code).toBe("agent_runs_paused");
+    expect(body.agentRunsPaused).toBe(true);
+    expect(body.error).toMatch(/paused/i);
+    expect(startCalls).toHaveLength(0);
+    expect(createChatMessageIfNotExistsSpy).not.toHaveBeenCalled();
+  });
+
+  test("refuses to start a run when the kill switch cannot be read", async () => {
+    orgSettingsReadError = new Error("connection reset");
+    const { POST } = await routeModulePromise;
+
+    const response = await POST(createValidRequest());
+    const body = (await response.json()) as { code: string };
+
+    expect(response.status).toBe(503);
+    expect(body.code).toBe("org_settings_unavailable");
+    expect(startCalls).toHaveLength(0);
+    expect(createChatMessageIfNotExistsSpy).not.toHaveBeenCalled();
+  });
+
+  test("still reconnects to an in-flight run while the kill switch is on", async () => {
+    if (!chatRecord) throw new Error("chatRecord must be set");
+    chatRecord.activeStreamId = "wrun_existing-456";
+    existingRunStatus = "running";
+    agentRunsPaused = true;
+    const { POST } = await routeModulePromise;
+
+    const response = await POST(createValidRequest());
+
+    expect(response.ok).toBe(true);
+    expect(response.headers.get("x-workflow-run-id")).toBe("wrun_existing-456");
+    expect(startCalls).toHaveLength(0);
   });
 
   test("reconnects to existing running workflow instead of starting new one", async () => {

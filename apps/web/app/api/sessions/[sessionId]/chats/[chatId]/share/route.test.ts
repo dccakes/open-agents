@@ -7,6 +7,7 @@ type ChatRecord = { id: string; sessionId: string } | null;
 type ShareRecord = { id: string; chatId: string } | null;
 
 let currentSession: AuthSession = { user: { id: "user-1" } };
+let approved = true;
 let sessionRecord: SessionRecord = { id: "session-1", userId: "user-1" };
 let chatRecord: ChatRecord = { id: "chat-1", sessionId: "session-1" };
 let shareRecord: ShareRecord = null;
@@ -17,19 +18,31 @@ const deletedShareChatIds: string[] = [];
 
 function registerRouteMocks() {
   mock.module("@/app/api/sessions/_lib/session-context", () => ({
-    requireAuthenticatedUser: async () =>
-      currentSession
-        ? {
-            ok: true as const,
-            userId: currentSession.user.id,
-          }
-        : {
-            ok: false as const,
-            response: Response.json(
-              { error: "Not authenticated" },
-              { status: 401 },
-            ),
-          },
+    requireAuthenticatedUser: async () => {
+      if (!currentSession) {
+        return {
+          ok: false as const,
+          response: Response.json(
+            { error: "Not authenticated" },
+            { status: 401 },
+          ),
+        };
+      }
+
+      if (!approved) {
+        return {
+          ok: false as const,
+          response: Response.json(
+            {
+              error: "Your membership is pending approval by an administrator.",
+            },
+            { status: 403 },
+          ),
+        };
+      }
+
+      return { ok: true as const, userId: currentSession.user.id };
+    },
     requireOwnedSessionChat: async ({
       userId,
       sessionId,
@@ -107,6 +120,7 @@ function createContext(sessionId = "session-1", chatId = "chat-1") {
 describe("/api/sessions/[sessionId]/chats/[chatId]/share", () => {
   beforeEach(() => {
     currentSession = { user: { id: "user-1" } };
+    approved = true;
     sessionRecord = { id: "session-1", userId: "user-1" };
     chatRecord = { id: "chat-1", sessionId: "session-1" };
     shareRecord = null;
@@ -221,6 +235,26 @@ describe("/api/sessions/[sessionId]/chats/[chatId]/share", () => {
       createContext(),
     );
     expect(deleteResponse.status).toBe(401);
+  });
+
+  // Share creation is gated on approved membership through the shared route
+  // helper: a pending user never reaches `createShareIfNotExists`.
+  test("POST returns 403 for a pending user and creates no share", async () => {
+    approved = false;
+    const { POST } = await loadRouteModule();
+
+    const response = await POST(
+      new Request(
+        "http://localhost/api/sessions/session-1/chats/chat-1/share",
+        {
+          method: "POST",
+        },
+      ),
+      createContext(),
+    );
+
+    expect(response.status).toBe(403);
+    expect(createShareInputs).toEqual([]);
   });
 
   test("returns 403 when session does not belong to current user", async () => {

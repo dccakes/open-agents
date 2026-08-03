@@ -149,12 +149,44 @@ export const orgInvitations = pgTable(
   ],
 );
 
+// Organization-wide settings.
+//
+// Keyed by a unique `organizationId` rather than a fixed singleton id, so the
+// Phase 2 multi-org migration is a no-op for this table. The columns are typed
+// rather than living in the organization plugin's `metadata` JSON: the kill
+// switch is read before every run start, and a malformed blob must not be able
+// to fail open into "runs allowed".
+//
+// The row itself is created by the runtime seeder (`lib/org/seed.ts`), not by a
+// migration — migrations are static SQL and cannot read configuration.
+export const orgSettings = pgTable(
+  "org_settings",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    // Stops *new* runs in this deployment. In-flight runs are unaffected;
+    // terminating those is WS-1.5's per-run stop.
+    agentRunsPaused: boolean("agent_runs_paused").notNull().default(false),
+    // NULL means unlimited. Stored and gated here; enforcement is WS-1.1's.
+    dailyTokenBudget: integer("daily_token_budget"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("org_settings_organization_id_idx").on(table.organizationId),
+  ],
+);
+
 export type Organization = typeof organizations.$inferSelect;
 export type NewOrganization = typeof organizations.$inferInsert;
 export type OrgMember = typeof orgMembers.$inferSelect;
 export type NewOrgMember = typeof orgMembers.$inferInsert;
 export type OrgInvitation = typeof orgInvitations.$inferSelect;
 export type NewOrgInvitation = typeof orgInvitations.$inferInsert;
+export type OrgSettingsRow = typeof orgSettings.$inferSelect;
+export type NewOrgSettingsRow = typeof orgSettings.$inferInsert;
 
 export const githubInstallations = pgTable(
   "github_installations",

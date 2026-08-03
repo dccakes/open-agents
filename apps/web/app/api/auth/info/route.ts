@@ -3,16 +3,30 @@ import { hasGitHubAccount as checkGitHubLinked } from "@/lib/github/users";
 import { getInstallationsByUserId } from "@/lib/db/installations";
 import { isUserAdmin, userExists } from "@/lib/db/users";
 import { isManagedTemplateTrialUser } from "@/lib/managed-template-trial";
-import { getSessionFromReq } from "@/lib/session/server";
+import { getSessionWithMembershipFromReq } from "@/lib/session/server";
 import type { SessionUserInfo } from "@/lib/session/types";
 
 const UNAUTHENTICATED: SessionUserInfo = { user: undefined };
 
 export async function GET(req: NextRequest) {
-  const session = await getSessionFromReq(req);
+  // The membership-aware read, because this endpoint is how the client learns
+  // it should render the approval-request screen. It only *reports* pending
+  // state — every protected surface refuses a pending user server-side,
+  // whatever the client does with this.
+  const { session, approved } = await getSessionWithMembershipFromReq(req);
 
   if (!session?.user?.id) {
     return Response.json(UNAUTHENTICATED);
+  }
+
+  if (!approved) {
+    const pending: SessionUserInfo = {
+      user: session.user,
+      authProvider: session.authProvider,
+      isPendingApproval: true,
+      isAdmin: false,
+    };
+    return Response.json(pending);
   }
 
   // run the user-existence check in parallel with the github queries
@@ -33,6 +47,7 @@ export async function GET(req: NextRequest) {
   const data: SessionUserInfo = {
     user: session.user,
     authProvider: session.authProvider,
+    isPendingApproval: false,
     isAdmin,
     isManagedTemplateTrialUser: isManagedTemplateTrialUser(session, req.url),
     hasGitHub,

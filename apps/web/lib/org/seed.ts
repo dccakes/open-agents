@@ -20,6 +20,7 @@ import { db } from "@/lib/db/client";
 import {
   authSessions,
   orgMembers,
+  orgSettings,
   organizations,
   users,
 } from "@/lib/db/schema";
@@ -36,6 +37,8 @@ export interface SeedOrganizationResult {
   organizationId: string;
   /** True when this process inserted the row rather than finding it. */
   createdOrganization: boolean;
+  /** True when this process inserted the settings row rather than finding it. */
+  createdSettings: boolean;
   grantedMemberships: number;
   promotedOrganizationOwners: number;
   promotedPlatformAdmins: number;
@@ -77,6 +80,32 @@ async function ensureOrganizationRow(): Promise<{
 }
 
 /**
+ * Give the organization its settings row.
+ *
+ * Insert-with-conflict for the same reason the organization row is: two boots
+ * racing must converge, and — more importantly — a later boot must never reset
+ * a kill switch an administrator has deliberately set.
+ *
+ * @returns true when this process inserted the row.
+ */
+async function ensureOrganizationSettingsRow(
+  organizationId: string,
+): Promise<boolean> {
+  const inserted = await db
+    .insert(orgSettings)
+    .values({
+      id: nanoid(),
+      organizationId,
+      agentRunsPaused: false,
+      dailyTokenBudget: null,
+    })
+    .onConflictDoNothing({ target: orgSettings.organizationId })
+    .returning({ id: orgSettings.id });
+
+  return inserted.length > 0;
+}
+
+/**
  * Create the organization, grant membership to every existing user, bootstrap
  * the configured admins, and give already-issued sessions an organization.
  *
@@ -87,8 +116,7 @@ export async function ensureSeededOrganization(): Promise<SeedOrganizationResult
   const { id: organizationId, created } = await ensureOrganizationRow();
   setSeededOrganizationId(organizationId);
 
-  // Extension point: the org-settings change creates its row here, keyed by
-  // this organization id and likewise insert-with-conflict.
+  const createdSettings = await ensureOrganizationSettingsRow(organizationId);
 
   const candidates = await db
     .select({
@@ -98,7 +126,21 @@ export async function ensureSeededOrganization(): Promise<SeedOrganizationResult
     })
     .from(users);
 
-  const plan = planSeedMemberships(candidates, adminEmails);
+  const bootstrapAdminIds = planPlatformAdminIds(candidates, adminEmails);
+
+  // The blanket "everyone who exists is a member" backfill is a **cutover**
+  // action, so it runs only on the boot that creates the organization row.
+  // Running it on every boot would re-approve every pending user on the next
+  // deploy, which would quietly turn the membership gate into a no-op.
+  // Configured admins are still ensured on every boot, so an adminless
+  // deployment is always recoverable by redeploying.
+  const plan = created
+    ? planSeedMemberships(candidates, adminEmails)
+    : bootstrapAdminIds.map((userId) => ({
+        userId,
+        role: "owner" as const,
+      }));
+
   let grantedMemberships = 0;
   if (plan.length > 0) {
     const granted = await db
@@ -122,7 +164,6 @@ export async function ensureSeededOrganization(): Promise<SeedOrganizationResult
   // was added to `ADMIN_EMAILS` is promoted, so a redeploy can always restore
   // an adminless deployment. An existing `admin` is left alone rather than
   // being pushed up to `owner`.
-  const bootstrapAdminIds = planPlatformAdminIds(candidates, adminEmails);
   let promotedOrganizationOwners = 0;
   if (bootstrapAdminIds.length > 0) {
     const promoted = await db
@@ -166,6 +207,7 @@ export async function ensureSeededOrganization(): Promise<SeedOrganizationResult
   return {
     organizationId,
     createdOrganization: created,
+    createdSettings,
     grantedMemberships,
     promotedOrganizationOwners,
     promotedPlatformAdmins,

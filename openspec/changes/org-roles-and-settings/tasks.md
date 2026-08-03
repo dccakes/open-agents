@@ -36,25 +36,25 @@ decide.
 
 ## 2. Membership gate and enforcement
 
-- [ ] 2.1 `databaseHooks.user.create.after` — grant `member` membership on verified-email `ALLOWED_EMAIL_DOMAINS` match; grant `owner` + platform `admin` on verified-email `ADMIN_EMAILS` match; otherwise grant nothing. Unverified or absent email never matches either list.
-- [ ] 2.2 Verify account linking does not re-run the approval hook and cannot grant membership (`accountLinking.allowDifferentEmails` is enabled).
-- [ ] 2.3 Enforce approved membership at the **structural chokepoint** — the server session helper — so a new authenticated route is gated by default; add middleware for page routes. A per-route audit is a supplement, not the mechanism.
-- [ ] 2.4 Add an explicit membership check to the Linear webhook run-creation path, which resolves a user by actor email and has no browser session.
-- [ ] 2.5 Pending-approval screen; route pending users to it and hide all org navigation.
-- [ ] 2.6 Admin-area pending-users list (`users LEFT JOIN org_members WHERE org_members.id IS NULL`) with approve/reject behind `member.create`.
-- [ ] 2.7 Member list + role management UI behind `member.update`; platform-role grant/revoke UI for platform admins.
-- [ ] 2.8 Revocation: call `revokeUserSessions` on removal and ban; confirm demotion takes effect on the next request; state in the removal UI that in-flight runs are not terminated (WS-1.5 owns per-run stop).
-- [ ] 2.9 Gate share creation on approved membership; revoke a user's shares on removal or ban.
-- [ ] 2.10 Restrict admin-plugin capabilities (impersonate, createUser, setUserPassword, session listing) to platform admins; audit impersonation start and stop.
-- [ ] 2.11 Tests: allowlisted domain, non-allowlisted, null email, unverified email, subdomain non-match, unset allowlist, linked-account non-grant, pending 403 on each protected surface, idempotent approval, webhook-to-pending-user refusal, removal revokes sessions and shares, cookie-cache assertion.
+- [x] 2.1 `databaseHooks.user.create.after` — grant `member` membership on verified-email `ALLOWED_EMAIL_DOMAINS` match; grant `owner` + platform `admin` on verified-email `ADMIN_EMAILS` match; otherwise grant nothing. Unverified or absent email never matches either list.
+- [x] 2.2 Verify account linking does not re-run the approval hook and cannot grant membership (`accountLinking.allowDifferentEmails` is enabled).
+- [x] 2.3 Enforce approved membership at the **structural chokepoint** — the server session helper — so a new authenticated route is gated by default; add middleware for page routes. A per-route audit is a supplement, not the mechanism.
+- [x] 2.4 Add an explicit membership check to the Linear webhook run-creation path, which resolves a user by actor email and has no browser session.
+- [x] 2.5 Pending-approval screen; route pending users to it and hide all org navigation.
+- [x] 2.6 Admin-area pending-users list (`users LEFT JOIN org_members WHERE org_members.id IS NULL`) with approve/reject behind `member.create`.
+- [x] 2.7 Member list + role management UI behind `member.update`; platform-role grant/revoke UI for platform admins.
+- [x] 2.8 Revocation: call `revokeUserSessions` on removal and ban; confirm demotion takes effect on the next request; state in the removal UI that in-flight runs are not terminated (WS-1.5 owns per-run stop).
+- [x] 2.9 Gate share creation on approved membership; revoke a user's shares on removal or ban.
+- [x] 2.10 Restrict admin-plugin capabilities (impersonate, createUser, setUserPassword, session listing) to platform admins; audit impersonation start and stop.
+- [x] 2.11 Tests: allowlisted domain, non-allowlisted, null email, unverified email, subdomain non-match, unset allowlist, linked-account non-grant, pending 403 on each protected surface, idempotent approval, webhook-to-pending-user refusal, removal revokes sessions and shares, cookie-cache assertion.
 
 ## 3. Org settings and kill switch
 
-- [ ] 3.1 `org_settings` table keyed by unique `organizationId` FK with `agentRunsPaused` (non-null, default false) and `dailyTokenBudget` (nullable); migration; row created by the seeder from 1.5.
-- [ ] 3.2 `apps/web/lib/org/settings.ts` — typed read/update accessors; update path gated on `orgSettings.update` and audited transactionally (app-owned mutation).
-- [ ] 3.3 Kill-switch check at every run-start path (interactive chat and webhook-triggered), returning a structured paused response; fail closed if the settings read errors.
-- [ ] 3.4 Admin-area org settings UI: kill switch and daily token budget, stating that the switch stops new runs in this deployment only.
-- [ ] 3.5 Tests: paused blocks chat run start, paused blocks webhook run start, unpause restores without restart, read failure fails closed, member update returns 403, in-flight runs unaffected.
+- [x] 3.1 `org_settings` table keyed by unique `organizationId` FK with `agentRunsPaused` (non-null, default false) and `dailyTokenBudget` (nullable); migration; row created by the seeder from 1.5.
+- [x] 3.2 `apps/web/lib/org/settings.ts` — typed read/update accessors; update path gated on `orgSettings.update` and audited transactionally (app-owned mutation).
+- [x] 3.3 Kill-switch check at every run-start path (interactive chat and webhook-triggered), returning a structured paused response; fail closed if the settings read errors.
+- [x] 3.4 Admin-area org settings UI: kill switch and daily token budget, stating that the switch stops new runs in this deployment only.
+- [x] 3.5 Tests: paused blocks chat run start, paused blocks webhook run start, unpause restores without restart, read failure fails closed, member update returns 403, in-flight runs unaffected.
 
 ## 4. Docs and verification
 

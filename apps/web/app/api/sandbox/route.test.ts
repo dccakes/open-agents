@@ -71,14 +71,22 @@ let currentVercelAuthInfo: TestVercelAuthInfo | null;
 let currentDotenvContent: string;
 let currentDotenvError: Error | null;
 
+const testSession = {
+  user: {
+    id: "user-1",
+    username: "nico",
+    name: "Nico",
+    email: "nico@example.com",
+  },
+};
+
 mock.module("@/lib/session/get-server-session", () => ({
-  getServerSession: async () => ({
-    user: {
-      id: "user-1",
-      username: "nico",
-      name: "Nico",
-      email: "nico@example.com",
-    },
+  getServerSession: async () => testSession,
+  // The chokepoint's membership-aware export. This suite covers an approved
+  // member; the pending case is covered where the gate lives.
+  getSessionWithMembership: async () => ({
+    session: testSession,
+    approved: true,
   }),
 }));
 

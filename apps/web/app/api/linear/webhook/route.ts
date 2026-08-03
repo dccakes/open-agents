@@ -5,15 +5,17 @@ import { z } from "zod";
 import { getLinearConfig } from "@/lib/config/linear";
 import { getPublicConfig } from "@/lib/config/public";
 import { db } from "@/lib/db/client";
-import { sessions, users } from "@/lib/db/schema";
+import { sessions } from "@/lib/db/schema";
 import { createSessionWithInitialChat } from "@/lib/db/sessions";
 import {
   postLinearComment,
   postLinearThoughtActivity,
 } from "@/lib/linear/activities";
 import { buildIssueContextBlock, getLinearIssue } from "@/lib/linear/issues";
+import { resolveApprovedLinearActor } from "@/lib/linear/resolve-actor";
 import { getLinearWorkspaceToken } from "@/lib/linear/token";
 import { APP_DEFAULT_MODEL_ID } from "@/lib/models";
+import { checkAgentRunStartAllowed } from "@/lib/org/agent-runs-gate";
 import { nanoid } from "nanoid";
 
 const agentSessionEventSchema = z.object({
@@ -139,32 +141,43 @@ async function handleAgentSession({
     console.error("[Linear webhook] Failed to post thought activity:", err);
   }
 
-  if (!actorEmail) {
-    console.warn("[Linear webhook] No actor email in payload");
-    return;
-  }
-
-  const [user] = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.email, actorEmail))
-    .limit(1);
-
-  if (!user) {
-    const appUrl = getPublicConfig().appUrl ?? "";
-    const handle = actorName ? `@${actorName}` : actorEmail;
-    await postLinearComment(
-      token,
-      issueId,
-      `Hey ${handle}, ${actorEmail} isn't connected to Open Agents yet. Sign in at ${appUrl} to run sessions from Linear.`,
-    ).catch((err) =>
-      console.error(
-        "[Linear webhook] Failed to post not-connected comment:",
-        err,
-      ),
+  // Kill switch. This is a run-start path with no browser session, so it
+  // checks the switch itself; the refusal is reported back into the Linear
+  // thread rather than only logged, because a log line is invisible to whoever
+  // delegated the issue.
+  const runStart = await checkAgentRunStartAllowed();
+  if (!runStart.allowed) {
+    await postLinearComment(token, issueId, runStart.message).catch((err) =>
+      console.error("[Linear webhook] Failed to post paused comment:", err),
     );
     return;
   }
+
+  // This path has no browser session, so the membership chokepoint in
+  // `lib/session/` never runs here. The matched user's membership is therefore
+  // checked explicitly, before anything is created.
+  const actor = await resolveApprovedLinearActor(actorEmail);
+
+  if (!actor.ok) {
+    if (actor.reason === "no-email") {
+      console.warn("[Linear webhook] No actor email in payload");
+      return;
+    }
+
+    const appUrl = getPublicConfig().appUrl ?? "";
+    const handle = actorName ? `@${actorName}` : actorEmail;
+    const message =
+      actor.reason === "pending"
+        ? `Hey ${handle}, ${actorEmail} is signed in but still waiting on an administrator to approve access. Once approved you can run sessions from Linear.`
+        : `Hey ${handle}, ${actorEmail} isn't connected to Open Agents yet. Sign in at ${appUrl} to run sessions from Linear.`;
+
+    await postLinearComment(token, issueId, message).catch((err) =>
+      console.error("[Linear webhook] Failed to post refusal comment:", err),
+    );
+    return;
+  }
+
+  const user = { id: actor.userId };
 
   const [existingSession] = await db
     .select({ id: sessions.id })

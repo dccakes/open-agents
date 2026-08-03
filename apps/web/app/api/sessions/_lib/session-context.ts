@@ -1,5 +1,5 @@
 import * as sessionsDb from "@/lib/db/sessions";
-import { getServerSession } from "@/lib/session/get-server-session";
+import { getSessionWithMembership } from "@/lib/session/get-server-session";
 
 export type SessionRecord = NonNullable<
   Awaited<ReturnType<typeof sessionsDb.getSessionById>>
@@ -62,12 +62,27 @@ function toErrorResponse(message: string, status: number): Response {
   return Response.json({ error: message }, { status });
 }
 
+/** The refusal a pending user gets from every authenticated route helper. */
+export const PENDING_APPROVAL_MESSAGE =
+  "Your membership is pending approval by an administrator.";
+
 export async function requireAuthenticatedUser(): Promise<AuthenticatedUserResult> {
-  const session = await getServerSession();
+  // Resolved through the membership-aware helper so a pending user gets a 403
+  // that names the reason, rather than the 401 that "no session" would imply.
+  // Either way they are refused: `getServerSession()` would not have returned
+  // a session for them at all.
+  const { session, approved } = await getSessionWithMembership();
   if (!session?.user) {
     return {
       ok: false,
       response: toErrorResponse("Not authenticated", 401),
+    };
+  }
+
+  if (!approved) {
+    return {
+      ok: false,
+      response: toErrorResponse(PENDING_APPROVAL_MESSAGE, 403),
     };
   }
 

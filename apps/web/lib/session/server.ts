@@ -1,37 +1,32 @@
-import type { NextRequest } from "next/server";
-import type { Session } from "./types";
-import { auth } from "@/lib/auth/config";
+/**
+ * The request-handler half of the membership chokepoint.
+ *
+ * Mirrors `get-server-session.ts` for route handlers that hold a
+ * `NextRequest`: `getSessionFromReq()` hands out a session only for an
+ * approved member, so a route's existing "no session" branch already refuses
+ * pending users.
+ */
 
-function extractUsername(user: {
-  name?: string | null;
-  [key: string]: unknown;
-}): string {
-  if (typeof user.username === "string" && user.username) {
-    return user.username;
-  }
-  return user.name ?? "";
+import type { NextRequest } from "next/server";
+import { auth } from "@/lib/auth/config";
+import {
+  type SessionMembershipState,
+  toSessionMembershipState,
+} from "./map-session";
+import type { Session } from "./types";
+
+/** The session plus its membership state, including for pending users. */
+export async function getSessionWithMembershipFromReq(
+  req: NextRequest,
+): Promise<SessionMembershipState> {
+  const baSession = await auth.api.getSession({ headers: req.headers });
+  return await toSessionMembershipState(baSession);
 }
 
+/** The signed-in, **approved** user's session. */
 export async function getSessionFromReq(
   req: NextRequest,
 ): Promise<Session | undefined> {
-  const baSession = await auth.api.getSession({
-    headers: req.headers,
-  });
-
-  if (!baSession?.user) {
-    return undefined;
-  }
-
-  return {
-    created: baSession.session.createdAt.getTime(),
-    authProvider: "vercel",
-    user: {
-      id: baSession.user.id,
-      username: extractUsername(baSession.user),
-      email: baSession.user.email ?? undefined,
-      avatar: baSession.user.image ?? "",
-      name: baSession.user.name ?? undefined,
-    },
-  };
+  const { session, approved } = await getSessionWithMembershipFromReq(req);
+  return approved ? session : undefined;
 }

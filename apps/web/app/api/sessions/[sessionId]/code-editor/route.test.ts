@@ -150,6 +150,12 @@ mock.module("@open-agents/sandbox", () => ({
 
 mock.module("@/lib/session/get-server-session", () => ({
   getServerSession: async () => currentAuthSession,
+  // The chokepoint's membership-aware export. This suite covers an
+  // approved member; the pending case is covered where the gate lives.
+  getSessionWithMembership: async () => ({
+    session: currentAuthSession ?? undefined,
+    approved: Boolean(currentAuthSession),
+  }),
 }));
 
 const routeModulePromise = import("./route");
