@@ -63,5 +63,5 @@ decide.
 - [x] 4.3 Update `openspec/context.md`'s schema table with `organizations`, `org_members`, `org_invitations`, `org_settings`, and the `users.role` change.
 - [x] 4.4 Record in `docs/agents/lessons-learned.md`: plugin `defaultStatements` must be spread into a custom statement set or built-in endpoints deny; plugin-declared columns must all exist; migrations cannot read config.
 - [ ] 4.5 Follow-up PR (after one deploy): drop `users.is_admin`.
-- [ ] 4.6 `bun run ci` green.
+- [x] 4.6 `bun run ci` green.
 - [ ] 4.7 Manual: sign in from a non-allowlisted domain → pending screen; approve → access; demote last admin → refused; remove a member → their sessions and shares die; flip kill switch → next run start blocked.
