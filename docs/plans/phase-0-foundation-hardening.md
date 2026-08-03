@@ -102,7 +102,13 @@ the rule.
 3. ✅ Migrate call sites, keeping behavior identical — including current default values and
    error messages where user-facing. The whole existing suite passes unmodified; no test
    needed changing, including the direct-env-read ones.
-4. ✅ Add the boundary-check script + wire into root `ci` script.
+4. ✅ Add the boundary-check script + wire into root `ci` script. **Correction:**
+   wiring it into `bun run ci` is not sufficient — `.github/workflows/ci.yml` re-lists the
+   individual commands (`check`, `typecheck`, `test:isolated`, `db:check`) instead of
+   invoking `bun run ci`, so a step added to the script alone never runs on a PR. The
+   workflow got its own `Env boundary` step, plus a comment recording the duplication.
+   Collapsing the workflow onto `bun run ci` belongs to WS-0.4, which is already reworking
+   this file.
 5. ✅ Generate `apps/web/.env.example` from the schemas — it did not exist, and now does,
    written by `bun run --cwd apps/web env:example` and guarded by a test.
 
