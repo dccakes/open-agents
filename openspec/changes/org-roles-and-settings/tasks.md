@@ -18,21 +18,21 @@ decide.
 
 ## 1. Auth plugins, schema, and permission model
 
-- [ ] 1.1 Declare `ALLOWED_EMAIL_DOMAINS`, `ADMIN_EMAILS` (`required-prod`), `DEFAULT_ORG_NAME`, `DEFAULT_ORG_SLUG` as specs in the existing `authEnv` group (`apps/web/lib/config/auth.ts`) with axes + descriptions; add a `getMembershipConfig()` accessor; regenerate the example file with `bun run --cwd apps/web env:example` and commit it; add parsing tests for the domain/email list values. Unset `ALLOWED_EMAIL_DOMAINS` must mean "nothing auto-approves", not "allow all".
-- [ ] 1.2 Add Drizzle tables `organizations` (incl. `metadata` — a real plugin column even though this change stores nothing in it), `org_members`, `org_invitations`, with a unique index on `organizations.slug`.
-- [ ] 1.3 Extend existing tables with **every** field the plugins declare: `users.role`, `users.banned`, `users.banReason`, `users.banExpires`, `auth_sessions.activeOrganizationId`, `auth_sessions.impersonatedBy`. Missing any of these is a SQL error on authenticated requests, not a dormant gap — see `design.md` Decision 9.
-- [ ] 1.4 Generate and commit the migration: `bun run --cwd apps/web db:generate`. Do **not** drop `users.is_admin` in this migration. Backfill `role = 'admin'` where `is_admin = true` (this part is static SQL and belongs in the migration).
-- [ ] 1.5 Idempotent runtime seeder `ensureSeededOrganization()` invoked from `instrumentation.ts`: creates the org from config, creates its `org_settings` row, grants membership to all existing users, assigns `owner` to `ADMIN_EMAILS` holders, and backfills `active_organization_id` on existing `auth_sessions`. Must be concurrency-safe via the slug unique index, not check-then-insert.
-- [ ] 1.6 Configure the organization plugin — `allowUserToCreateOrganization: false`, teams off, `dynamicAccessControl` off, model names mapped to `organizations`/`org_members`/`org_invitations`; extend the Drizzle adapter schema map.
-- [ ] 1.7 Configure the admin plugin with `defaultRole: "user"` and `adminRoles: ["admin"]`.
-- [ ] 1.8 Create `apps/web/lib/auth/permissions.ts` — `createAccessControl` over `{...orgDefaultStatements, ...adminDefaultStatements, ...customResources}` plus the `owner`/`admin`/`member` role definitions; wire into both plugin configs and the auth client. There is **no** custom `membership` resource: approve/set-role/remove map onto the plugin's `member.create`/`update`/`delete`.
-- [ ] 1.9 Add `databaseHooks.session.create.before` setting `activeOrganizationId`; assert session cookie caching stays unset.
-- [ ] 1.10 Create `requirePermission()` wrapping `auth.api.hasPermission` (resolving the seeded org explicitly, not trusting `active_organization_id`) and `requireApprovedMember()` as a positive membership check.
-- [ ] 1.11 Repoint `isUserAdmin()` to read `users.role`, keeping its signature; verify `apps/web/app/api/auth/info/route.ts`, `apps/web/lib/admin/actions.ts`, and `apps/web/hooks/use-session.ts` are unchanged.
-- [ ] 1.12 Schema-conformance test covering the three new tables **and** the extended `users`/`auth_sessions`, asserting every plugin-declared column exists.
-- [ ] 1.13 Permission-matrix test: role × statement action allow/deny, plus an assertion that every resource in both plugins' `defaultStatements` survives in the shared set.
-- [ ] 1.14 Test that built-in plugin endpoints (`removeMember`, `updateMemberRole`) are authorized for `owner`/`admin` — the regression that catches a statement set drifting away from the defaults.
-- [ ] 1.15 Last-admin invariants: refuse demotion/removal/ban of the last org `owner`/`admin`, and of the last **platform** admin.
+- [x] 1.1 Declare `ALLOWED_EMAIL_DOMAINS`, `ADMIN_EMAILS` (`required-prod`), `DEFAULT_ORG_NAME`, `DEFAULT_ORG_SLUG` as specs in the existing `authEnv` group (`apps/web/lib/config/auth.ts`) with axes + descriptions; add a `getMembershipConfig()` accessor; regenerate the example file with `bun run --cwd apps/web env:example` and commit it; add parsing tests for the domain/email list values. Unset `ALLOWED_EMAIL_DOMAINS` must mean "nothing auto-approves", not "allow all".
+- [x] 1.2 Add Drizzle tables `organizations` (incl. `metadata` — a real plugin column even though this change stores nothing in it), `org_members`, `org_invitations`, with a unique index on `organizations.slug`.
+- [x] 1.3 Extend existing tables with **every** field the plugins declare: `users.role`, `users.banned`, `users.banReason`, `users.banExpires`, `auth_sessions.activeOrganizationId`, `auth_sessions.impersonatedBy`. Missing any of these is a SQL error on authenticated requests, not a dormant gap — see `design.md` Decision 9.
+- [x] 1.4 Generate and commit the migration: `bun run --cwd apps/web db:generate`. Do **not** drop `users.is_admin` in this migration. Backfill `role = 'admin'` where `is_admin = true` (this part is static SQL and belongs in the migration).
+- [x] 1.5 Idempotent runtime seeder `ensureSeededOrganization()` invoked from `instrumentation.ts`: creates the org from config, creates its `org_settings` row, grants membership to all existing users, assigns `owner` to `ADMIN_EMAILS` holders, and backfills `active_organization_id` on existing `auth_sessions`. Must be concurrency-safe via the slug unique index, not check-then-insert.
+- [x] 1.6 Configure the organization plugin — `allowUserToCreateOrganization: false`, teams off, `dynamicAccessControl` off, model names mapped to `organizations`/`org_members`/`org_invitations`; extend the Drizzle adapter schema map.
+- [x] 1.7 Configure the admin plugin with `defaultRole: "user"` and `adminRoles: ["admin"]`.
+- [x] 1.8 Create `apps/web/lib/auth/permissions.ts` — `createAccessControl` over `{...orgDefaultStatements, ...adminDefaultStatements, ...customResources}` plus the `owner`/`admin`/`member` role definitions; wire into both plugin configs and the auth client. There is **no** custom `membership` resource: approve/set-role/remove map onto the plugin's `member.create`/`update`/`delete`.
+- [x] 1.9 Add `databaseHooks.session.create.before` setting `activeOrganizationId`; assert session cookie caching stays unset.
+- [x] 1.10 Create `requirePermission()` wrapping `auth.api.hasPermission` (resolving the seeded org explicitly, not trusting `active_organization_id`) and `requireApprovedMember()` as a positive membership check.
+- [x] 1.11 Repoint `isUserAdmin()` to read `users.role`, keeping its signature; verify `apps/web/app/api/auth/info/route.ts`, `apps/web/lib/admin/actions.ts`, and `apps/web/hooks/use-session.ts` are unchanged.
+- [x] 1.12 Schema-conformance test covering the three new tables **and** the extended `users`/`auth_sessions`, asserting every plugin-declared column exists.
+- [x] 1.13 Permission-matrix test: role × statement action allow/deny, plus an assertion that every resource in both plugins' `defaultStatements` survives in the shared set.
+- [x] 1.14 Test that built-in plugin endpoints (`removeMember`, `updateMemberRole`) are authorized for `owner`/`admin` — the regression that catches a statement set drifting away from the defaults.
+- [x] 1.15 Last-admin invariants: refuse demotion/removal/ban of the last org `owner`/`admin`, and of the last **platform** admin.
 
 ## 2. Membership gate and enforcement
 

@@ -22,7 +22,15 @@ export const users = pgTable("users", {
   emailVerified: boolean("email_verified").notNull().default(false),
   name: text("name"),
   avatarUrl: text("avatar_url"),
+  // Superseded by `role` (better-auth admin plugin). Kept for one deploy so a
+  // rolling release's previous code can still read it; dropped in a later PR.
   isAdmin: boolean("is_admin").notNull().default(false),
+  // better-auth admin plugin. Every declared field must exist as a column:
+  // the adapter rejects an insert naming a column the Drizzle schema lacks.
+  role: text("role").notNull().default("user"),
+  banned: boolean("banned").notNull().default(false),
+  banReason: text("ban_reason"),
+  banExpires: timestamp("ban_expires"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   lastLoginAt: timestamp("last_login_at").defaultNow().notNull(),
@@ -59,6 +67,12 @@ export const authSessions = pgTable("auth_sessions", {
   userId: text("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
+  // better-auth organization plugin. NULL on sessions issued before the
+  // organization existed, which is why `requirePermission()` resolves the
+  // seeded organization explicitly instead of trusting this field.
+  activeOrganizationId: text("active_organization_id"),
+  // better-auth admin plugin.
+  impersonatedBy: text("impersonated_by"),
 });
 
 // better-auth verification tokens
@@ -70,6 +84,77 @@ export const verification = pgTable("verification", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+// better-auth organization plugin — `organization` model.
+// `metadata` is a plugin column and must exist even though nothing in this
+// change stores anything in it: org settings live in their own typed table.
+export const organizations = pgTable(
+  "organizations",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    logo: text("logo"),
+    metadata: text("metadata"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  // The seeder's concurrency guard: two boots racing to insert converge on one
+  // row through this constraint rather than through check-then-insert.
+  (table) => [uniqueIndex("organizations_slug_idx").on(table.slug)],
+);
+
+// better-auth organization plugin — `member` model.
+export const orgMembers = pgTable(
+  "org_members",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role").notNull().default("member"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("org_members_org_user_idx").on(
+      table.organizationId,
+      table.userId,
+    ),
+    index("org_members_user_id_idx").on(table.userId),
+  ],
+);
+
+// better-auth organization plugin — `invitation` model.
+export const orgInvitations = pgTable(
+  "org_invitations",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    role: text("role"),
+    status: text("status").notNull().default("pending"),
+    expiresAt: timestamp("expires_at").notNull(),
+    inviterId: text("inviter_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("org_invitations_organization_id_idx").on(table.organizationId),
+    index("org_invitations_email_idx").on(table.email),
+  ],
+);
+
+export type Organization = typeof organizations.$inferSelect;
+export type NewOrganization = typeof organizations.$inferInsert;
+export type OrgMember = typeof orgMembers.$inferSelect;
+export type NewOrgMember = typeof orgMembers.$inferInsert;
+export type OrgInvitation = typeof orgInvitations.$inferSelect;
+export type NewOrgInvitation = typeof orgInvitations.$inferInsert;
 
 export const githubInstallations = pgTable(
   "github_installations",

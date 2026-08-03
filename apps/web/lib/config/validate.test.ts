@@ -10,6 +10,7 @@ const TRACKED_KEYS = [
   "BETTER_AUTH_SECRET",
   "NEXT_PUBLIC_VERCEL_APP_CLIENT_ID",
   "VERCEL_APP_CLIENT_SECRET",
+  "ADMIN_EMAILS",
   "LINEAR_CLIENT_ID",
   "LINEAR_CLIENT_SECRET",
   "LINEAR_WEBHOOK_SECRET",
@@ -40,6 +41,7 @@ function productionBaseline() {
     BETTER_AUTH_SECRET: "secret",
     NEXT_PUBLIC_VERCEL_APP_CLIENT_ID: "client-id",
     VERCEL_APP_CLIENT_SECRET: "client-secret",
+    ADMIN_EMAILS: "admin@example.com",
   };
 }
 
@@ -65,6 +67,19 @@ describe("validateServerConfig", () => {
     setEnv(withoutDatabase);
 
     expect(() => validateServerConfig()).toThrow(/POSTGRES_URL is required/);
+  });
+
+  test("refuses a production boot with no bootstrap admin", () => {
+    const { ADMIN_EMAILS: _omitted, ...withoutAdmins } = productionBaseline();
+    setEnv(withoutAdmins);
+
+    expect(() => validateServerConfig()).toThrow(/ADMIN_EMAILS is required/);
+  });
+
+  test("treats a blank admin allowlist as missing, not as an empty list", () => {
+    setEnv({ ...productionBaseline(), ADMIN_EMAILS: "  ,  " });
+
+    expect(() => validateServerConfig()).toThrow(/ADMIN_EMAILS is required/);
   });
 
   test("does not enforce production requirements outside production", () => {
