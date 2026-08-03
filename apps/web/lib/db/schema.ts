@@ -534,25 +534,40 @@ export type UserSandboxConfig = typeof userSandboxConfigs.$inferSelect;
 export type NewUserSandboxConfig = typeof userSandboxConfigs.$inferInsert;
 
 // Usage tracking — one row per assistant turn (append-only)
-export const usageEvents = pgTable("usage_events", {
-  id: text("id").primaryKey(),
-  userId: text("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  source: text("source", { enum: ["web"] })
-    .notNull()
-    .default("web"),
-  agentType: text("agent_type", { enum: ["main", "subagent"] })
-    .notNull()
-    .default("main"),
-  provider: text("provider"),
-  modelId: text("model_id"),
-  inputTokens: integer("input_tokens").notNull().default(0),
-  cachedInputTokens: integer("cached_input_tokens").notNull().default(0),
-  outputTokens: integer("output_tokens").notNull().default(0),
-  toolCallCount: integer("tool_call_count").notNull().default(0),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+export const usageEvents = pgTable(
+  "usage_events",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // Run attribution. Nullable because rows written before attribution
+    // existed have neither, and because usage can be recorded outside a
+    // workflow run.
+    sessionId: text("session_id"),
+    workflowRunId: text("workflow_run_id"),
+    source: text("source", { enum: ["web"] })
+      .notNull()
+      .default("web"),
+    agentType: text("agent_type", { enum: ["main", "subagent"] })
+      .notNull()
+      .default("main"),
+    provider: text("provider"),
+    modelId: text("model_id"),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    cachedInputTokens: integer("cached_input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    toolCallCount: integer("tool_call_count").notNull().default(0),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("usage_events_user_id_created_at_idx").on(
+      table.userId,
+      table.createdAt,
+    ),
+    index("usage_events_workflow_run_id_idx").on(table.workflowRunId),
+  ],
+);
 
 export type UsageEvent = typeof usageEvents.$inferSelect;
 export type NewUsageEvent = typeof usageEvents.$inferInsert;

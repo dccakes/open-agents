@@ -392,6 +392,13 @@ export async function recordWorkflowUsage(
       }
     }
 
+    // Run attribution, so usage is queryable per session and per run. Absent
+    // when the caller did not supply run context.
+    const attribution = {
+      sessionId: workflowRun?.sessionId,
+      workflowRunId: workflowRun?.workflowRunId,
+    };
+
     // Record main agent usage
     if (totalUsage) {
       await recordUsage(userId, {
@@ -404,6 +411,7 @@ export async function recordWorkflowUsage(
           cachedInputTokens: cachedInputTokensFor(totalUsage),
           outputTokens: totalUsage.outputTokens ?? 0,
         },
+        ...attribution,
       });
     }
 
@@ -460,6 +468,7 @@ export async function recordWorkflowUsage(
             outputTokens: modelUsage.usage.outputTokens ?? 0,
           },
           toolCallCount: modelUsage.toolCallCount,
+          ...attribution,
         });
       }
     }

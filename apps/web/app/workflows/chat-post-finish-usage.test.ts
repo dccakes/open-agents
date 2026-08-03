@@ -344,6 +344,94 @@ describe("recordWorkflowUsage", () => {
     expect((calls[0][1] as { model: string }).model).toBe("gpt-4");
   });
 
+  test("attributes main agent usage to the session and workflow run", async () => {
+    const usage = makeUsage({
+      inputTokens: 100,
+      outputTokens: 50,
+      totalTokens: 150,
+    });
+
+    await recordWorkflowUsage(
+      "user-1",
+      "gpt-4",
+      usage,
+      makeAssistantMessage(),
+      undefined,
+      {
+        workflowRunId: "wrun-1",
+        chatId: "chat-1",
+        sessionId: "session-1",
+        status: "completed",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        finishedAt: "2026-01-01T00:00:05.000Z",
+        totalDurationMs: 5000,
+        stepTimings: [],
+      },
+    );
+
+    const calls = spies.recordUsage.mock.calls as unknown[][];
+    expect(calls[0][1]).toMatchObject({
+      agentType: "main",
+      sessionId: "session-1",
+      workflowRunId: "wrun-1",
+    });
+  });
+
+  test("attributes subagent usage to the session and workflow run", async () => {
+    spies.collectTaskToolUsageEvents.mockReturnValueOnce([
+      {
+        modelId: "claude-3",
+        toolCallId: "task-1",
+        usage: makeUsage({ inputTokens: 10, outputTokens: 5, totalTokens: 15 }),
+      },
+    ]);
+
+    await recordWorkflowUsage(
+      "user-1",
+      "gpt-4",
+      undefined,
+      makeAssistantMessage(),
+      undefined,
+      {
+        workflowRunId: "wrun-1",
+        chatId: "chat-1",
+        sessionId: "session-1",
+        status: "completed",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        finishedAt: "2026-01-01T00:00:05.000Z",
+        totalDurationMs: 5000,
+        stepTimings: [],
+      },
+    );
+
+    const calls = spies.recordUsage.mock.calls as unknown[][];
+    expect(calls).toHaveLength(1);
+    expect(calls[0][1]).toMatchObject({
+      agentType: "subagent",
+      model: "claude-3",
+      sessionId: "session-1",
+      workflowRunId: "wrun-1",
+    });
+  });
+
+  test("records usage without attribution when there is no workflow run", async () => {
+    const usage = makeUsage({
+      inputTokens: 100,
+      outputTokens: 50,
+      totalTokens: 150,
+    });
+
+    await recordWorkflowUsage("user-1", "gpt-4", usage, makeAssistantMessage());
+
+    const calls = spies.recordUsage.mock.calls as unknown[][];
+    const input = calls[0][1] as {
+      sessionId?: string;
+      workflowRunId?: string;
+    };
+    expect(input.sessionId).toBeUndefined();
+    expect(input.workflowRunId).toBeUndefined();
+  });
+
   test("does not throw on error", async () => {
     spies.recordUsage.mockImplementationOnce(() =>
       Promise.reject(new Error("Usage DB down")),

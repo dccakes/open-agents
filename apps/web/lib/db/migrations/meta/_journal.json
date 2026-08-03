@@ -281,6 +281,13 @@
       "when": 1785789484338,
       "tag": "0039_superb_captain_universe",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1785795529602,
+      "tag": "0040_flat_excalibur",
+      "breakpoints": true
     }
   ]
 }
