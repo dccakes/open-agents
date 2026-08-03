@@ -11,8 +11,8 @@ run in parallel.
 
 | Workstream | State |
 | --- | --- |
-| WS-0.2a Bun version bump | ✅ Done — see [sub-plan](./ws-0.2a-bun-version-bump.md). Bun `1.2.14` → `1.3.14`; soaking before WS-0.2b. |
-| WS-0.2b bunfig cooldown | ⬜ Not started — blocked on WS-0.2a soak |
+| WS-0.2a Bun version bump | ✅ Done — see [sub-plan](./ws-0.2a-bun-version-bump.md). Bun `1.2.14` → `1.3.14`, landed on main in #5. |
+| WS-0.2b bunfig cooldown | ✅ Done — see [sub-plan](./ws-0.2b-bunfig-cooldown.md). 7-day `minimumReleaseAge`, one justified exclusion. |
 | WS-0.3 knip | ⬜ Not started |
 | WS-0.4 CI hardening | ⬜ Not started — **rescoped**, see [evaluation](#ws-04--ci-hardening-revised-enforce-the-vercel-signal-dont-duplicate-it). Vercel previews already build + migrate per PR; the duplicate CI build job is cut. |
 | WS-0.1 config boundary | ⬜ Not started |
@@ -94,23 +94,40 @@ the window in which npm supply-chain attacks live. QM enforces a 7-day cooldown 
    pre-existing failures this PR had to absorb are in
    [WS-0.2a — Bun version bump](./ws-0.2a-bun-version-bump.md). **Let this soak on main
    for a couple of days before step 2.**
-2. ⬜ Then create root `bunfig.toml` with `[install]` → `minimumReleaseAge = 604800`
-   (seconds; 7 days — requires Bun ≥ 1.2.20).
-3. Verify enforcement: temporarily add a dependency version published < 7 days ago and
+2. ✅ Then create root `bunfig.toml` with `[install]` → `minimumReleaseAge = 604800`
+   (seconds; 7 days — requires Bun ≥ 1.2.20). **Done** — detail in
+   [WS-0.2b — bunfig cooldown](./ws-0.2b-bunfig-cooldown.md).
+3. ✅ Verify enforcement: temporarily add a dependency version published < 7 days ago and
    confirm `bun install` blocks/warns per Bun's documented behavior; remove it.
-4. If a genuinely urgent security patch is ever needed inside the window, use
+   **Done, and the documented behavior is not what happens:** Bun silently resolves to
+   the newest *eligible* version instead of warning. It errors only when no version in
+   the range is old enough — and then the whole install fails, `--frozen-lockfile`
+   included. Full test matrix in the sub-plan.
+4. ✅ If a genuinely urgent security patch is ever needed inside the window, use
    `minimumReleaseAgeExcludes` for that one package — document this escape hatch in a
-   comment in `bunfig.toml`.
-5. Be honest about the protection window in the `bunfig.toml` comment:
+   comment in `bunfig.toml`. **Done, but documented in the sub-plan rather than inline:**
+   `bunfig.toml` is kept to its three config lines. The hatch was needed on day one:
+   `@daytonaio/sdk@^0.203.0` is a `0.x` caret range containing a single two-day-old
+   release, so it has no eligible version and blocks every install. Excluded with a
+   justification and a removal path.
+5. ✅ Be honest about the protection window (in the sub-plan, per step 4):
    `minimumReleaseAge` gates **new resolutions** (adding/updating deps). CI's
    `bun install --frozen-lockfile` installs exactly what the lockfile pins and is not
    re-screened — the cooldown protects the moment a version enters the lockfile, not
-   every install after.
+   every install after. **One correction from testing:** a frozen install *is* re-screened
+   when the install config itself changes (which is why step 4's exclusion was needed
+   before CI could go green). Already-pinned versions are still never re-checked on a
+   steady-state install.
 
-**Acceptance criteria.** Bun bump landed and soaked as its own PR (✅ landed, soak
-pending); `bunfig.toml` committed (⬜); CI and `packageManager` on the same Bun version
-(✅ both `1.3.14`); `bun install --frozen-lockfile` green in CI (✅ — it was red before
-WS-0.2a from stale-lockfile drift, now fixed); behavior verified per step 3 (⬜).
+**Acceptance criteria.** Bun bump landed as its own PR (✅ #5); `bunfig.toml` committed
+(✅); CI and `packageManager` on the same Bun version (✅ both `1.3.14`);
+`bun install --frozen-lockfile` green in CI (✅ — it was red before WS-0.2a from
+stale-lockfile drift, now fixed, and clean under the cooldown with no lockfile diff);
+behavior verified per step 3 (✅).
+
+**Follow-up this workstream leaves open.** The `@daytonaio/sdk` exclusion should be
+retired by widening or pinning that range in `packages/sandbox/package.json` so an aged
+version is reachable — see the sub-plan.
 
 ---
 
