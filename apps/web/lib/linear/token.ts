@@ -5,10 +5,11 @@ import {
   randomBytes,
   scryptSync,
 } from "crypto";
+import { getAuthConfig } from "@/lib/config/auth";
 import { getLinearWorkspace } from "@/lib/db/linear-workspaces";
 
 function getEncryptionKey(): Buffer {
-  const secret = process.env.BETTER_AUTH_SECRET;
+  const { secret } = getAuthConfig();
   if (!secret) throw new Error("BETTER_AUTH_SECRET is not set");
   return scryptSync(secret, "linear-token-salt", 32) as Buffer;
 }

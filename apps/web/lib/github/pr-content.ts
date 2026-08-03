@@ -4,6 +4,8 @@ import { generateText, NoObjectGeneratedError, Output } from "ai";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getConversationContext } from "@/app/api/generate-pr/_lib/generate-pr-helpers";
+import { getDeploymentConfig } from "@/lib/config/deployment";
+import { getPublicConfig } from "@/lib/config/public";
 import { getGitHubUserProfile } from "@/lib/github/users";
 import { db } from "@/lib/db/client";
 import { getChatsBySessionId, getSessionById } from "@/lib/db/sessions";
@@ -53,11 +55,12 @@ function escapeMarkdownText(value: string): string {
 export function resolvePullRequestAppBaseUrl(
   appBaseUrl?: string,
 ): string | null {
+  const deployment = getDeploymentConfig();
   const candidates = [
     appBaseUrl,
-    process.env.VERCEL_URL,
-    process.env.VERCEL_ENV === "production"
-      ? process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL
+    deployment.deploymentUrl,
+    deployment.environment === "production"
+      ? getPublicConfig().productionUrl
       : null,
   ];
 

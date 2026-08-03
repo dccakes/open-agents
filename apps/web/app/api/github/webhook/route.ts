@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { after } from "next/server";
 import { z } from "zod";
+import { getGitHubAppEnvConfig } from "@/lib/config/github";
 import {
   deleteInstallationByInstallationId,
   getInstallationsByInstallationId,
@@ -149,7 +150,7 @@ async function handlePullRequestWebhook(
 }
 
 export async function POST(req: Request): Promise<Response> {
-  const webhookSecret = process.env.GITHUB_WEBHOOK_SECRET;
+  const { webhookSecret } = getGitHubAppEnvConfig();
   if (!webhookSecret) {
     return Response.json(
       { error: "GITHUB_WEBHOOK_SECRET is not configured" },

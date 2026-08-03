@@ -1,4 +1,5 @@
 import Redis, { type RedisOptions } from "ioredis";
+import { getRedisConfig } from "@/lib/config/redis";
 
 const warnedMissingRedisFeatures = new Set<string>();
 
@@ -58,13 +59,7 @@ function applyRedisQueryOptions(
 }
 
 export function getRedisUrl(): string | null {
-  const redisUrl = process.env.REDIS_URL?.trim();
-  if (redisUrl) return redisUrl;
-
-  const kvUrl = process.env.KV_URL?.trim();
-  if (kvUrl) return kvUrl;
-
-  return null;
+  return getRedisConfig().url;
 }
 
 export function getRedisConnectionOptions(url: string): RedisConnectionOptions {

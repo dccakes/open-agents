@@ -1,17 +1,20 @@
 import { generateState } from "arctic";
 import { NextResponse, type NextRequest } from "next/server";
+import { getDeploymentConfig } from "@/lib/config/deployment";
+import { getLinearConfig } from "@/lib/config/linear";
+import { getPublicConfig } from "@/lib/config/public";
 import { getServerSession } from "@/lib/session/get-server-session";
 
 const COOKIE_OPTIONS = {
   path: "/",
-  secure: process.env.NODE_ENV === "production",
+  secure: getDeploymentConfig().isProduction,
   httpOnly: true,
   maxAge: 60 * 15,
   sameSite: "lax" as const,
 };
 
 function getAppUrl(req: Request): string {
-  return process.env.NEXT_PUBLIC_APP_URL ?? new URL(req.url).origin;
+  return getPublicConfig().appUrl ?? new URL(req.url).origin;
 }
 
 export async function GET(req: NextRequest): Promise<Response> {
@@ -21,7 +24,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     return NextResponse.redirect(new URL("/", req.url));
   }
 
-  const clientId = process.env.LINEAR_CLIENT_ID;
+  const { clientId } = getLinearConfig();
   if (!clientId) {
     return NextResponse.redirect(
       new URL("/settings/connections?linear=not_configured", req.url),

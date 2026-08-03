@@ -1,4 +1,8 @@
 import type { Dirent } from "fs";
+import {
+  type DaytonaProviderConfig,
+  getDaytonaProviderConfig,
+} from "../../config";
 import type { ConnectOptions } from "../../factory";
 import type {
   ExecResult,
@@ -61,8 +65,11 @@ function quoteForShell(value: string): string {
 function getRequiredEnv(
   name: "DAYTONA_API_KEY" | "DAYTONA_SERVER_URL",
   env?: Record<string, string>,
+  config: DaytonaProviderConfig = getDaytonaProviderConfig(),
 ): string {
-  const value = env?.[name] ?? process.env[name];
+  const fallback =
+    name === "DAYTONA_API_KEY" ? config.apiKey : config.serverUrl;
+  const value = env?.[name] ?? fallback;
   if (!value) {
     throw new Error(`${name} environment variable is not set`);
   }
