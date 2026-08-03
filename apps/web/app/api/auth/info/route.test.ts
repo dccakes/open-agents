@@ -16,13 +16,18 @@ let exists = true;
 let hasGitHubLinked = false;
 let installations: Array<{ installationId: number }> = [];
 let isAdmin = false;
+let approved = true;
 
 const originalNodeEnv = process.env.NODE_ENV;
 
 mock.module("server-only", () => ({}));
 
 mock.module("@/lib/session/server", () => ({
-  getSessionFromReq: async () => session,
+  getSessionFromReq: async () => (approved ? session : undefined),
+  getSessionWithMembershipFromReq: async () => ({
+    session: session ?? undefined,
+    approved: session ? approved : false,
+  }),
 }));
 
 mock.module("@/lib/db/users", () => ({
@@ -69,6 +74,7 @@ describe("GET /api/auth/info", () => {
     hasGitHubLinked = false;
     installations = [];
     isAdmin = false;
+    approved = true;
   });
 
   test("returns unauthenticated when there is no session", async () => {
@@ -91,6 +97,23 @@ describe("GET /api/auth/info", () => {
     expect(await response.json()).toEqual({});
   });
 
+  test("reports a signed-in pending user without any org state", async () => {
+    approved = false;
+    hasGitHubLinked = true;
+    installations = [{ installationId: 1 }];
+    const { GET } = await routeModulePromise;
+
+    const response = await GET(createRequest());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      user: session?.user,
+      authProvider: "vercel",
+      isPendingApproval: true,
+      isAdmin: false,
+    });
+  });
+
   test("reports GitHub account and installation state", async () => {
     hasGitHubLinked = true;
     installations = [{ installationId: 1 }];
@@ -102,6 +125,7 @@ describe("GET /api/auth/info", () => {
     expect(await response.json()).toEqual({
       user: session?.user,
       authProvider: "vercel",
+      isPendingApproval: false,
       isAdmin: false,
       isManagedTemplateTrialUser: false,
       hasGitHub: true,
@@ -119,6 +143,7 @@ describe("GET /api/auth/info", () => {
     expect(await response.json()).toEqual({
       user: session?.user,
       authProvider: "vercel",
+      isPendingApproval: false,
       isAdmin: false,
       isManagedTemplateTrialUser: false,
       hasGitHub: false,
@@ -138,6 +163,7 @@ describe("GET /api/auth/info", () => {
     expect(await response.json()).toEqual({
       user: session?.user,
       authProvider: "vercel",
+      isPendingApproval: false,
       isAdmin: false,
       isManagedTemplateTrialUser: true,
       hasGitHub: false,
@@ -156,6 +182,7 @@ describe("GET /api/auth/info", () => {
     expect(await response.json()).toEqual({
       user: session?.user,
       authProvider: "vercel",
+      isPendingApproval: false,
       isAdmin: false,
       isManagedTemplateTrialUser: true,
       hasGitHub: false,

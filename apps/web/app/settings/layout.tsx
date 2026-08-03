@@ -11,6 +11,7 @@ import {
   SlidersHorizontal,
   Trophy,
   User,
+  Users,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -104,12 +105,20 @@ const baseSidebarItems = [
   },
 ];
 
-const adminSidebarItem = {
-  id: "admin",
-  label: "Admin",
-  href: "/settings/admin",
-  icon: ShieldAlert,
-};
+const adminSidebarItems = [
+  {
+    id: "members",
+    label: "Members",
+    href: "/settings/admin/members",
+    icon: Users,
+  },
+  {
+    id: "admin",
+    label: "Admin",
+    href: "/settings/admin",
+    icon: ShieldAlert,
+  },
+];
 
 function SettingsLayout({
   children,
@@ -122,7 +131,7 @@ function SettingsLayout({
 }) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const sidebarItems = isAdmin
-    ? [...baseSidebarItems, adminSidebarItem]
+    ? [...baseSidebarItems, ...adminSidebarItems]
     : baseSidebarItems;
   const activeItem = sidebarItems.find((item) => item.href === pathname);
 

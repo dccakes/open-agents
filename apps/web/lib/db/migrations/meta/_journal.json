@@ -267,6 +267,20 @@
       "when": 1784655357701,
       "tag": "0037_smiling_tyger_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1785772669995,
+      "tag": "0038_thick_nightshade",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1785789484338,
+      "tag": "0039_superb_captain_universe",
+      "breakpoints": true
     }
   ]
 }

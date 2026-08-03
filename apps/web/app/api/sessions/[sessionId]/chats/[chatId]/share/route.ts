@@ -41,6 +41,12 @@ export async function GET(_req: Request, context: RouteContext) {
 /**
  * POST /api/sessions/:sessionId/chats/:chatId/share
  * Generates a share id for a single chat, making only that chat publicly accessible.
+ *
+ * Creating a share requires **approved membership**, enforced by
+ * `requireAuthenticatedUser()` — a pending user gets 403 and no share row.
+ * Shares are revoked when their author is removed or banned
+ * (`lib/org/revoke-access.ts`). A URL someone already copied elsewhere stays
+ * out of reach; that is what the shares feature is (design Decision 13).
  */
 export async function POST(_req: Request, context: RouteContext) {
   const authResult = await requireAuthenticatedUser();

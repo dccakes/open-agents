@@ -5,6 +5,11 @@ import type {
   VercelProfile,
 } from "better-auth/social-providers";
 import { nanoid } from "nanoid";
+import { authDbSchemaMap } from "@/lib/auth/db-schema-map";
+import { impersonationAudit } from "@/lib/auth/impersonation-audit";
+import { lastAdminGuard } from "@/lib/auth/last-admin-guard";
+import { createAuthPlugins } from "@/lib/auth/plugins";
+import { applySignupMembership } from "@/lib/auth/signup-membership-hook";
 import { deriveAuthUsername } from "@/lib/auth/username";
 import {
   getAuthConfig,
@@ -14,7 +19,7 @@ import {
 import { getDeploymentConfig } from "@/lib/config/deployment";
 import { getPublicConfig } from "@/lib/config/public";
 import { db } from "@/lib/db/client";
-import * as schema from "@/lib/db/schema";
+import { getSeededOrganizationId } from "@/lib/org/seeded-organization";
 
 function normalizeHost(value?: string): string | null {
   if (!value) {
@@ -116,13 +121,15 @@ export const auth = betterAuth({
 
   database: drizzleAdapter(db, {
     provider: "pg",
-    schema: {
-      users: schema.users,
-      auth_sessions: schema.authSessions,
-      account: schema.accounts,
-      verification: schema.verification,
-    },
+    schema: authDbSchemaMap,
   }),
+
+  plugins: createAuthPlugins(),
+
+  hooks: {
+    before: lastAdminGuard,
+    after: impersonationAudit,
+  },
 
   user: {
     modelName: "users",
@@ -143,12 +150,35 @@ export const auth = betterAuth({
             username: deriveAuthUsername(user),
           },
         }),
+        // The membership allowlist runs exactly once per user, here. Linking a
+        // second provider account creates an `account` row rather than a
+        // `user` row, so it can never re-run this and can never grant
+        // membership — which is what makes `allowDifferentEmails` safe.
+        after: applySignupMembership,
+      },
+    },
+    session: {
+      create: {
+        // Exactly one organization exists, so every new session is scoped to
+        // it. Sessions issued before it existed are backfilled by the seeder,
+        // and `requirePermission()` resolves the organization explicitly, so a
+        // NULL here is never load-bearing.
+        before: async () => {
+          const activeOrganizationId = await getSeededOrganizationId();
+          return activeOrganizationId
+            ? { data: { activeOrganizationId } }
+            : undefined;
+        },
       },
     },
   },
 
   session: {
     modelName: "auth_sessions",
+    // `cookieCache` is deliberately absent. Every permission check is a
+    // per-request database lookup; caching the session in a cookie would serve
+    // a demoted admin their old role for the cache TTL, and nothing in the
+    // code would flag it. `config.test.ts` asserts this stays unset.
   },
 
   account: {

@@ -17,6 +17,8 @@ export function useSession() {
     session: data ?? null,
     loading: isLoading,
     isAuthenticated: !!data?.user,
+    /** Signed in but holding no membership row — route them to `/pending`. */
+    isPendingApproval: data?.isPendingApproval ?? false,
     isAdmin: data?.isAdmin ?? false,
     hasGitHub: data?.hasGitHub ?? false,
     hasGitHubAccount: data?.hasGitHubAccount ?? false,

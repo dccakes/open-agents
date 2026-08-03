@@ -82,7 +82,7 @@ Key tables and their roles:
 
 | Table | Purpose |
 |-------|---------|
-| `users` | Account records (id, email, username, avatarUrl, isAdmin) |
+| `users` | Account records (id, email, username, avatarUrl, `role` platform role, ban fields; `isAdmin` retained for the expand-contract window) |
 | `accounts` | OAuth provider accounts linked to users |
 | `authSessions` | Better-auth sessions |
 | `verification` | Auth verification tokens |
@@ -98,6 +98,10 @@ Key tables and their roles:
 | `userPreferences` | Per-user defaults: model, subagent model, sandbox type, diff mode, flags |
 | `userSandboxConfigs` | Per-user per-provider sandbox credentials (config stored as JSONB) |
 | `usageEvents` | Append-only token/cost telemetry |
+| `organizations` | Better Auth organization plugin — single seeded org |
+| `orgMembers` | Org membership + role (`owner`/`admin`/`member`); absence of a row means *pending* |
+| `orgInvitations` | Better Auth invitation model (table required by the plugin; invite flow unused) |
+| `orgSettings` | Org-scoped settings: agent-run kill switch, daily token budget |
 
 **Sessions** is the central entity. It carries repo info, Vercel project linkage, sandbox state (JSONB), hibernation timestamps, git stats, PR status, snapshot URL, and cached diffs.
 

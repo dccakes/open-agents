@@ -12,6 +12,12 @@ let authSession: AuthSession;
 
 mock.module("@/lib/session/get-server-session", () => ({
   getServerSession: async () => authSession,
+  // The chokepoint's membership-aware export. This suite covers an
+  // approved member; the pending case is covered where the gate lives.
+  getSessionWithMembership: async () => ({
+    session: authSession ?? undefined,
+    approved: Boolean(authSession),
+  }),
 }));
 
 const routeModulePromise = import("./route");

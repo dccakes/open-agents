@@ -18,6 +18,10 @@ import {
   updateChat,
 } from "@/lib/db/sessions";
 import { createCancelableReadableStream } from "@/lib/chat/create-cancelable-readable-stream";
+import {
+  agentRunBlockedResponse,
+  checkAgentRunStartAllowed,
+} from "@/lib/org/agent-runs-gate";
 import { getServerSession } from "@/lib/session/get-server-session";
 import {
   isManagedTemplateTrialUser,
@@ -133,6 +137,14 @@ export async function POST(req: Request) {
         { status: 409 },
       );
     }
+  }
+
+  // Kill switch. Checked here rather than earlier so that reconnecting to a
+  // run already in flight keeps working while paused — the switch stops new
+  // runs, it does not terminate running ones.
+  const runStart = await checkAgentRunStartAllowed();
+  if (!runStart.allowed) {
+    return agentRunBlockedResponse(runStart);
   }
 
   await Promise.all([
