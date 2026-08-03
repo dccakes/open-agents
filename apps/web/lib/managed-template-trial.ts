@@ -1,3 +1,5 @@
+import { getDeploymentConfig } from "@/lib/config/deployment";
+import { getPublicConfig } from "@/lib/config/public";
 import type { Session } from "@/lib/session/types";
 
 const ALLOWED_VERCEL_EMAIL_DOMAIN = "vercel.com";
@@ -46,18 +48,17 @@ export function isManagedTemplateDeployment(url: string | URL) {
     return true;
   }
 
+  const deployment = getDeploymentConfig();
+
   if (
-    process.env.NODE_ENV === "development" &&
+    deployment.isDevelopment &&
     requestHost &&
     LOCAL_DEVELOPMENT_HOSTS.has(requestHost)
   ) {
     return true;
   }
 
-  return [
-    process.env.VERCEL_PROJECT_PRODUCTION_URL,
-    process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL,
-  ]
+  return [deployment.productionUrl, getPublicConfig().productionUrl]
     .map((value) => normalizeHost(value))
     .some((host) => host !== null && MANAGED_TEMPLATE_HOSTS.has(host));
 }

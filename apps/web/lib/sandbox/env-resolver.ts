@@ -1,3 +1,4 @@
+import { getSandboxEnvResolverConfig } from "@/lib/config/sandbox";
 import { InfisicalEnvResolver } from "./resolvers/infisical";
 import { VercelEnvResolver } from "./resolvers/vercel";
 
@@ -12,7 +13,7 @@ export interface EnvResolver {
 }
 
 export function getEnvResolver(): EnvResolver | null {
-  const backend = process.env.SANDBOX_ENV_RESOLVER;
+  const { backend } = getSandboxEnvResolverConfig();
 
   if (!backend) {
     return null;

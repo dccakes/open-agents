@@ -16,6 +16,23 @@ Authentication uses [Better Auth](https://www.better-auth.com/) with Vercel OAut
 
 Key env vars: `BETTER_AUTH_SECRET` (session signing), `NEXT_PUBLIC_VERCEL_APP_CLIENT_ID` + `VERCEL_APP_CLIENT_SECRET` (Vercel OAuth), plus GitHub App credentials for repo access. See `apps/web/.env.example` for the full list.
 
+## Configuration
+
+**Never read `process.env` outside a config module.** `bun run ci` fails if you do (`scripts/check-env-boundary.ts`).
+
+- Web app: declare the variable in `apps/web/lib/config/<concern>.ts` and read it through that module's accessor.
+- Packages: declare it in `packages/<name>/config.ts`; the rest of the package takes explicit options.
+
+Each variable declares a schema, a one-line description, and an environment axis (`required-prod` / `optional` / `dev-only`), plus `requiredWith` when it is only required once a related integration is configured. `validateServerConfig()` enforces the axes on production deployments — at server start (`instrumentation.ts`) and during `build` (`apps/web/scripts/check-env.ts`).
+
+After adding or changing a variable, regenerate the example file and commit it:
+
+```bash
+bun run --cwd apps/web env:example   # rewrites apps/web/.env.example from the schemas
+```
+
+`NEXT_PUBLIC_*` variables live in `lib/config/public.ts` and must be written as literal `process.env.NEXT_PUBLIC_X` reads there — that is the only form Next.js inlines into client bundles.
+
 ## Database & Migrations
 
 Schema lives in `apps/web/lib/db/schema.ts`. Migrations are managed by Drizzle Kit.

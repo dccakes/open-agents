@@ -10,6 +10,8 @@ import {
   deleteBranchRef,
   type MergeMethod,
 } from "@/lib/github/pulls";
+import { getDeploymentConfig } from "@/lib/config/deployment";
+import { getPublicConfig } from "@/lib/config/public";
 import { parseGitHubUrl } from "@/lib/github/client";
 import {
   verifyRepoAccess,
@@ -52,13 +54,13 @@ export interface GeneratePrContentResult {
 // ---------------------------------------------------------------------------
 
 function resolveAppBaseUrl(): string | undefined {
-  const vercelUrl = process.env.VERCEL_URL;
+  const vercelUrl = getDeploymentConfig().deploymentUrl;
   if (vercelUrl) {
     return vercelUrl.startsWith("http") ? vercelUrl : `https://${vercelUrl}`;
   }
-  return process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL
-    ? `https://${process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL}`
-    : undefined;
+
+  const productionUrl = getPublicConfig().productionUrl;
+  return productionUrl ? `https://${productionUrl}` : undefined;
 }
 
 function isMergeMethod(value: unknown): value is MergeMethod {

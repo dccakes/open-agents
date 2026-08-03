@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Inter } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
+import { getDeploymentConfig } from "@/lib/config/deployment";
 import { Providers } from "./providers";
 import "./globals.css";
 
@@ -42,16 +43,16 @@ const themeInitializationScript = `
 })();
 `;
 
-const isPreviewDeployment = process.env.VERCEL_ENV === "preview";
+const deployment = getDeploymentConfig();
+const isPreviewDeployment = deployment.isPreview;
 const faviconPath = isPreviewDeployment
   ? "/favicon-preview.svg"
   : "/favicon.ico";
 const metadataBase =
-  process.env.VERCEL_ENV === "production" &&
-  process.env.VERCEL_PROJECT_PRODUCTION_URL
-    ? new URL(`https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`)
-    : process.env.VERCEL_URL
-      ? new URL(`https://${process.env.VERCEL_URL}`)
+  deployment.environment === "production" && deployment.productionUrl
+    ? new URL(`https://${deployment.productionUrl}`)
+    : deployment.deploymentUrl
+      ? new URL(`https://${deployment.deploymentUrl}`)
       : new URL("https://quackops.withpickle.com");
 
 const DESCRIPTION =

@@ -114,6 +114,7 @@ import {
   shouldShowThinkingIndicator,
   shouldUseChatListStreamingState,
 } from "@/lib/chat-streaming-state";
+import { getPublicConfig } from "@/lib/config/public";
 import { ACCEPT_IMAGE_TYPES, isValidImageType } from "@/lib/image-utils";
 import { isLargeText } from "@/lib/text-attachment-utils";
 import {
@@ -816,11 +817,10 @@ function ShareDialog({
   const [isLoading, setIsLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [baseUrl, setBaseUrl] = useState<string | null>(
-    process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL
-      ? `https://${process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL}`
-      : null,
-  );
+  const [baseUrl, setBaseUrl] = useState<string | null>(() => {
+    const productionUrl = getPublicConfig().productionUrl;
+    return productionUrl ? `https://${productionUrl}` : null;
+  });
 
   useEffect(() => {
     if (!baseUrl) {

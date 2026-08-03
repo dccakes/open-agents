@@ -1,4 +1,6 @@
 import Redis, { type RedisOptions } from "ioredis";
+import { getDeploymentConfig } from "@/lib/config/deployment";
+import { getRedisConfig } from "@/lib/config/redis";
 import { getRedisConnectionOptions, getRedisUrl } from "./redis";
 
 type RateLimitOptions = {
@@ -12,7 +14,7 @@ const DEFAULT_RATE_LIMIT_TIMEOUT_MS = 1000;
 let sharedRedisClient: Redis | null | undefined;
 
 function getRateLimitTimeoutMs(): number {
-  const configuredTimeoutMs = process.env.RATE_LIMIT_TIMEOUT_MS;
+  const configuredTimeoutMs = getRedisConfig().rateLimitTimeoutMs;
   if (!configuredTimeoutMs) {
     return DEFAULT_RATE_LIMIT_TIMEOUT_MS;
   }
@@ -123,7 +125,7 @@ async function checkRedisRateLimit(
 }
 
 function rateLimitUnavailableResponse(): Response | null {
-  if (process.env.NODE_ENV !== "production") {
+  if (!getDeploymentConfig().isProduction) {
     return null;
   }
 
