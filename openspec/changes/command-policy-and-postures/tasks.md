@@ -22,48 +22,48 @@ sequences it behind policy for that reason.
 
 ## 0. Usage attribution migration
 
-- [ ] 0.1 Add `sessionId` and `workflowRunId` (nullable text) to `usageEvents` in `apps/web/lib/db/schema.ts`, plus indexes on `(userId, createdAt)` and `(workflowRunId)` — the table has no index today.
-- [ ] 0.2 Generate and commit the migration: `bun run --cwd apps/web db:generate`.
-- [ ] 0.3 Thread `sessionId` and `workflowRunId` through `recordUsage` (`apps/web/lib/db/usage.ts:11-50`) and its caller `recordWorkflowUsage` (`apps/web/app/workflows/chat-post-finish.ts:396-465`), for both the main-agent row and the per-model subagent rows.
-- [ ] 0.4 Tests: a completed run's usage rows carry both ids; existing rows with null attribution still read; per-session cost query uses the index.
+- [x] 0.1 Add `sessionId` and `workflowRunId` (nullable text) to `usageEvents` in `apps/web/lib/db/schema.ts`, plus indexes on `(userId, createdAt)` and `(workflowRunId)` — the table has no index today.
+- [x] 0.2 Generate and commit the migration: `bun run --cwd apps/web db:generate`.
+- [x] 0.3 Thread `sessionId` and `workflowRunId` through `recordUsage` (`apps/web/lib/db/usage.ts:11-50`) and its caller `recordWorkflowUsage` (`apps/web/app/workflows/chat-post-finish.ts:396-465`), for both the main-agent row and the per-model subagent rows.
+- [x] 0.4 Tests: a completed run's usage rows carry both ids; existing rows with null attribution still read; per-session cost query uses the index.
 
 ## 1. Policy module and golden corpus
 
-- [ ] 1.1 `packages/agent/policy/types.ts` — Zod schemas for `PolicyRule`, `Posture`, `PolicyDecision` (and the `unknown` decision), types via `z.infer`. No `any`.
-- [ ] 1.2 `packages/agent/policy/command-parser.ts` — hand-written bash segmenter: `&&`/`||`/`;`/`|`/`&`/newline separators, single- and double-quote awareness, `$(...)` and backtick descent, `sh -c`/`bash -c` string descent, leading `VAR=value` stripping, heredoc bodies treated as data. Returns segments or an explicit unparseable result. No new dependency.
-- [ ] 1.3 `packages/agent/policy/command-policy.ts` — `evaluate(toolCall, policy, posture)`. Deny → ask → allow precedence, first match within a class, most-restrictive segment wins, posture applied last (`dangerous` collapses `ask` → `allow` but never `deny`; `unknown` → `ask` under `strict`/`auto`, `allow` under `dangerous`). Pure: no I/O.
-- [ ] 1.4 `packages/agent/policy/default-policy.ts` — the shipped baseline per the `command-policy` spec, absorbing `DANGEROUS_COMMAND_PATTERNS` and `SENSITIVE_FILE_PATTERNS` from `packages/agent/tools/bash.ts:32-47` as `ask` rules with no loss of coverage.
-- [ ] 1.5 A read-only policy profile derived from the baseline, in which write-class and network-class decisions are `deny`. This is the primitive group 2 gives the explorer subagent.
-- [ ] 1.6 Parser unit tests: chained commands, quoted separators, nested `sh -c`, command substitution, backticks, env-prefixed commands, heredocs, trailing/empty segments, unparseable input.
-- [ ] 1.7 Golden corpus fixture (command → expected decision per posture) plus the test that runs it in `bun run ci`. Fold in the existing assertions at `packages/agent/tools/tools.test.ts:403-467` so no currently-gated command becomes ungated.
-- [ ] 1.8 Latency benchmark over the corpus asserting p95 `evaluate()` under 5 ms.
-- [ ] 1.9 Keep `commandNeedsApproval` exported from `packages/agent/tools/index.ts` as a thin wrapper over the policy so nothing importing it breaks.
+- [x] 1.1 `packages/agent/policy/types.ts` — Zod schemas for `PolicyRule`, `Posture`, `PolicyDecision` (and the `unknown` decision), types via `z.infer`. No `any`.
+- [x] 1.2 `packages/agent/policy/command-parser.ts` — hand-written bash segmenter: `&&`/`||`/`;`/`|`/`&`/newline separators, single- and double-quote awareness, `$(...)` and backtick descent, `sh -c`/`bash -c` string descent, leading `VAR=value` stripping, heredoc bodies treated as data. Returns segments or an explicit unparseable result. No new dependency.
+- [x] 1.3 `packages/agent/policy/command-policy.ts` — `evaluate(toolCall, policy, posture)`. Deny → ask → allow precedence, first match within a class, most-restrictive segment wins, posture applied last (`dangerous` collapses `ask` → `allow` but never `deny`; `unknown` → `ask` under `strict`/`auto`, `allow` under `dangerous`). Pure: no I/O.
+- [x] 1.4 `packages/agent/policy/default-policy.ts` — the shipped baseline per the `command-policy` spec, absorbing `DANGEROUS_COMMAND_PATTERNS` and `SENSITIVE_FILE_PATTERNS` from `packages/agent/tools/bash.ts:32-47` as `ask` rules with no loss of coverage.
+- [x] 1.5 A read-only policy profile derived from the baseline, in which write-class and network-class decisions are `deny`. This is the primitive group 2 gives the explorer subagent.
+- [x] 1.6 Parser unit tests: chained commands, quoted separators, nested `sh -c`, command substitution, backticks, env-prefixed commands, heredocs, trailing/empty segments, unparseable input.
+- [x] 1.7 Golden corpus fixture (command → expected decision per posture) plus the test that runs it in `bun run ci`. Fold in the existing assertions at `packages/agent/tools/tools.test.ts:403-467` so no currently-gated command becomes ungated.
+- [x] 1.8 Latency benchmark over the corpus asserting p95 `evaluate()` under 5 ms.
+- [x] 1.9 Keep `commandNeedsApproval` exported from `packages/agent/tools/index.ts` as a thin wrapper over the policy so nothing importing it breaks.
 
 ## 2. Tool-factory enforcement, context threading, and subagent wiring
 
-- [ ] 2.1 Extend `AgentContext` (`packages/agent/types.ts:19-24`) with the policy and posture; add a `getPolicy()` accessor beside `getSandbox`/`getModel` in `packages/agent/tools/utils.ts`. Note `isAgentContext` only checks for `sandbox` and `model` — do not tighten it in a way that breaks existing callers.
-- [ ] 2.2 Extend `callOptionsSchema` and `prepareCall` in `packages/agent/open-agent.ts:41-47,127-141` to accept and forward policy + posture on `experimental_context`.
-- [ ] 2.3 Enforce in `bashTool` (`tools/bash.ts`): `needsApproval` returns true on `ask`; `execute` re-evaluates and returns a structured refusal on `deny` before touching the sandbox. Evaluate the `cwd` argument too — it currently accepts absolute paths outside the workspace (`bash.ts:125-129`).
-- [ ] 2.4 Enforce in `writeFileTool`, `editFileTool` (`tools/write.ts`), and `webFetchTool` (`tools/fetch.ts`), preserving their existing dotenv and SSRF checks — policy is added alongside, not in place of them.
-- [ ] 2.5 Fail closed: side-effecting tools refuse with a structured error when no policy is in context; `read`/`grep`/`glob` proceed. Update every construction site in the same PR.
-- [ ] 2.6 Thread policy into `explorer`, `executor`, and `design` — each needs its `callOptionsSchema` and the `experimental_context` its `prepareCall` builds (`explorer.ts:63-72,108-111`; `executor.ts:50-57,95-98`; `design.ts:80-87,125-128`) — and into `taskTool.execute` (`tools/task.ts:98-108`), which passes the options through.
-- [ ] 2.7 Registry conformance test over `SUBAGENT_REGISTRY` (`subagents/registry.ts:5-21`) asserting every registered subagent threads policy, so a fourth subagent added later fails CI.
-- [ ] 2.8 Mark the subagent policy context non-interactive: `ask` resolves to a structured denial naming an unavailable approval. Verify the parent is not paused and can retry the operation itself.
-- [ ] 2.9 Give `explorer` the read-only profile from 1.5 and update its prompt (`explorer.ts:26-31,58-60`) to say the restriction is enforced.
-- [ ] 2.10 `policy_event` table + migration; record every `deny` and every `ask` with a redacted input summary. Insert-only — no update or delete path.
-- [ ] 2.11 Tests: executor bash denied identically to the main agent; explorer cannot write via redirect, `sed -i`, or package install; explorer's read-only commands still work; missing policy refuses for bash/write/fetch and not for read; denial is a tool result, not a thrown error; `execute` refuses a call whose rule changed after approval.
+- [x] 2.1 Extend `AgentContext` (`packages/agent/types.ts:19-24`) with the policy and posture; add a `getPolicy()` accessor beside `getSandbox`/`getModel` in `packages/agent/tools/utils.ts`. Note `isAgentContext` only checks for `sandbox` and `model` — do not tighten it in a way that breaks existing callers.
+- [x] 2.2 Extend `callOptionsSchema` and `prepareCall` in `packages/agent/open-agent.ts:41-47,127-141` to accept and forward policy + posture on `experimental_context`.
+- [x] 2.3 Enforce in `bashTool` (`tools/bash.ts`): `needsApproval` returns true on `ask`; `execute` re-evaluates and returns a structured refusal on `deny` before touching the sandbox. Evaluate the `cwd` argument too — it currently accepts absolute paths outside the workspace (`bash.ts:125-129`).
+- [x] 2.4 Enforce in `writeFileTool`, `editFileTool` (`tools/write.ts`), and `webFetchTool` (`tools/fetch.ts`), preserving their existing dotenv and SSRF checks — policy is added alongside, not in place of them.
+- [x] 2.5 Fail closed: side-effecting tools refuse with a structured error when no policy is in context; `read`/`grep`/`glob` proceed. Update every construction site in the same PR.
+- [x] 2.6 Thread policy into `explorer`, `executor`, and `design` — each needs its `callOptionsSchema` and the `experimental_context` its `prepareCall` builds (`explorer.ts:63-72,108-111`; `executor.ts:50-57,95-98`; `design.ts:80-87,125-128`) — and into `taskTool.execute` (`tools/task.ts:98-108`), which passes the options through.
+- [x] 2.7 Registry conformance test over `SUBAGENT_REGISTRY` (`subagents/registry.ts:5-21`) asserting every registered subagent threads policy, so a fourth subagent added later fails CI.
+- [x] 2.8 Mark the subagent policy context non-interactive: `ask` resolves to a structured denial naming an unavailable approval. Verify the parent is not paused and can retry the operation itself.
+- [x] 2.9 Give `explorer` the read-only profile from 1.5 and update its prompt (`explorer.ts:26-31,58-60`) to say the restriction is enforced.
+- [~] 2.10 `policy_event` table + migration; record every `deny` and every `ask` with a redacted input summary. Insert-only — no update or delete path. **Agent-side seam done** (`PolicyEventRecorder` on the execution context, redacted `PolicyEvent`s emitted for every `deny` and `ask`, no-op by default); the table, migration, and the injected writer belong to the `apps/web` work in group 3.
+- [x] 2.11 Tests: executor bash denied identically to the main agent; explorer cannot write via redirect, `sed -i`, or package install; explorer's read-only commands still work; missing policy refuses for bash/write/fetch and not for read; denial is a tool result, not a thrown error; `execute` refuses a call whose rule changed after approval.
 
 ## 3. Posture, approvals, and schema
 
-- [ ] 3.1 Add `sessions.posture` (non-null, default `auto`) and the `approval` table (session, chat, workflow run, kind, tool name, tool call id, redacted input, decision, decidedBy, expiresAt, createdAt, decidedAt); generate and commit the migration.
-- [ ] 3.2 `apps/web/lib/policy/` — session policy assembly (posture + policy for a session), posture resolution refusing `dangerous` for non-interactive triggers, approval persistence, policy-event recording.
-- [ ] 3.3 Posture read/update route + server action. `dangerous` gated on `requirePermission({ posture: ["setDangerous"] })` — the first consumer of the statement declared at `apps/web/lib/auth/permissions.ts:32`.
-- [ ] 3.4 Approval decision route: authorize the decider against the session, record decision + decidedBy, refuse a decision on an expired or already-decided approval.
-- [ ] 3.5 Verify approval server-side at execute time: a tool call whose decision was `ask` requires a matching `approved` record; approvals are single-use so a replayed message body cannot re-authorize.
-- [ ] 3.6 Expiry: `expiresAt` from config (default 24 h); every reader treats a past-expiry approval as denied without a job running.
-- [ ] 3.7 Expiry sweeper handler that materializes terminal state and records policy events, returning immediately unless `VERCEL_ENV === "production"` per the ground rules.
-- [ ] 3.8 Declare `AGENT_APPROVAL_TIMEOUT_HOURS`, `AGENT_RUN_STEP_BUDGET`, `AGENT_RUN_TOKEN_BUDGET` in a new `apps/web/lib/config/agent-policy.ts` group with axes and descriptions; regenerate `apps/web/.env.example` with `bun run --cwd apps/web env:example` and commit it; add schema-parse tests.
-- [ ] 3.9 Tests: forged approval in the request body refused; unauthorized decider 403; expired approval denies on read without the sweeper; sweeper no-ops outside production; approval single-use; approval survives a simulated process restart.
+- [x] 3.1 Add `sessions.posture` (non-null, default `auto`) and the `approval` table (session, chat, workflow run, kind, tool name, tool call id, redacted input, decision, decidedBy, expiresAt, createdAt, decidedAt); generate and commit the migration.
+- [x] 3.2 `apps/web/lib/policy/` — session policy assembly (posture + policy for a session), posture resolution refusing `dangerous` for non-interactive triggers, approval persistence, policy-event recording.
+- [x] 3.3 Posture read/update route + server action. `dangerous` gated on `requirePermission({ posture: ["setDangerous"] })` — the first consumer of the statement declared at `apps/web/lib/auth/permissions.ts:32`.
+- [x] 3.4 Approval decision route: authorize the decider against the session, record decision + decidedBy, refuse a decision on an expired or already-decided approval.
+- [~] 3.5 Verify approval server-side at execute time: a tool call whose decision was `ask` requires a matching `approved` record; approvals are single-use so a replayed message body cannot re-authorize. **Host-side done** (`verifyToolCallApproval` / `consumeToolCallApproval`, single use enforced by a conditional UPDATE, plus `verifyAssertedApprovals` for the claims in a request body); the call site inside a tool's `execute` is a `packages/agent` change and belongs with the group 2 enforcement.
+- [x] 3.6 Expiry: `expiresAt` from config (default 24 h); every reader treats a past-expiry approval as denied without a job running.
+- [~] 3.7 Expiry sweeper handler that materializes terminal state and records policy events, returning immediately unless `VERCEL_ENV === "production"` per the ground rules. **Handler done** (`lib/policy/approval-sweeper.ts` plus `POST /api/cron/approvals/expire`, gated on `orgSettings.update`); scheduling it needs the repository's first cron wiring — a `vercel.json` crons entry and a scheduler secret — which is not declared config for this change. Nothing about the timeout depends on it: expiry is computed on read everywhere.
+- [x] 3.8 Declare `AGENT_APPROVAL_TIMEOUT_HOURS`, `AGENT_RUN_STEP_BUDGET`, `AGENT_RUN_TOKEN_BUDGET` in a new `apps/web/lib/config/agent-policy.ts` group with axes and descriptions; regenerate `apps/web/.env.example` with `bun run --cwd apps/web env:example` and commit it; add schema-parse tests.
+- [x] 3.9 Tests: forged approval in the request body refused; unauthorized decider 403; expired approval denies on read without the sweeper; sweeper no-ops outside production; approval single-use; approval survives a simulated process restart.
 
 ## 4. Run budgets
 

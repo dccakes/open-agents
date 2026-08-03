@@ -5,6 +5,7 @@
  * group is documented and validated the moment it is registered.
  */
 
+import { agentPolicyEnv } from "@/lib/config/agent-policy";
 import { authEnv } from "@/lib/config/auth";
 import { dbEnv } from "@/lib/config/db";
 import { deploymentEnv } from "@/lib/config/deployment";
@@ -24,6 +25,7 @@ export const configGroups: EnvGroup[] = [
   linearEnv,
   redisEnv,
   sandboxEnv,
+  agentPolicyEnv,
 ];
 
 export interface CatalogEntry {

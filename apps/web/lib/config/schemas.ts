@@ -68,6 +68,33 @@ export const optionalDomainList = z
     ),
   );
 
+/**
+ * Optional positive integer, e.g. a step ceiling or an hour count.
+ *
+ * Rejects rather than coerces: a deployment that typed `AGENT_RUN_STEP_BUDGET`
+ * as `"5oo"` must fail loudly at boot, not silently fall back to a default that
+ * happens to be much larger than the one it meant to set.
+ */
+export const optionalPositiveInteger = z
+  .string()
+  .optional()
+  .transform((value, ctx) => {
+    if (value === undefined || value.trim() === "") {
+      return undefined;
+    }
+
+    const parsed = Number(value.trim());
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      ctx.addIssue({
+        code: "custom",
+        message: `expected a positive integer, received "${value}"`,
+      });
+      return z.NEVER;
+    }
+
+    return parsed;
+  });
+
 /** Comma-separated email addresses, compared case-insensitively. */
 export const optionalEmailList = z
   .string()

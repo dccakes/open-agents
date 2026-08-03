@@ -271,6 +271,15 @@ export const sessions = pgTable(
     // Optional per-session override for auto PR creation after auto-commit.
     // null means "use the user's default preference".
     autoCreatePrOverride: boolean("auto_create_pr_override"),
+    // Security posture. Lives on the session rather than the chat so a user
+    // cannot escape a `strict` posture by opening a second chat. `auto` is the
+    // default precisely because it is what every session did before the column
+    // existed, so the migration changes no behaviour.
+    posture: text("posture", {
+      enum: ["strict", "auto", "dangerous"],
+    })
+      .notNull()
+      .default("auto"),
     globalSkillRefs: jsonb("global_skill_refs")
       .$type<GlobalSkillRef[]>()
       .notNull()
@@ -440,6 +449,112 @@ export const workflowRunSteps = pgTable(
     ),
   ],
 );
+
+// Approvals — the server-side record behind a policy `ask`.
+//
+// This table exists because the approval decision otherwise travels inside the
+// client-supplied `messages[].parts` of the resume request, which makes it an
+// assertion by whoever can send that request rather than an authorization.
+// The row is what `execute` verifies, what `expiresAt` times out, what
+// `decidedBy` attributes, and what `consumedAt` makes single-use.
+//
+// `workflowRunId` carries no foreign key on purpose: the `workflow_runs` row is
+// not written until the run finishes, so an approval requested mid-run has a
+// run id that does not exist as a row yet.
+export const approvals = pgTable(
+  "approval",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    // NULL for an application-level side effect, which has no chat turn.
+    chatId: text("chat_id").references(() => chats.id, {
+      onDelete: "cascade",
+    }),
+    workflowRunId: text("workflow_run_id"),
+    kind: text("kind", {
+      enum: ["tool-call", "app-side-effect"],
+    }).notNull(),
+    // NULL for an application-level side effect, which has no tool dispatch.
+    toolName: text("tool_name"),
+    toolCallId: text("tool_call_id"),
+    // Redacted: credential-shaped values never reach this column.
+    inputSummary: jsonb("input_summary")
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    decision: text("decision", {
+      enum: ["pending", "approved", "denied", "expired"],
+    })
+      .notNull()
+      .default("pending"),
+    decidedBy: text("decided_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    // Set the first time an execution spends this approval. Single-use: a
+    // replayed message body finds it already set and is refused.
+    consumedAt: timestamp("consumed_at"),
+    expiresAt: timestamp("expires_at").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    decidedAt: timestamp("decided_at"),
+  },
+  (table) => [
+    // Listing a session's pending approvals.
+    index("approval_session_decision_idx").on(table.sessionId, table.decision),
+    // Execute-time lookup, and the guarantee that one tool call cannot be
+    // gated by two competing approvals. NULLs are distinct in Postgres, so
+    // application-side-effect rows are unaffected.
+    uniqueIndex("approval_tool_call_id_idx").on(table.toolCallId),
+    // The sweeper's scan: pending rows past their expiry.
+    index("approval_decision_expires_at_idx").on(
+      table.decision,
+      table.expiresAt,
+    ),
+  ],
+);
+
+// Policy events — append-only.
+//
+// Insert-only by design: there is no update or delete path anywhere in the
+// app, so the record of what the policy decided cannot be edited after the
+// fact. That is the whole value of it.
+export const policyEvents = pgTable(
+  "policy_event",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    workflowRunId: text("workflow_run_id"),
+    toolName: text("tool_name"),
+    // Redacted, same rule as `approval.input_summary`.
+    inputSummary: jsonb("input_summary")
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    // `expired` is the sweeper materializing a timeout; `downgraded` is a
+    // posture resolution refusing `dangerous` for a non-interactive trigger.
+    decision: text("decision", {
+      enum: ["allow", "ask", "deny", "expired", "downgraded"],
+    }).notNull(),
+    matchedRule: text("matched_rule"),
+    posture: text("posture", {
+      enum: ["strict", "auto", "dangerous"],
+    }).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("policy_event_session_created_at_idx").on(
+      table.sessionId,
+      table.createdAt,
+    ),
+    index("policy_event_workflow_run_id_idx").on(table.workflowRunId),
+  ],
+);
+
+export type Approval = typeof approvals.$inferSelect;
+export type NewApproval = typeof approvals.$inferInsert;
+export type PolicyEvent = typeof policyEvents.$inferSelect;
+export type NewPolicyEvent = typeof policyEvents.$inferInsert;
 
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
