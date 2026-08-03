@@ -411,12 +411,25 @@ export const workflowRuns = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     modelId: text("model_id"),
+    // `running` exists because the row is now written at run start. A budget
+    // breach is `budget-exceeded` rather than `failed`: the run did what it was
+    // asked to do and then hit a ceiling, which is not the same as an error.
     status: text("status", {
-      enum: ["completed", "aborted", "failed"],
+      enum: ["running", "completed", "aborted", "failed", "budget-exceeded"],
     }).notNull(),
     startedAt: timestamp("started_at").notNull(),
-    finishedAt: timestamp("finished_at").notNull(),
-    totalDurationMs: integer("total_duration_ms").notNull(),
+    // NULL while the run is in flight. A row no longer implies a finished run,
+    // so every reader that means "finished" must say so — see
+    // `finishedWorkflowRuns()` in `lib/db/workflow-runs.ts`.
+    finishedAt: timestamp("finished_at"),
+    totalDurationMs: integer("total_duration_ms"),
+    // Running totals, written each step so spend is observable mid-run and a
+    // resumed run does not restart its budget at zero.
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    stepCount: integer("step_count").notNull().default(0),
+    /** Why the run stopped early, when it did. Names the budget and the totals. */
+    haltReason: text("halt_reason"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [

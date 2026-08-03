@@ -1,6 +1,9 @@
 import { tool } from "ai";
 import { z } from "zod";
-import { enforcePolicy, policyRefusalDetailSchema } from "./policy-enforcement";
+import {
+  enforcePolicyWithApproval,
+  policyRefusalDetailSchema,
+} from "./policy-enforcement";
 import { getSandbox, shellEscape } from "./utils";
 
 const TIMEOUT_MS = 30_000;
@@ -265,13 +268,17 @@ EXAMPLES:
   outputSchema: fetchOutputSchema,
   execute: async (
     { url, method = "GET", headers, body },
-    { experimental_context, abortSignal },
+    { experimental_context, abortSignal, toolCallId },
   ) => {
     // Policy first, then the existing SSRF checks: neither replaces the other.
-    const refusal = enforcePolicy(experimental_context, {
-      toolName: "web_fetch",
-      target: url,
-    });
+    // `needsApproval: true` here predates policy and is not a policy `ask`, so
+    // under the shipped baseline no approval record is looked for — the legacy
+    // pause keeps working unchanged.
+    const refusal = await enforcePolicyWithApproval(
+      experimental_context,
+      { toolName: "web_fetch", target: url },
+      toolCallId,
+    );
     if (refusal) {
       return refusal;
     }

@@ -8,6 +8,9 @@ import {
   type PolicyToolCall,
   postureSchema,
   recordPolicyEvent,
+  redactPolicyInput,
+  requestApprovalRecord,
+  verifyApprovalRecord,
 } from "../policy";
 import { getPolicy } from "./utils";
 
@@ -33,6 +36,8 @@ export const policyRefusalKindSchema = z.enum([
   "deny",
   "approval-unavailable",
   "missing-policy",
+  /** Policy said `ask` and no server-side record authorized this call. */
+  "approval-not-verified",
 ]);
 export type PolicyRefusalKind = z.infer<typeof policyRefusalKindSchema>;
 
@@ -84,25 +89,36 @@ export function missingPolicyRefusal(toolName: string): PolicyRefusal {
   };
 }
 
+function refusalPreamble(
+  call: PolicyToolCall,
+  kind: PolicyRefusalKind,
+): string {
+  if (kind === "approval-unavailable") {
+    return `The ${call.toolName} tool refused this call: it requires approval, and this agent has no approver available (subagents cannot prompt anyone). Report back so the parent agent can request approval.`;
+  }
+  if (kind === "approval-not-verified") {
+    return `The ${call.toolName} tool refused this call: it requires approval and no approval on the server authorizes it.`;
+  }
+  return `The ${call.toolName} tool refused this call: it is denied by security policy.`;
+}
+
 function refusal(
   call: PolicyToolCall,
   decision: PolicyDecision,
   kind: PolicyRefusalKind,
+  reasonOverride?: string,
 ): PolicyRefusal {
-  const preamble =
-    kind === "approval-unavailable"
-      ? `The ${call.toolName} tool refused this call: it requires approval, and this agent has no approver available (subagents cannot prompt anyone). Report back so the parent agent can request approval.`
-      : `The ${call.toolName} tool refused this call: it is denied by security policy.`;
+  const reason = reasonOverride ?? decision.reason;
 
   return {
     success: false,
     refusedByPolicy: true,
-    error: `${preamble} Reason: ${decision.reason}`,
+    error: `${refusalPreamble(call, kind)} Reason: ${reason}`,
     policy: {
       tool: call.toolName,
       decision: kind,
       rule: decision.rule?.id ?? null,
-      reason: decision.reason,
+      reason,
       posture: decision.posture,
     },
   };
@@ -220,4 +236,73 @@ export function enforcePolicy(
   }
 
   return null;
+}
+
+/**
+ * `policyNeedsApproval` plus the server-side record the pause needs.
+ *
+ * The record is written *before* the pause, so an approval the user answers has
+ * something to attribute the answer to and something for `execute` to spend.
+ * A failed write still pauses: the fail-closed direction is "the record is
+ * missing at execute time", not "the call proceeds without a pause".
+ */
+export async function requestPolicyApproval(
+  experimental_context: unknown,
+  call: PolicyToolCall,
+  toolCallId: string,
+): Promise<boolean | null> {
+  const needed = policyNeedsApproval(experimental_context, call);
+  if (needed !== true) {
+    return needed;
+  }
+
+  const context = getPolicy(experimental_context);
+  await requestApprovalRecord(context?.approvalGate, {
+    toolName: call.toolName,
+    toolCallId,
+    inputSummary: redactPolicyInput(describeCall(call)),
+  });
+
+  return true;
+}
+
+/**
+ * `enforcePolicy` plus execute-time approval verification.
+ *
+ * Order matters and is the whole point: policy is re-evaluated first, so a rule
+ * that became a denial after the approval was granted still refuses. Only then
+ * is the approval spent, and only when the decision is actually `ask` — a call
+ * the policy allows outright never consumes an approval, and a call the policy
+ * denies never reaches the record at all.
+ */
+export async function enforcePolicyWithApproval(
+  experimental_context: unknown,
+  call: PolicyToolCall,
+  toolCallId: string,
+): Promise<PolicyRefusal | null> {
+  const refused = enforcePolicy(experimental_context, call);
+  if (refused) {
+    return refused;
+  }
+
+  const context = getPolicy(experimental_context);
+  if (!context?.approvalGate) {
+    return null;
+  }
+
+  const decision = evaluate(call, context.policy, context.posture);
+  if (decision.action !== "ask") {
+    return null;
+  }
+
+  const verification = await verifyApprovalRecord(context.approvalGate, {
+    toolName: call.toolName,
+    toolCallId,
+  });
+  if (verification.authorized) {
+    return null;
+  }
+
+  record(context, call, decision, "execute");
+  return refusal(call, decision, "approval-not-verified", verification.message);
 }

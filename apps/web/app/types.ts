@@ -65,11 +65,28 @@ export type WebAgentWorkspaceStatusData = {
   message: string;
 };
 
+/** Which ceiling stopped the run. Mirrors `BudgetKind` in `lib/budget/`. */
+export type WebAgentBudgetKind =
+  | "run-tokens"
+  | "run-steps"
+  | "org-daily-tokens";
+
+export type WebAgentBudgetHaltData = {
+  budget: WebAgentBudgetKind;
+  limit: number;
+  used: number;
+  /** Names the budget and the totals at the moment of the halt. */
+  message: string;
+  /** Present for the daily budget, which needs its UTC boundary stated. */
+  dayBoundary?: string;
+};
+
 export type WebAgentDataParts = {
   commit: WebAgentCommitData;
   pr: WebAgentPrData;
   snippet: WebAgentSnippetData;
   "workspace-status": WebAgentWorkspaceStatusData;
+  "budget-halt": WebAgentBudgetHaltData;
 };
 
 // All types derived from the agent
@@ -92,6 +109,10 @@ export type WebAgentPrDataPart = Extract<
 export type WebAgentSnippetDataPart = Extract<
   WebAgentUIMessagePart,
   { type: "data-snippet" }
+>;
+export type WebAgentBudgetHaltDataPart = Extract<
+  WebAgentUIMessagePart,
+  { type: "data-budget-halt" }
 >;
 export type WebAgentUIToolPart =
   | DynamicToolUIPart

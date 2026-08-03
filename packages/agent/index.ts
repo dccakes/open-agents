@@ -10,6 +10,10 @@ export { defaultModel, defaultModelLabel, openAgent } from "./open-agent";
 // recorder and passes them in the agent's call options.
 export type {
   AgentPolicyContext,
+  ApprovalGate,
+  ApprovalGateDecision,
+  ApprovalGateRefusalCode,
+  ApprovalGateRequest,
   CommandPolicy,
   PolicyAction,
   PolicyCallOptions,
@@ -24,6 +28,7 @@ export type {
   RuleCapability,
 } from "./policy";
 export {
+  approvalGateDecisionSchema,
   commandNeedsApproval,
   createReadOnlyPolicy,
   defaultCommandPolicy,

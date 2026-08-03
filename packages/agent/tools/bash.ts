@@ -3,10 +3,10 @@ import { z } from "zod";
 import { commandNeedsApproval } from "../policy";
 import { resolveBashWorkingDirectory } from "./bash-working-directory";
 import {
-  enforcePolicy,
+  enforcePolicyWithApproval,
   type PolicyRefusal,
-  policyNeedsApproval,
   refuseWithRule,
+  requestPolicyApproval,
 } from "./policy-enforcement";
 import { getSandbox } from "./utils";
 
@@ -58,13 +58,16 @@ function refusalResult(refusal: PolicyRefusal) {
 
 export const bashTool = (options?: ToolOptions) =>
   tool({
-    needsApproval: async (args, { experimental_context }) => {
+    needsApproval: async (args, { experimental_context, toolCallId }) => {
       // `null` means nothing was wired: fall back to the pre-policy answer so a
       // partially-wired caller is never *less* gated than before. `execute`
       // refuses that call outright regardless.
       const requiresApproval =
-        policyNeedsApproval(experimental_context, policyCall(args.command)) ??
-        commandNeedsApproval(args.command);
+        (await requestPolicyApproval(
+          experimental_context,
+          policyCall(args.command),
+          toolCallId,
+        )) ?? commandNeedsApproval(args.command);
 
       if (!requiresApproval) {
         return false;
@@ -116,12 +119,17 @@ EXAMPLES:
     inputSchema: bashInputSchema,
     execute: async (
       { command, cwd, detached },
-      { experimental_context, abortSignal },
+      { experimental_context, abortSignal, toolCallId },
     ) => {
       // Authoritative gate: re-evaluated here rather than trusting that a pause
       // happened, and before the sandbox is touched, so a denied command never
-      // reaches a shell.
-      const refusal = enforcePolicy(experimental_context, policyCall(command));
+      // reaches a shell. An `ask` additionally has to be backed by a server-side
+      // approval, because the pause itself is asserted by the client.
+      const refusal = await enforcePolicyWithApproval(
+        experimental_context,
+        policyCall(command),
+        toolCallId,
+      );
       if (refusal) {
         return refusalResult(refusal);
       }

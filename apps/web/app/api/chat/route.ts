@@ -4,6 +4,8 @@ import {
   type InferUIMessageChunk,
 } from "ai";
 import { checkBotProtection } from "@/lib/botid";
+import { checkOrgDailyBudgetAllowed } from "@/lib/budget/daily-budget";
+import { getRunStepBudget } from "@/lib/config/agent-policy";
 import { start } from "workflow/api";
 import type { WebAgentUIMessage } from "@/app/types";
 import {
@@ -32,6 +34,7 @@ import {
   requireAuthenticatedUser,
   requireOwnedSessionChat,
 } from "./_lib/chat-context";
+import { checkApprovalAdmission } from "./_lib/approval-admission";
 import { parseChatRequestBody, requireChatIdentifiers } from "./_lib/request";
 import { runAgentWorkflow } from "@/app/workflows/chat";
 import { persistAssistantMessagesWithToolResults } from "./_lib/persist-tool-results";
@@ -147,6 +150,26 @@ export async function POST(req: Request) {
     return agentRunBlockedResponse(runStart);
   }
 
+  // The organization daily budget, checked in the same place and for the same
+  // reason: it stops *new* runs. A reconnect has already returned above, so a
+  // run in flight keeps streaming while the organization is over budget. Fails
+  // closed — an unreadable budget refuses rather than defaults to permitted.
+  const dailyBudget = await checkOrgDailyBudgetAllowed();
+  if (!dailyBudget.allowed) {
+    return agentRunBlockedResponse(dailyBudget);
+  }
+
+  // Every approval claim in this body is an assertion by whoever sent it.
+  // Checked before anything is persisted or started, so a forged claim never
+  // becomes a persisted tool result.
+  const approvalAdmission = await checkApprovalAdmission({
+    sessionId,
+    messages,
+  });
+  if (!approvalAdmission.ok) {
+    return approvalAdmission.response;
+  }
+
   await Promise.all([
     persistLatestUserMessage(chatId, messages),
     persistAssistantMessagesWithToolResults(chatId, messages),
@@ -162,7 +185,7 @@ export async function POST(req: Request) {
       requestUrl: req.url,
       authSession: session ?? null,
       assistantId: generateId(),
-      maxSteps: 500,
+      maxSteps: getRunStepBudget(),
     },
   ]);
 

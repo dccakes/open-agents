@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ApprovalGate } from "./approval-gate";
 import { redactPolicyInput } from "./redact";
 import type { CommandPolicy, PolicyDecision } from "./types";
 import {
@@ -68,6 +69,11 @@ export const noopPolicyEventRecorder: PolicyEventRecorder = {
 export interface AgentPolicyContext {
   policy: CommandPolicy;
   posture: z.infer<typeof postureSchema>;
+  /**
+   * The server-side approval record, injected by the host. Absent means the
+   * SDK's approval pause is the only gate — see `approval-gate.ts`.
+   */
+  approvalGate?: ApprovalGate;
   /**
    * Whether an `ask` decision can actually be answered by a human. Subagents
    * set this to `false`: they have no UI channel, so an `ask` there resolves to

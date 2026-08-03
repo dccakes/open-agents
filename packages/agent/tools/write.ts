@@ -8,7 +8,10 @@ import {
   resolveSandboxRealPath,
   resolveWorkspacePath,
 } from "./path-security";
-import { enforcePolicy, policyNeedsApproval } from "./policy-enforcement";
+import {
+  enforcePolicyWithApproval,
+  requestPolicyApproval,
+} from "./policy-enforcement";
 
 const writeInputSchema = z.object({
   filePath: z
@@ -41,7 +44,12 @@ const editInputSchema = z.object({
 
 export const writeFileTool = () =>
   tool({
-    needsApproval: async ({ filePath }, { experimental_context }) => {
+    needsApproval: async (
+      { filePath },
+      { experimental_context, toolCallId },
+    ) => {
+      // The dotenv pause predates policy and stays a pause with no record: it
+      // is not a policy `ask`, so `execute` never looks for an approval row.
       if (isDotEnvFilePath(filePath)) {
         return true;
       }
@@ -50,10 +58,11 @@ export const writeFileTool = () =>
       // baseline this is `false` for every workspace path, so writing is not
       // gated per file — that would make `strict` unusable for a coding agent.
       if (
-        policyNeedsApproval(experimental_context, {
-          toolName: "write",
-          target: filePath,
-        })
+        (await requestPolicyApproval(
+          experimental_context,
+          { toolName: "write", target: filePath },
+          toolCallId,
+        )) === true
       ) {
         return true;
       }
@@ -109,14 +118,18 @@ EXAMPLES:
 - Create a new test file: filePath: "src/user.test.ts", content: "<full file contents>"
 - Replace a script after reading it: filePath: "scripts/build.sh", content: "<entire updated script>"`,
     inputSchema: writeInputSchema,
-    execute: async ({ filePath, content }, { experimental_context }) => {
+    execute: async (
+      { filePath, content },
+      { experimental_context, toolCallId },
+    ) => {
       // Policy is added alongside the workspace and dotenv checks below, not in
       // place of them. Under the shipped baseline a write inside the workspace
       // is allowed in every posture; a restricted profile denies it here.
-      const refusal = enforcePolicy(experimental_context, {
-        toolName: "write",
-        target: filePath,
-      });
+      const refusal = await enforcePolicyWithApproval(
+        experimental_context,
+        { toolName: "write", target: filePath },
+        toolCallId,
+      );
       if (refusal) {
         return refusal;
       }
@@ -168,16 +181,20 @@ EXAMPLES:
 
 export const editFileTool = () =>
   tool({
-    needsApproval: async ({ filePath }, { experimental_context }) => {
+    needsApproval: async (
+      { filePath },
+      { experimental_context, toolCallId },
+    ) => {
       if (isDotEnvFilePath(filePath)) {
         return true;
       }
 
       if (
-        policyNeedsApproval(experimental_context, {
-          toolName: "edit",
-          target: filePath,
-        })
+        (await requestPolicyApproval(
+          experimental_context,
+          { toolName: "edit", target: filePath },
+          toolCallId,
+        )) === true
       ) {
         return true;
       }
@@ -237,12 +254,13 @@ EXAMPLES:
     inputSchema: editInputSchema,
     execute: async (
       { filePath, oldString, newString, replaceAll = false },
-      { experimental_context },
+      { experimental_context, toolCallId },
     ) => {
-      const refusal = enforcePolicy(experimental_context, {
-        toolName: "edit",
-        target: filePath,
-      });
+      const refusal = await enforcePolicyWithApproval(
+        experimental_context,
+        { toolName: "edit", target: filePath },
+        toolCallId,
+      );
       if (refusal) {
         return refusal;
       }

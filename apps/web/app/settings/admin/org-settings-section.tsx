@@ -1,5 +1,6 @@
 "use client";
 
+import { UTC_DAY_BOUNDARY_NOTICE } from "@/lib/budget/utc-day";
 import { Loader2, PauseCircle } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -162,6 +163,8 @@ export function OrgSettingsSection() {
           <Label htmlFor="daily-token-budget">Daily token budget</Label>
           <p className="max-w-prose text-sm text-muted-foreground">
             Tokens the organization may spend per day. Leave empty for no limit.
+            A run that crosses the budget stops and says so.{" "}
+            {UTC_DAY_BOUNDARY_NOTICE}
           </p>
           <div className="flex items-center gap-2">
             <Input

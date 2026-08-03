@@ -1,6 +1,7 @@
 "use client";
 
 import type { AskUserQuestionInput } from "@open-agents/agent";
+import { BudgetHaltCard } from "./budget-halt-card";
 import { formatTokens } from "@open-agents/shared";
 import {
   isReasoningUIPart,
@@ -3582,6 +3583,17 @@ export function SessionChatContent({
                                           })
                                         }
                                       />
+                                    </div>
+                                  );
+                                }
+
+                                if (p.type === "data-budget-halt") {
+                                  return (
+                                    <div
+                                      key={`${m.id}-${group.renderKey}`}
+                                      className="max-w-full"
+                                    >
+                                      <BudgetHaltCard data={p.data} />
                                     </div>
                                   );
                                 }

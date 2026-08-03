@@ -154,6 +154,23 @@ let agentResponseHeaders: Record<string, string> | undefined;
 let agentResponseBody: unknown;
 let agentProviderMetadata: Record<string, unknown> | undefined;
 let agentInputMessages: unknown;
+const agentCallOptions: unknown[] = [];
+
+// Run budgets. The ceilings are faked (they read config and the database);
+// the arithmetic that consumes them is the real thing.
+let testStepBudget = 500;
+let testTokenBudget: unknown = { limit: "unlimited" };
+let testDailySnapshot: unknown = {
+  limit: { limit: "unlimited" },
+  usedToday: 0,
+};
+const runRecordStarts: unknown[] = [];
+const runProgressWrites: unknown[] = [];
+
+// The run's policy, threaded from the web app into the agent. Spied rather
+// than exercised: `chat-run-policy.test.ts` covers the assembly itself.
+const runPolicyResolutions: unknown[] = [];
+const runPolicyMaterializations: unknown[] = [];
 
 function buildAgentSteps() {
   return [
@@ -220,8 +237,15 @@ mock.module("./chat-post-finish", () => spies);
 mock.module("@/app/config", () => ({
   webAgent: {
     tools: {},
-    stream: async ({ messages }: { messages: unknown }) => {
+    stream: async ({
+      messages,
+      options,
+    }: {
+      messages: unknown;
+      options?: unknown;
+    }) => {
       agentInputMessages = messages;
+      agentCallOptions.push(options);
       return {
         toUIMessageStream: (opts: {
           sendStart?: boolean;
@@ -347,6 +371,43 @@ mock.module("@/lib/db/user-preferences", () => ({
   getUserPreferences: async () => testPreferences,
 }));
 
+mock.module("@/lib/config/agent-policy", () => ({
+  getRunStepBudget: () => testStepBudget,
+  getRunTokenBudget: () => testTokenBudget,
+}));
+
+mock.module("@/lib/budget/daily-budget", () => ({
+  readDailyBudgetSnapshot: async () => testDailySnapshot,
+}));
+
+mock.module("./chat-run-record", () => ({
+  startRunRecord: async (params: unknown) => {
+    runRecordStarts.push(params);
+  },
+  persistRunProgress: async (params: unknown) => {
+    runProgressWrites.push(params);
+  },
+}));
+
+mock.module("./chat-run-policy", () => ({
+  resolveRunPolicy: async (params: unknown) => {
+    runPolicyResolutions.push(params);
+    return { posture: "strict", profile: "default" };
+  },
+  buildRunPolicyOptions: async (params: unknown) => {
+    runPolicyMaterializations.push(params);
+    return {
+      policy: { id: "default", deny: [], ask: [], allow: [] },
+      posture: "strict",
+      policyEventRecorder: { record: () => undefined },
+      approvalGate: {
+        request: async () => undefined,
+        verify: async () => ({ authorized: true }),
+      },
+    };
+  },
+}));
+
 mock.module("./chat-sandbox-runtime", () => ({
   resolveChatSandboxRuntime: spies.resolveChatSandboxRuntime,
 }));
@@ -385,10 +446,34 @@ function makeOptions(overrides?: Record<string, unknown>) {
   } as Parameters<typeof runAgentWorkflow>[0];
 }
 
+function budgetRunRecord(): {
+  status: string;
+  haltReason?: string | null;
+  inputTokens?: number;
+  outputTokens?: number;
+  stepCount?: number;
+  stepTimings: unknown[];
+} {
+  const rwCalls = spies.recordWorkflowUsage.mock.calls as unknown[][];
+  const record = rwCalls.at(-1)?.[5];
+  if (!record) {
+    throw new Error("recordWorkflowUsage was not given a run record");
+  }
+  return record as ReturnType<typeof budgetRunRecord>;
+}
+
 // ── Tests ──────────────────────────────────────────────────────────
 
 beforeEach(() => {
   writtenChunks.length = 0;
+  agentCallOptions.length = 0;
+  runPolicyResolutions.length = 0;
+  runPolicyMaterializations.length = 0;
+  runRecordStarts.length = 0;
+  runProgressWrites.length = 0;
+  testStepBudget = 500;
+  testTokenBudget = { limit: "unlimited" };
+  testDailySnapshot = { limit: { limit: "unlimited" }, usedToday: 0 };
   runStatus = "running";
   agentStreamParts = [{ type: "text-delta", textDelta: "Hi" }];
   agentAssistantParts = undefined;
@@ -563,6 +648,36 @@ describe("runAgentWorkflow", () => {
         },
       ]),
     );
+  });
+
+  test("threads the session's posture and policy into the agent", async () => {
+    await runAgentWorkflow(makeOptions());
+
+    expect(runPolicyResolutions).toEqual([
+      { sessionId: "session-1", workflowRunId: "wrun_test-123" },
+    ]);
+    expect(runPolicyMaterializations).toEqual([
+      expect.objectContaining({
+        selection: { posture: "strict", profile: "default" },
+        sessionId: "session-1",
+        chatId: "chat-1",
+        workflowRunId: "wrun_test-123",
+      }),
+    ]);
+
+    const options = agentCallOptions.at(-1) as {
+      posture?: string;
+      policy?: { id?: string };
+      policyEventRecorder?: unknown;
+      approvalGate?: unknown;
+      sandbox?: unknown;
+    };
+    expect(options.posture).toBe("strict");
+    expect(options.policy?.id).toBe("default");
+    expect(options.policyEventRecorder).toBeDefined();
+    expect(options.approvalGate).toBeDefined();
+    // The sandbox the agent was already given must survive the merge.
+    expect(options.sandbox).toBeDefined();
   });
 
   test("persists assistant message after run", async () => {
@@ -748,6 +863,183 @@ describe("runAgentWorkflow", () => {
         finishReason: "tool-calls",
       }),
     ]);
+  });
+
+  test("opens the run record before the first step", async () => {
+    await runAgentWorkflow(makeOptions());
+
+    expect(runRecordStarts).toEqual([
+      expect.objectContaining({
+        workflowRunId: "wrun_test-123",
+        chatId: "chat-1",
+        sessionId: "session-1",
+        userId: "user-1",
+      }),
+    ]);
+  });
+
+  test("persists the running totals after every step", async () => {
+    agentFinishReason = "tool-calls";
+    agentRawFinishReason = "provider_tool_use";
+    agentTotalUsage = { inputTokens: 10, outputTokens: 5, totalTokens: 15 };
+
+    await runAgentWorkflow(makeOptions({ maxSteps: 3 }));
+
+    expect(runProgressWrites).toEqual([
+      expect.objectContaining({
+        inputTokens: 10,
+        outputTokens: 5,
+        stepCount: 1,
+      }),
+      expect.objectContaining({
+        inputTokens: 20,
+        outputTokens: 10,
+        stepCount: 2,
+      }),
+      expect.objectContaining({
+        inputTokens: 30,
+        outputTokens: 15,
+        stepCount: 3,
+      }),
+    ]);
+  });
+
+  test("halts in budget-exceeded when the token budget is breached", async () => {
+    agentFinishReason = "tool-calls";
+    agentRawFinishReason = "provider_tool_use";
+    agentTotalUsage = { inputTokens: 10, outputTokens: 5, totalTokens: 15 };
+    testTokenBudget = { limit: "limited", tokens: 10 };
+
+    await runAgentWorkflow(makeOptions({ maxSteps: 10 }));
+
+    const workflowRun = budgetRunRecord();
+    expect(workflowRun.status).toBe("budget-exceeded");
+    // Distinct from the generic failure the step ceiling produces.
+    expect(workflowRun.status).not.toBe("failed");
+    expect(workflowRun.haltReason).toContain("token budget");
+    expect(workflowRun.haltReason).toContain("15");
+    expect(workflowRun.stepTimings).toHaveLength(1);
+    expect(workflowRun.inputTokens).toBe(10);
+    expect(workflowRun.outputTokens).toBe(5);
+  });
+
+  test("halts in budget-exceeded when the step budget is reached", async () => {
+    agentFinishReason = "tool-calls";
+    agentRawFinishReason = "provider_tool_use";
+    testStepBudget = 2;
+
+    await runAgentWorkflow(makeOptions({ maxSteps: 10 }));
+
+    const workflowRun = budgetRunRecord();
+    expect(workflowRun.status).toBe("budget-exceeded");
+    expect(workflowRun.haltReason).toContain("step budget");
+    expect(workflowRun.stepTimings).toHaveLength(2);
+  });
+
+  test("an unset token budget leaves the run bounded by steps alone", async () => {
+    agentFinishReason = "tool-calls";
+    agentRawFinishReason = "provider_tool_use";
+    agentTotalUsage = {
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      totalTokens: 2_000_000,
+    };
+    testTokenBudget = { limit: "unlimited" };
+    testStepBudget = 3;
+
+    await runAgentWorkflow(makeOptions({ maxSteps: 10 }));
+
+    const workflowRun = budgetRunRecord();
+    expect(workflowRun.status).toBe("budget-exceeded");
+    expect(workflowRun.haltReason).toContain("step budget");
+    expect(workflowRun.stepTimings).toHaveLength(3);
+  });
+
+  test("halts when the organization crosses its daily budget mid-run", async () => {
+    agentFinishReason = "tool-calls";
+    agentRawFinishReason = "provider_tool_use";
+    agentTotalUsage = { inputTokens: 10, outputTokens: 5, totalTokens: 15 };
+    testDailySnapshot = {
+      limit: { limit: "limited", dailyTokens: 1000 },
+      usedToday: 990,
+    };
+
+    await runAgentWorkflow(makeOptions({ maxSteps: 10 }));
+
+    const workflowRun = budgetRunRecord();
+    expect(workflowRun.status).toBe("budget-exceeded");
+    expect(workflowRun.haltReason).toContain("daily token budget");
+    expect(workflowRun.haltReason).toContain("UTC");
+  });
+
+  test("a resumed run keeps the usage the message already accumulated", async () => {
+    agentFinishReason = "tool-calls";
+    agentRawFinishReason = "provider_tool_use";
+    agentTotalUsage = { inputTokens: 10, outputTokens: 5, totalTokens: 15 };
+    testTokenBudget = { limit: "limited", tokens: 100 };
+
+    await runAgentWorkflow(
+      makeOptions({
+        maxSteps: 10,
+        messages: [
+          {
+            id: "assistant-resumed",
+            role: "assistant",
+            parts: [{ type: "text", text: "Working" }],
+            metadata: {
+              totalMessageUsage: { inputTokens: 90, outputTokens: 0 },
+              stepFinishReasons: [{ finishReason: "tool-calls" }],
+            },
+          },
+        ],
+      }),
+    );
+
+    // 90 already spent plus 15 this step is over the 100 ceiling, so the run
+    // halts on its first step rather than restarting its budget at zero.
+    const workflowRun = budgetRunRecord();
+    expect(workflowRun.status).toBe("budget-exceeded");
+    expect(workflowRun.stepTimings).toHaveLength(1);
+    expect(workflowRun.inputTokens).toBe(100);
+    expect(runProgressWrites).toEqual([
+      expect.objectContaining({
+        inputTokens: 100,
+        outputTokens: 5,
+        // One step carried on the message plus the one this run took.
+        stepCount: 2,
+      }),
+    ]);
+  });
+
+  test("persists the assistant output produced before a budget halt", async () => {
+    agentFinishReason = "tool-calls";
+    agentRawFinishReason = "provider_tool_use";
+    agentAssistantParts = [{ type: "text", text: "Partial answer" }];
+    testStepBudget = 1;
+
+    await runAgentWorkflow(makeOptions({ maxSteps: 10 }));
+
+    const persistCalls = spies.persistAssistantMessage.mock
+      .calls as unknown[][];
+    const persisted = persistCalls.at(-1)?.[1] as {
+      parts: Array<Record<string, unknown>>;
+    };
+
+    expect(persisted.parts).toContainEqual(
+      expect.objectContaining({ type: "text", text: "Partial answer" }),
+    );
+    // The halt is part of the transcript, so it survives a reload.
+    expect(persisted.parts).toContainEqual(
+      expect.objectContaining({
+        type: "data-budget-halt",
+        data: expect.objectContaining({ budget: "run-steps" }),
+      }),
+    );
+    expect(
+      writtenChunks.some(
+        (chunk) => (chunk as { type?: string }).type === "data-budget-halt",
+      ),
+    ).toBe(true);
   });
 
   test("logs full step diagnostics when the agent finishes with reason other", async () => {

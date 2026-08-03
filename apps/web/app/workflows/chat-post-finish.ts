@@ -364,6 +364,12 @@ export async function recordWorkflowUsage(
     startedAt: string;
     finishedAt: string;
     totalDurationMs: number;
+    /** The run's final totals, already persisted per step by the loop. */
+    inputTokens?: number;
+    outputTokens?: number;
+    stepCount?: number;
+    /** Names the budget and the totals when a budget stopped the run. */
+    haltReason?: string | null;
     stepTimings: WorkflowRunStepTiming[];
   },
 ): Promise<void> {
@@ -385,6 +391,10 @@ export async function recordWorkflowUsage(
           startedAt: workflowRun.startedAt,
           finishedAt: workflowRun.finishedAt,
           totalDurationMs: workflowRun.totalDurationMs,
+          inputTokens: workflowRun.inputTokens,
+          outputTokens: workflowRun.outputTokens,
+          stepCount: workflowRun.stepCount,
+          haltReason: workflowRun.haltReason,
           stepTimings: workflowRun.stepTimings,
         });
       } catch (error) {

@@ -4,6 +4,18 @@ export type {
   SegmentOrigin,
 } from "./command-parser";
 export { parseCommand } from "./command-parser";
+export type {
+  ApprovalGate,
+  ApprovalGateDecision,
+  ApprovalGateRefusalCode,
+  ApprovalGateRequest,
+} from "./approval-gate";
+export {
+  approvalGateDecisionSchema,
+  approvalGateRefusalCodeSchema,
+  requestApprovalRecord,
+  verifyApprovalRecord,
+} from "./approval-gate";
 export type { PolicyCallOptions } from "./call-options";
 export { policyCallOptionsSchema, resolvePolicyContext } from "./call-options";
 export { evaluate } from "./command-policy";

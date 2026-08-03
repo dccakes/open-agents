@@ -25,6 +25,8 @@ export const AGENT_RUNS_UNVERIFIABLE_MESSAGE =
 
 export type AgentRunBlockedCode =
   | "agent_runs_paused"
+  /** The organization spent its daily token budget — see `lib/budget/`. */
+  | "daily_token_budget_exhausted"
   | "org_settings_unavailable";
 
 export interface AgentRunBlocked {

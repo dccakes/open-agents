@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ApprovalGate } from "./approval-gate";
 import { defaultCommandPolicy } from "./default-policy";
 import type {
   AgentPolicyContext,
@@ -19,6 +20,7 @@ export const policyCallOptionsSchema = z.object({
   policy: z.custom<CommandPolicy>().optional(),
   posture: postureSchema.optional(),
   policyEventRecorder: z.custom<PolicyEventRecorder>().optional(),
+  approvalGate: z.custom<ApprovalGate>().optional(),
 });
 export type PolicyCallOptions = z.infer<typeof policyCallOptionsSchema>;
 
@@ -40,5 +42,8 @@ export function resolvePolicyContext(
     posture: options.posture ?? "auto",
     interactive: overrides?.interactive ?? true,
     recorder: options.policyEventRecorder ?? noopPolicyEventRecorder,
+    // Absent by default: without a host-supplied gate the SDK's own approval
+    // pause stays the only gate, which is the pre-record behaviour.
+    approvalGate: options.approvalGate,
   };
 }
