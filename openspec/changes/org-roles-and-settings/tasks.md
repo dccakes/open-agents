@@ -58,10 +58,10 @@ decide.
 
 ## 4. Docs and verification
 
-- [ ] 4.1 Update the AGENTS.md Authentication section — it currently says sessions are better-auth's built-in system with no further layer; describe the organization + admin plugins, the two role concepts, and the membership gate.
-- [ ] 4.2 Update `docs/agents/architecture.md` with the org/permission layer and the new tables.
-- [ ] 4.3 Update `openspec/context.md`'s schema table with `organizations`, `org_members`, `org_invitations`, `org_settings`, and the `users.role` change.
-- [ ] 4.4 Record in `docs/agents/lessons-learned.md`: plugin `defaultStatements` must be spread into a custom statement set or built-in endpoints deny; plugin-declared columns must all exist; migrations cannot read config.
+- [x] 4.1 Update the AGENTS.md Authentication section — it currently says sessions are better-auth's built-in system with no further layer; describe the organization + admin plugins, the two role concepts, and the membership gate.
+- [x] 4.2 Update `docs/agents/architecture.md` with the org/permission layer and the new tables.
+- [x] 4.3 Update `openspec/context.md`'s schema table with `organizations`, `org_members`, `org_invitations`, `org_settings`, and the `users.role` change.
+- [x] 4.4 Record in `docs/agents/lessons-learned.md`: plugin `defaultStatements` must be spread into a custom statement set or built-in endpoints deny; plugin-declared columns must all exist; migrations cannot read config.
 - [ ] 4.5 Follow-up PR (after one deploy): drop `users.is_admin`.
 - [ ] 4.6 `bun run ci` green.
 - [ ] 4.7 Manual: sign in from a non-allowlisted domain → pending screen; approve → access; demote last admin → refused; remove a member → their sessions and shares die; flip kill switch → next run start blocked.

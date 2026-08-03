@@ -16,6 +16,21 @@ Authentication uses [Better Auth](https://www.better-auth.com/) with Vercel OAut
 
 Key env vars: `BETTER_AUTH_SECRET` (session signing), `NEXT_PUBLIC_VERCEL_APP_CLIENT_ID` + `VERCEL_APP_CLIENT_SECRET` (Vercel OAuth), plus GitHub App credentials for repo access. See `apps/web/.env.example` for the full list.
 
+### Membership, roles, and permissions
+
+Better Auth's **organization** and **admin** plugins are enabled (single seeded org; teams and dynamic access control off). Two role concepts, deliberately distinct:
+
+- **`users.role`** (admin plugin) — the *platform* role, for instance-level operations that are not org-scoped: bulk OAuth token revocation, ban, impersonation, session revocation.
+- **`org_members.role`** (organization plugin) — the *org* role (`owner | admin | member`), governing shared configuration.
+
+**`pending` is the absence of an `org_members` row, not a role value** — that fails closed, whereas a "pending" role would appear as a member-with-no-permissions and fail open. `getServerSession()` returns `undefined` for a pending user, so every route's no-session branch already denies them; `getSessionWithMembership()` is the narrow escape hatch for the approval screen and auth info. Paths without a cookie (the Linear webhook resolves a user by actor email) need their own explicit membership check.
+
+Permissions live in `apps/web/lib/auth/permissions.ts` as one `createAccessControl` statement set that **spreads both plugins' `defaultStatements`** before adding QuackOps resources. This is load-bearing: the org plugin's built-in `removeMember`/`updateMemberRole` authorize `member.delete`/`member.update` against the roles you supply, so a custom-only set denies them even for owners. Check permissions with `requirePermission()`; check membership with `requireApprovedMember()`. Client-side `checkRolePermission` is for hiding affordances only — never the sole enforcement.
+
+Do **not** enable session cookie caching while permission checks resolve from the session; a cached session serves a stale role after demotion. A test pins this.
+
+`ADMIN_EMAILS` is `required-prod`, so a production deploy fails at build time unless it is set — set it in the Vercel project environment before deploying. Both it and `ALLOWED_EMAIL_DOMAINS` require a *verified* email to match, and an unset allowlist auto-approves nobody.
+
 ## Configuration
 
 **Never read `process.env` outside a config module.** `bun run ci` fails if you do (`scripts/check-env-boundary.ts`).
