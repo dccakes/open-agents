@@ -19,6 +19,10 @@ The system SHALL evaluate a newly created user's email against the `ALLOWED_EMAI
 - **WHEN** a user signs in with email `someone@mail.nextdegree.org` and `ALLOWED_EMAIL_DOMAINS` contains only `nextdegree.org`
 - **THEN** no membership is granted and the user is pending
 
+#### Scenario: Allowlist is not configured
+- **WHEN** a user signs in for the first time and `ALLOWED_EMAIL_DOMAINS` is unset or empty
+- **THEN** no membership is granted and the user is pending — an unconfigured allowlist auto-approves nobody rather than everybody
+
 ### Requirement: Linking a second account never grants membership
 The membership decision SHALL be made once, from the email on the user record at creation. Linking an additional OAuth provider account to an existing user SHALL NOT re-evaluate the domain allowlist and SHALL NOT create a membership row.
 

@@ -10,11 +10,12 @@
 
 Task groups map to reviewable PRs. Groups 1–2 are sequential (everything depends on the
 plugin schema landing); groups 3–5 can run in parallel behind them; group 6 is independent
-and can start immediately. Resolve the three open questions in `design.md` before group 1.
+and can start immediately. Open question 1 in `design.md` is resolved (WS-0.1 landed);
+resolve questions 2 and 3 before group 1.
 
 ## 1. Auth plugins, schema, and permission model
 
-- [ ] 1.1 Add `apps/web/lib/config/auth.ts` in the WS-0.1 config-module shape parsing `ALLOWED_EMAIL_DOMAINS`, `ADMIN_EMAILS`, `DEFAULT_ORG_NAME`, `DEFAULT_ORG_SLUG`; update `.env.example` and add the schema-parse test in this PR (per Phase 1 ground rules).
+- [ ] 1.1 Declare `ALLOWED_EMAIL_DOMAINS`, `ADMIN_EMAILS` (`required-prod`), `DEFAULT_ORG_NAME`, `DEFAULT_ORG_SLUG` as specs in the existing `authEnv` group (`apps/web/lib/config/auth.ts`) with axes + descriptions; add a `getMembershipConfig()` accessor; regenerate the example file with `bun run --cwd apps/web env:example` and commit it; add parsing tests for the domain/email list values. Unset `ALLOWED_EMAIL_DOMAINS` must mean "nothing auto-approves", not "allow all".
 - [ ] 1.2 Add Drizzle tables `organizations`, `org_members`, `org_invitations` matching the Better Auth organization plugin models; add `users.role` (default `"user"`) and `auth_sessions.active_organization_id`.
 - [ ] 1.3 Generate and commit the migration: `bun run --cwd apps/web db:generate`. Do **not** drop `users.is_admin` in this migration.
 - [ ] 1.4 Backfill migration: `role = 'admin'` where `is_admin = true`; seed the single organization from config; grant membership to every existing user (owner for `ADMIN_EMAILS`, member otherwise).
