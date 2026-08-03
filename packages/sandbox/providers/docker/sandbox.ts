@@ -1,5 +1,9 @@
 import Docker from "dockerode";
 import type { Dirent } from "fs";
+import {
+  type DockerProviderConfig,
+  getDockerProviderConfig,
+} from "../../config";
 import type { ConnectOptions } from "../../factory";
 import type {
   ExecResult,
@@ -195,6 +199,7 @@ export class DockerSandbox implements Sandbox {
   static async create(
     state: DockerState,
     options?: ConnectOptions,
+    config: DockerProviderConfig = getDockerProviderConfig(),
   ): Promise<DockerSandbox> {
     const docker = new Docker();
     try {
@@ -205,7 +210,7 @@ export class DockerSandbox implements Sandbox {
 
     const sandboxImage =
       options?.env?.DOCKER_SANDBOX_IMAGE ??
-      process.env.DOCKER_SANDBOX_IMAGE ??
+      config.sandboxImage ??
       DEFAULT_SANDBOX_IMAGE;
 
     const requestedPorts =

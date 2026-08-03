@@ -6,6 +6,8 @@
  * lets a deployment declare its own hosts without editing code.
  */
 
+import { getDeploymentConfig } from "@/lib/config/deployment";
+
 /** Vercel-owned hosts plus the upstream template domain. */
 export const BASE_BOTID_ALLOWED_HOSTS = [
   "vercel.com",
@@ -29,7 +31,7 @@ export function parseExtraAllowedHosts(rawValue: string | undefined): string[] {
 
 /** Resolve the full allowed-host list for the current deployment. */
 export function resolveBotIdAllowedHosts(
-  rawValue: string | undefined = process.env.BOTID_EXTRA_ALLOWED_HOSTS,
+  rawValue: string | undefined = getDeploymentConfig().botIdExtraAllowedHosts,
 ): string[] {
   const configured = parseExtraAllowedHosts(rawValue);
   return Array.from(new Set([...BASE_BOTID_ALLOWED_HOSTS, ...configured]));

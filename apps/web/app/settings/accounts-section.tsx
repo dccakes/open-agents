@@ -43,6 +43,7 @@ import { useGitHubConnectionStatus } from "@/hooks/use-github-connection-status"
 import { useSession } from "@/hooks/use-session";
 import { unlinkGitHub } from "@/lib/github/actions/connection";
 import { authClient } from "@/lib/auth/client";
+import { getPublicConfig } from "@/lib/config/public";
 import type { GitHubConnectionReason } from "@/lib/github/status";
 import { fetcher } from "@/lib/swr";
 
@@ -379,7 +380,7 @@ function ConnectionStatusButton({
   const isConnected = status === "connected";
   const dotColor = isConnected ? "bg-green-500" : "bg-amber-500";
   const label = isConnected ? "Connected" : "Reconnect";
-  const clientId = process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID;
+  const clientId = getPublicConfig().githubClientId;
   const manageUrl = clientId
     ? `https://github.com/settings/connections/applications/${clientId}`
     : null;

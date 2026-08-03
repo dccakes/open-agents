@@ -4,10 +4,12 @@ import type {
   DbTeardownMetadata,
 } from "../db-provisioner";
 import { randomBytes } from "node:crypto";
+import { getSandboxDbProvisionerConfig } from "@/lib/config/sandbox";
 
 const POSTGRES_IMAGE =
-  process.env.DOCKER_POSTGRES_IMAGE ?? "postgres:16-alpine";
-const POSTGRES_USER = process.env.DOCKER_POSTGRES_USER ?? "postgres";
+  getSandboxDbProvisionerConfig().dockerPostgresImage ?? "postgres:16-alpine";
+const POSTGRES_USER =
+  getSandboxDbProvisionerConfig().dockerPostgresUser ?? "postgres";
 
 interface DockerInspectPortBinding {
   HostPort?: string;

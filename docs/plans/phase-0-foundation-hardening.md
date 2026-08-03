@@ -15,7 +15,7 @@ run in parallel.
 | WS-0.2b bunfig cooldown | ✅ Done — see [sub-plan](./ws-0.2b-bunfig-cooldown.md). 7-day `minimumReleaseAge`, one justified exclusion. |
 | WS-0.3 knip | ⬜ Not started |
 | WS-0.4 CI hardening | ⬜ Not started — **rescoped**, see [evaluation](#ws-04--ci-hardening-revised-enforce-the-vercel-signal-dont-duplicate-it). Vercel previews already build + migrate per PR; the duplicate CI build job is cut. |
-| WS-0.1 config boundary | ⬜ Not started |
+| WS-0.1 config boundary | ✅ Done — `apps/web/lib/config/**` + `packages/sandbox/config.ts`, boundary check in `bun run ci`, boot **and build** validation, generated `.env.example`. OpenSpec change: `openspec/changes/config-boundary/`. Corrections inline below. |
 | WS-0.5 SECURITY.md | ⬜ Not started |
 
 ## Ground rules for executing agents
@@ -33,49 +33,121 @@ run in parallel.
 
 ## WS-0.1 — Config boundary: single validated env module per package
 
-**Problem.** `process.env` is read in 261 places across 53 files (auth config alone has 12).
+**Status: ✅ Done.** Implemented as OpenSpec change
+[`config-boundary`](../../openspec/changes/config-boundary/proposal.md). What each step
+turned into, and where reality differed from this plan, is marked inline below.
+
+**Problem.** ~~`process.env` is read in 261 places across 53 files (auth config alone has
+12).~~ **Corrected by inventory:** 90 reads across 40 files, of which 47 reads in 28 files
+were non-test (auth config had 12 — that part held). The 261/53 figure counted test files
+and, apparently, a wider glob than `*.ts`/`*.tsx`. The smaller number is why this landed as
+one PR rather than the "L, many commits" the plan assumed.
 There is no single place to see what env vars exist, no startup validation, and typos fail
 silently at runtime. QM enforces one `config.ts` boundary with a lint ban elsewhere.
 
 **Target state.**
-- `apps/web/lib/config/` — a Zod-validated config module, split by concern
-  (e.g. `auth.ts`, `github.ts`, `linear.ts`, `sandbox.ts`, `db.ts`, `observability.ts`),
+- ✅ `apps/web/lib/config/` — a Zod-validated config module, split by concern
+  (~~`observability.ts`~~ has no variables today; shipped `auth.ts`, `db.ts`,
+  `deployment.ts`, `github.ts`, `linear.ts`, `public.ts`, `redis.ts`, `sandbox.ts`),
   each exporting a parsed, typed object. Lazy-parse per group (Next.js edge/runtime splits
   make one eager root parse impractical) but validate the full server group in
   `instrumentation.ts` at boot so missing vars fail deploys, not requests.
-- `packages/sandbox`: providers stop reading `process.env` directly; provider factories
+  **Two corrections:**
+  1. **Parse per read, not once per group.** Memoizing a group's parse breaks the existing
+     tests, which mutate `process.env` between cases and expect the change to be observed
+     (`rate-limit`, `redis`, `timeout-override`, `env-resolver`, the Daytona/Docker
+     provider tests). Parsing a small Zod object per call is cheap next to the I/O these
+     values gate.
+  2. **`NEXT_PUBLIC_*` needs a separate module with literal reads.** Next.js only inlines
+     the exact expression `process.env.NEXT_PUBLIC_X` into client bundles; routing those
+     through a dynamic lookup silently yields `undefined` in the browser. `public.ts`
+     therefore hands `defineEnvGroup` a source function of literal member expressions —
+     verified by grepping the built client chunks for an injected value.
+- ✅ `packages/sandbox`: providers stop reading `process.env` directly; provider factories
   take explicit options, and a single `packages/sandbox/config.ts` maps env → options for
-  callers that want env-driven defaults.
-- `packages/agent`: already env-light; route the few reads through one module.
+  callers that want env-driven defaults. Shipped as a default-parameter config on
+  `DockerSandbox.create` and the Daytona client factory, so callers can inject config while
+  the env-driven default stays the fallback.
+- ~~`packages/agent`: already env-light; route the few reads through one module.~~
+  **Nothing to do:** `packages/agent` reads the environment in exactly zero places.
 
-**Enforcement.** Ultracite/oxlint may not support `no-restricted-syntax`; do not block on
+**Enforcement.** ✅ Ultracite/oxlint may not support `no-restricted-syntax`; do not block on
 it. Add `scripts/check-env-boundary.ts` (invoked from `bun run ci`) that greps for
-`process.env` and fails unless the file is allowlisted. Allowlist: `**/config/**`,
-`**/config.ts`, `*.test.ts`/`*.test.tsx`, `drizzle.config.ts`, `next.config.ts`,
-`lib/db/migrate.ts`, `instrumentation*.ts`, `scripts/**`. If oxlint gains rule support
-later, replace the script with the rule.
+`process.env` and fails unless the file is allowlisted. Allowlist: ~~`**/config/**`,
+`**/config.ts`~~ → **corrected to `apps/web/lib/config/**` and `packages/*/config.ts`.**
+The blanket patterns would have exempted `apps/web/lib/auth/config.ts` (12 reads) and
+`apps/web/lib/sandbox/config.ts` — feature modules that merely happen to be named
+"config", and exactly the files the boundary exists to clean up. Rest of the allowlist as
+planned: `*.test.ts`/`*.test.tsx`, `drizzle.config.ts`, `next.config.ts`,
+`lib/db/migrate.ts`, `instrumentation*.ts`, `scripts/**` (plus `apps/web/scripts/**`). The
+check also covers `Bun.env`. If oxlint gains rule support later, replace the script with
+the rule.
 
 **Steps.**
-1. Inventory all non-test `process.env` reads (`grep -rn "process.env" --include="*.ts" --include="*.tsx"`), grouping by concern.
-2. Create the config modules with Zod schemas; `z.infer` the types. Give every var an
-   explicit environment axis: `required-prod | optional | dev-only` — several vars are
-   legitimately absent in previews but must fail a production boot (e.g.
-   `LINEAR_WEBHOOK_SECRET`, whose absence today turns the webhook route into a 500 at
-   request time). Boot validation in `instrumentation.ts` enforces the axis per
-   `VERCEL_ENV`, not one flat "required" list.
-3. Migrate call sites incrementally (one concern per commit), keeping behavior identical —
-   including current default values and error messages where user-facing.
-4. Add the boundary-check script + wire into root `ci` script.
-5. Regenerate `apps/web/.env.example` from the schemas — **note: CLAUDE.md references this
-   file but it does not exist today; creating it is part of this workstream.** Every var
-   with a one-line comment, secrets left blank.
+1. ✅ Inventory all non-test `process.env` reads, grouping by concern. Result: 47 reads in
+   28 non-test files (see the corrected problem statement above).
+2. ✅ Create the config modules with Zod schemas; `z.infer` the types. Give every var an
+   explicit environment axis: `required-prod | optional | dev-only`.
+   **One correction and one addition:**
+   - The axis alone is too blunt for feature-gated vars. Marking
+     `LINEAR_WEBHOOK_SECRET` (or the GitHub App / Neon vars) `required-prod` outright would
+     fail the production boot of a deployment that has deliberately not configured that
+     integration — turning a hardening change into an outage. Specs therefore also carry
+     `requiredWith: [...]`: the var becomes production-required only once the vars that
+     activate its integration are set. A half-configured Linear app fails the deploy; an
+     absent one does not. `required-prod` outright is reserved for the four vars without
+     which nothing works: `POSTGRES_URL`, `BETTER_AUTH_SECRET`,
+     `NEXT_PUBLIC_VERCEL_APP_CLIENT_ID`, `VERCEL_APP_CLIENT_SECRET`.
+   - `dev-only` vars set on a production deployment warn rather than fail.
+3. ✅ Migrate call sites, keeping behavior identical — including current default values and
+   error messages where user-facing. The whole existing suite passes unmodified; no test
+   needed changing, including the direct-env-read ones.
+4. ✅ Add the boundary-check script + wire into root `ci` script.
+5. ✅ Generate `apps/web/.env.example` from the schemas — it did not exist, and now does,
+   written by `bun run --cwd apps/web env:example` and guarded by a test.
+
+**Correction to the target state: `instrumentation.ts` alone does not fail a deploy.**
+The plan's premise — "validate in `instrumentation.ts` at boot so missing vars fail
+deploys, not requests" — does not hold on this stack, and the assumption was tested rather
+than trusted: a `next build` with `VERCEL_APP_CLIENT_SECRET` deliberately removed exits 0.
+Next.js does not call `register()` during `next build`, and Vercel never boots the server
+as part of a deploy, so instrumentation would have surfaced the problem on the first
+request of the new deployment. The build-time gate is a separate step —
+`apps/web/scripts/check-env.ts`, run as the first thing in the `build` script — which
+executes the same `validateServerConfig()` in the build environment, where the deploy can
+still be failed. `instrumentation.ts` stays as the server-start net.
+
+Enforcement keys on `VERCEL_ENV` (not `NODE_ENV`, which `next build` always sets to
+`production`, which would have applied production rules to preview builds).
+`VERCEL_ENV` was added to `turbo.json`'s build env list so it actually reaches the build.
 
 **Acceptance criteria.**
-- `bun run ci` fails if a new `process.env` read is added outside the allowlist.
-- Boot with a deliberately missing required var → clear startup error naming the var.
-- `apps/web/.env.example` exists and matches the schema (add a test that parses the
-  example file against the schema with dummy values).
-- No behavior change: existing tests pass unmodified (except direct-env-read tests).
+- ✅ `bun run ci` fails if a new `process.env` read is added outside the allowlist
+  (verified by adding a probe file: exits 1 with file, line, and the offending line).
+- ✅ Boot with a deliberately missing required var → clear startup error naming the var:
+  `VERCEL_APP_CLIENT_SECRET is required in production. Vercel OAuth client secret (pairs
+  with the client ID).` The same run with `VERCEL_ENV=preview` passes.
+- ✅ `apps/web/.env.example` exists and matches the schema — `lib/config/env-example.test.ts`
+  re-renders it from the modules, checks the variable list against the catalog, asserts
+  secrets are blank, and parses every value against its schema with dummy values.
+- ✅ No behavior change: the existing tests pass unmodified.
+
+**Surprise worth carrying forward** (also in `docs/agents/lessons-learned.md`): defining a
+config group at module scope with `source = readServerEnv` as a *default parameter* throws
+`ReferenceError: readServerEnv is not defined` in the Turbopack production build — the
+imported binding is not initialized when the module-scope call runs. Resolving the import
+inside `read()` instead fixes it. `bun test` and `tsc` were both green on the broken
+version; only `next build` caught it.
+
+**Follow-ups this workstream leaves open.**
+- `turbo.json` declares ~50 build env vars by hand; the config catalog now knows the real
+  set. Several declared vars (`JWE_SECRET`, `ENCRYPTION_KEY`, `ELEVENLABS_API_KEY`,
+  `BLOB_READ_WRITE_TOKEN`, `KV_REST_API_*`, `PG*`, `NEXT_PUBLIC_AUTH_PROVIDERS`) are read
+  nowhere in the repo. Generating that list from the registry — or at least pruning it —
+  pairs naturally with WS-0.3 (knip).
+- `VERCEL_URL` is read at build time by `app/layout.tsx` but is not declared in
+  `turbo.json`. Left as-is: declaring a per-deployment value would defeat build caching.
+  Worth a deliberate decision rather than an accident.
 
 ---
 
@@ -296,5 +368,5 @@ follow-up gaps filed as issues referencing the Phase 1/2 plans.
 | 2 | WS-0.2b bunfig cooldown | S |
 | 3 | WS-0.3 knip + dead-code sweep | S–M |
 | 4 | WS-0.4 CI hardening + Dependabot triage | S (was M — build job cut) |
-| 5 | WS-0.1 config boundary (can start immediately; largest) | L |
+| 5 | WS-0.1 config boundary (can start immediately; largest) | ✅ Done — L as estimated in surface area, but one PR: the real read count was a third of the estimate |
 | 6 | WS-0.5 SECURITY.md (after 0.1/0.4 land, so it documents reality) | S |

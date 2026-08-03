@@ -2,6 +2,8 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { desc, eq } from "drizzle-orm";
 import { after } from "next/server";
 import { z } from "zod";
+import { getLinearConfig } from "@/lib/config/linear";
+import { getPublicConfig } from "@/lib/config/public";
 import { db } from "@/lib/db/client";
 import { sessions, users } from "@/lib/db/schema";
 import { createSessionWithInitialChat } from "@/lib/db/sessions";
@@ -47,7 +49,7 @@ function verifySignature(
 }
 
 export async function POST(req: Request): Promise<Response> {
-  const webhookSecret = process.env.LINEAR_WEBHOOK_SECRET;
+  const { webhookSecret } = getLinearConfig();
   if (!webhookSecret) {
     return Response.json(
       { error: "LINEAR_WEBHOOK_SECRET is not configured" },
@@ -149,7 +151,7 @@ async function handleAgentSession({
     .limit(1);
 
   if (!user) {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
+    const appUrl = getPublicConfig().appUrl ?? "";
     const handle = actorName ? `@${actorName}` : actorEmail;
     await postLinearComment(
       token,

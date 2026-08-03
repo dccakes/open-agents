@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "bun run db:migrate:apply && next build",
+    "build": "bun run env:check && bun run db:migrate:apply && next build",
+    "env:check": "bun run scripts/check-env.ts",
     "db:migrate:apply": "bun run lib/db/migrate.ts",
     "start": "next start",
     "typecheck": "tsc --noEmit",
@@ -12,7 +13,8 @@
     "db:push": "drizzle-kit push",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
-    "db:check": "bun run scripts/check-migrations.ts"
+    "db:check": "bun run scripts/check-migrations.ts",
+    "env:example": "bun run scripts/generate-env-example.ts"
   },
   "dependencies": {
     "@ai-sdk/elevenlabs": "^2.0.29",

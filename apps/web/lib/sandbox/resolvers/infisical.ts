@@ -1,3 +1,4 @@
+import { getSandboxEnvResolverConfig } from "@/lib/config/sandbox";
 import type { EnvResolveOptions, EnvResolver } from "../env-resolver";
 
 interface InfisicalSecret {
@@ -27,8 +28,9 @@ export class InfisicalEnvResolver implements EnvResolver {
     projectId?: string;
     environment?: string;
   }): Promise<InfisicalSecret[]> {
-    const token = process.env.INFISICAL_TOKEN;
-    const projectId = opts.projectId ?? process.env.INFISICAL_PROJECT_ID;
+    const config = getSandboxEnvResolverConfig();
+    const token = config.infisicalToken;
+    const projectId = opts.projectId ?? config.infisicalProjectId;
     if (!token || !projectId) {
       throw new Error(
         "Infisical env resolver requires INFISICAL_TOKEN and INFISICAL_PROJECT_ID.",
@@ -36,8 +38,7 @@ export class InfisicalEnvResolver implements EnvResolver {
     }
 
     const environment = opts.environment ?? "production";
-    const baseUrl =
-      process.env.INFISICAL_BASE_URL ?? "https://app.infisical.com";
+    const baseUrl = config.infisicalBaseUrl ?? "https://app.infisical.com";
     const query = new URLSearchParams({
       workspaceId: projectId,
       environment,
