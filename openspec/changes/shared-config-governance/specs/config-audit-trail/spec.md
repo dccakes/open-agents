@@ -1,15 +1,26 @@
 ## ADDED Requirements
 
 ### Requirement: Every shared-configuration mutation is audited
-The system SHALL record an append-only `config_audit` entry for every mutation of shared organization configuration — org settings, membership and role changes, integration connect/disconnect/restore, provider enablement, and observability configuration. Each entry SHALL identify the actor user, the organization, the action, the target type and id, a summary of the previous and new values, and the timestamp. The audit write SHALL occur in the same transaction as the mutation.
+The system SHALL record an append-only `config_audit` entry for every mutation of shared organization configuration — org settings, membership and role changes, integration connect/disconnect/restore, provider enablement, and observability configuration. Each entry SHALL identify the actor user, the organization, the action, the target type and id, a summary of the previous and new values, and the timestamp.
 
 #### Scenario: Audited mutation succeeds
 - **WHEN** an admin changes any shared configuration value
 - **THEN** a `config_audit` row exists with the actor, organization, action, target, before/after summary, and timestamp
 
-#### Scenario: Audit write fails
-- **WHEN** the audit insert fails during a shared-configuration mutation
-- **THEN** the mutation is rolled back and the configuration is unchanged, so no mutation can succeed unaudited
+### Requirement: The audit guarantee is transactional for app-owned mutations and best-effort for plugin-mediated ones
+For mutations this application performs directly — org settings, integration lifecycle, provider enablement, observability configuration — the audit write SHALL occur in the same transaction as the mutation, so such a mutation cannot succeed unaudited. For mutations performed through Better Auth's plugin APIs — membership approval, role change, member removal — the audit write SHALL be performed from the plugin's after-hooks on a best-effort basis, and a failure to write SHALL be reported to the error tracker rather than swallowed. Documentation SHALL state which guarantee applies where.
+
+#### Scenario: Audit write fails during an app-owned mutation
+- **WHEN** the audit insert fails while changing org settings or an integration
+- **THEN** the mutation is rolled back and the configuration is unchanged
+
+#### Scenario: Plugin-mediated membership change is audited
+- **WHEN** an admin approves a pending user or changes a member's role through the plugin API
+- **THEN** an audit row is written from the corresponding after-hook
+
+#### Scenario: Audit write fails during a plugin-mediated mutation
+- **WHEN** the after-hook audit insert fails after the plugin has committed the membership change
+- **THEN** the membership change stands, the failure is reported to the error tracker, and the system does not claim the mutation was rolled back
 
 #### Scenario: Audit records are not modifiable
 - **WHEN** any code path attempts to update or delete an existing `config_audit` row

@@ -37,13 +37,25 @@ and fast to start (durable sandboxes).
 
 ## WS-1.0 — Org settings & roles (integration protection)
 
-> **Status:** OpenSpec change `openspec/changes/org-roles-and-settings/` is the authority
-> for this workstream. It revises the design below: rather than hand-rolling a `users.role`
-> enum and a fixed-id `orgSettings` singleton, WS-1.0 adopts Better Auth's **organization**
-> and **admin** plugins (single seeded org; teams and dynamic access control off) with one
-> shared `createAccessControl` statement set that WS-1.1–1.5 consume instead of each
-> inventing its own admin check. See that change's `design.md` for the decisions, the
-> rejected alternatives, and three open questions that need answers before implementation.
+> **Status:** WS-1.0 is split across **three** OpenSpec changes, which are the authority for
+> this workstream:
+>
+> 1. `openspec/changes/org-roles-and-settings/` — plugin adoption, membership gate, roles,
+>    permissions, org settings. Everything else stacks on it.
+> 2. `openspec/changes/shared-config-governance/` — integration gating, audit trail,
+>    soft delete/restore/purge, webhook-secret consolidation.
+> 3. `openspec/changes/sandbox-credential-protection/` — plaintext provider credentials;
+>    independent, can land in parallel.
+>
+> They revise the design below: rather than hand-rolling a `users.role` enum and a fixed-id
+> `orgSettings` singleton, WS-1.0 adopts Better Auth's **organization** and **admin** plugins
+> (single seeded org; teams and dynamic access control off) with one shared
+> `createAccessControl` statement set — built on top of both plugins' `defaultStatements` —
+> that WS-1.1–1.5 consume instead of each inventing its own admin check. Adversarial review
+> also added requirements the plan omitted: verified-email conditions on both allowlists,
+> structural (not per-route) membership enforcement, a membership check on the Linear webhook
+> path, immediate session revocation on removal, and an explicit carve-out for public share
+> links. See each change's `design.md` for decisions, rejected alternatives, and open questions.
 
 **Problem.** Integrations are currently unprotected shared state: GitHub App
 installations are per-user rows, and the Linear workspace connection can be created or

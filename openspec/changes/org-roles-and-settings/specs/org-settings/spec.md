@@ -1,10 +1,10 @@
 ## ADDED Requirements
 
 ### Requirement: Organization settings are stored per organization
-The system SHALL store organization-wide settings in an `org_settings` table keyed by a unique `organizationId` foreign key, with typed columns rather than an untyped metadata blob. The record SHALL carry at minimum `agentRunsPaused` (boolean, non-null, default false) and `dailyTokenBudget` (integer, nullable meaning unlimited). A settings record SHALL exist for the seeded organization from the migration onward.
+The system SHALL store organization-wide settings in an `org_settings` table keyed by a unique `organizationId` foreign key, with typed columns rather than an untyped metadata blob. The record SHALL carry at minimum `agentRunsPaused` (boolean, non-null, default false) and `dailyTokenBudget` (integer, nullable meaning unlimited). A settings record SHALL exist for the seeded organization, created by the same idempotent runtime seeder that creates the organization.
 
 #### Scenario: Settings record is created with the organization
-- **WHEN** the seeding migration runs
+- **WHEN** the seeder runs
 - **THEN** an `org_settings` row exists for the seeded organization with `agentRunsPaused` false
 
 #### Scenario: Settings are read
@@ -20,7 +20,7 @@ The system SHALL store organization-wide settings in an `org_settings` table key
 - **THEN** the value is persisted and an audit record capturing the previous and new value is written
 
 ### Requirement: The kill switch prevents new agent runs from starting
-When `agentRunsPaused` is true, the system SHALL refuse to start any new agent workflow run at every run-start path — interactive chat runs and webhook-triggered runs alike — and SHALL surface a clear paused state to the caller. Clearing the flag SHALL restore service without a deployment or restart.
+When `agentRunsPaused` is true, the system SHALL refuse to start any new agent workflow run at every run-start path within that deployment — interactive chat runs and webhook-triggered runs alike — and SHALL surface a clear paused state to the caller. Clearing the flag SHALL restore service without a deployment or restart.
 
 #### Scenario: Chat run start while paused
 - **WHEN** an approved member starts a chat run and `agentRunsPaused` is true
@@ -33,6 +33,10 @@ When `agentRunsPaused` is true, the system SHALL refuse to start any new agent w
 #### Scenario: Kill switch is cleared
 - **WHEN** an admin sets `agentRunsPaused` back to false
 - **THEN** the next run-start request succeeds, with no deployment or process restart required
+
+#### Scenario: Preview deployments are out of the switch's reach
+- **WHEN** the kill switch is set in production while preview deployments are live
+- **THEN** those previews, running against Neon forks of the production database, are unaffected — the switch's guarantee is scoped to the deployment whose database row was flipped, and the UI states this rather than implying it stops runs everywhere
 
 #### Scenario: In-flight runs during a pause
 - **WHEN** the kill switch is set while runs are already executing
@@ -47,7 +51,7 @@ Only callers holding `orgSettings.update` SHALL be able to change `agentRunsPaus
 
 #### Scenario: Admin flips the kill switch
 - **WHEN** an admin sets `agentRunsPaused` to true
-- **THEN** the value is persisted and an audit record with actor and timestamp is written in the same transaction
+- **THEN** the value is persisted and an audit record with actor and timestamp is written in the same transaction (org settings is an app-owned mutation, so the transactional guarantee applies)
 
 ### Requirement: The kill switch fails closed on read failure
 If the org settings record cannot be read at a run-start path, the system SHALL refuse to start the run rather than defaulting to permitted.

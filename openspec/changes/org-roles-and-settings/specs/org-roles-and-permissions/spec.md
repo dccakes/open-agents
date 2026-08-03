@@ -13,10 +13,10 @@ The system SHALL configure Better Auth with the organization plugin and the admi
 
 #### Scenario: Plugin table columns match the plugin's expectations
 - **WHEN** the schema-conformance test runs
-- **THEN** each hand-authored plugin table is asserted to contain every column the corresponding plugin model requires, and the test fails if a column is missing or misnamed
+- **THEN** each hand-authored plugin table — including the **extended `users` and `auth_sessions` tables**, not only the three new ones — is asserted to contain every column the corresponding plugin model requires (notably `users.banned`, `banReason`, `banExpires`, `auth_sessions.impersonatedBy`, and `organizations.metadata`), and the test fails if a column is missing or misnamed
 
 ### Requirement: A single organization is seeded and set as the active organization
-The system SHALL seed exactly one organization from `DEFAULT_ORG_NAME` and `DEFAULT_ORG_SLUG` configuration. Every authenticated session SHALL carry that organization as `activeOrganizationId`.
+The system SHALL seed exactly one organization from `DEFAULT_ORG_NAME` and `DEFAULT_ORG_SLUG` configuration. Seeding SHALL be performed by an idempotent runtime seeder invoked at boot, not by a SQL migration, because migrations are static and cannot read configuration. Every authenticated session SHALL carry that organization as `activeOrganizationId`, and permission checks SHALL resolve the organization explicitly rather than relying on that field being populated.
 
 #### Scenario: Session is created for an approved member
 - **WHEN** an approved member signs in
@@ -25,6 +25,14 @@ The system SHALL seed exactly one organization from `DEFAULT_ORG_NAME` and `DEFA
 #### Scenario: Seeding runs more than once
 - **WHEN** the seeding path executes against a database that already contains the seeded organization
 - **THEN** it is a no-op and no second organization row is created
+
+#### Scenario: Concurrent boots race to seed
+- **WHEN** two instances execute the seeder simultaneously against an empty database
+- **THEN** exactly one organization row exists afterwards, enforced by a unique constraint rather than by check-then-insert
+
+#### Scenario: Permission check with a null active organization
+- **WHEN** a permission check runs for a session whose `active_organization_id` is NULL
+- **THEN** it resolves against the seeded organization and returns a correct decision rather than failing closed
 
 ### Requirement: Platform role and organization role are distinct
 The system SHALL treat `users.role` as the platform role governing instance-level operations (bulk OAuth token revocation, ban, impersonation, session revocation), and `org_members.role` as the organization role governing shared configuration. Instance-level operations SHALL check the platform role; shared-configuration operations SHALL check organization permissions.
@@ -38,7 +46,15 @@ The system SHALL treat `users.role` as the platform role governing instance-leve
 - **THEN** the operation succeeds regardless of their platform role
 
 ### Requirement: Permissions are defined once in a shared access-control statement set
-The system SHALL define its access-control statements and static roles in a single module consumed by the server plugin configuration, the client plugin configuration, and the server-side permission helper. The statement set SHALL cover at minimum the resources `orgSettings`, `integration`, `repoMapping`, `observability`, `membership`, `agentRun`, `posture`, and `warmCache`.
+The system SHALL define its access-control statements and static roles in a single module consumed by the server plugin configuration, the client plugin configuration, and the server-side permission helper. The statement set SHALL cover at minimum the resources `orgSettings`, `integration`, `repoMapping`, `observability`, `agentRun`, `posture`, and `warmCache`, **spread on top of both plugins' `defaultStatements`**.
+
+#### Scenario: Built-in plugin endpoints remain authorized
+- **WHEN** an `owner` or `admin` invokes a built-in organization endpoint such as remove-member or update-member-role
+- **THEN** the operation is authorized, because the shared statement set includes each plugin's `defaultStatements` and the roles grant the corresponding `member` actions
+
+#### Scenario: Statement set includes the plugin defaults
+- **WHEN** the permission-model test runs
+- **THEN** it asserts every resource in both plugins' `defaultStatements` is present in the shared statement set, failing if a future edit drops one
 
 #### Scenario: A permission is checked server-side
 - **WHEN** a server route calls the permission helper for `orgSettings.update`
@@ -68,11 +84,15 @@ The `member` role SHALL hold read actions plus `agentRun.create` and `agentRun.r
 - **THEN** the request is refused
 
 ### Requirement: Admins are bootstrapped from configuration
-The system SHALL grant platform role `admin` and organization role `owner` on first sign-in to any user whose email appears in the `ADMIN_EMAILS` configuration, so that a fresh deployment is never without an admin.
+The system SHALL grant platform role `admin` and organization role `owner` on first sign-in to any user whose **verified** email appears in the `ADMIN_EMAILS` configuration, so that a fresh deployment is never without an admin. An unverified email SHALL NOT satisfy the bootstrap.
 
 #### Scenario: Configured admin signs in to a fresh deployment
 - **WHEN** a user whose email is listed in `ADMIN_EMAILS` signs in for the first time
 - **THEN** their user record has platform role `admin` and their membership role is `owner`
+
+#### Scenario: Configured admin email is unverified
+- **WHEN** a user signs in with an email listed in `ADMIN_EMAILS` but `emailVerified` is false
+- **THEN** neither platform admin nor org owner is granted, and the user is pending — otherwise registering an unverified matching address at any OAuth provider would be a full takeover path
 
 #### Scenario: Configured admin email is outside the domain allowlist
 - **WHEN** a user listed in `ADMIN_EMAILS` signs in with an email whose domain is not in `ALLOWED_EMAIL_DOMAINS`
@@ -93,6 +113,28 @@ The system SHALL refuse any operation that would leave the organization with zer
 - **WHEN** an admin demotes another admin while a third admin remains
 - **THEN** the operation succeeds and an audit record is written
 
+### Requirement: The platform role has a managed lifecycle
+The system SHALL allow a platform admin to grant and revoke `users.role` at runtime, not only through the `ADMIN_EMAILS` bootstrap, and SHALL refuse any operation that would leave the deployment with zero platform admins.
+
+#### Scenario: Platform admin grants platform admin
+- **WHEN** a platform admin promotes another user to platform role `admin`
+- **THEN** the change is persisted and an audit record is written
+
+#### Scenario: Last platform admin is demoted
+- **WHEN** an operation would leave zero users holding platform role `admin`
+- **THEN** it is refused, mirroring the org-level last-admin invariant
+
+### Requirement: Admin-plugin capabilities are constrained and audited
+Mounting the admin plugin exposes impersonation, user creation, password setting, and session listing. The system SHALL restrict these to platform admins and SHALL write an audit record for every impersonation start and stop.
+
+#### Scenario: Non-platform-admin attempts impersonation
+- **WHEN** a user without platform role `admin` calls the impersonation endpoint
+- **THEN** the request is refused
+
+#### Scenario: Impersonation is audited
+- **WHEN** a platform admin starts and later stops impersonating a user
+- **THEN** both events are recorded with actor, target, and timestamp
+
 ### Requirement: Existing admin checks continue to work through the role migration
 The system SHALL migrate `users.isAdmin` to `users.role` using expand-contract: the `role` column is added and backfilled from `is_admin` before any read path changes, `isUserAdmin()` is repointed to read `role` while keeping its existing signature, and `is_admin` is dropped only in a later migration.
 
@@ -109,7 +151,7 @@ The system SHALL migrate `users.isAdmin` to `users.role` using expand-contract: 
 - **THEN** that code continues to read `is_admin` successfully because the column has not been dropped
 
 ### Requirement: Role management is available in the admin area
-The system SHALL provide an admin-area view listing organization members and their roles, allowing a user holding `membership.setRole` to promote or demote members.
+The system SHALL provide an admin-area view listing organization members and their roles, allowing a user holding `member.update` to promote or demote members.
 
 #### Scenario: Admin promotes a member
 - **WHEN** an admin sets another member's role to `admin`

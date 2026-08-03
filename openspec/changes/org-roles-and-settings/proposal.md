@@ -9,40 +9,34 @@ The original plan (`docs/plans/phase-1-dev-agent-depth.md`, WS-1.0) proposed han
 ## What Changes
 
 - Adopt the Better Auth **organization plugin** (single seeded org, teams and dynamic access control disabled) and **admin plugin** in `apps/web/lib/auth/config.ts`, with Drizzle tables authored to match the plugin schemas.
-- Introduce a shared access-control statement set (`createAccessControl`) covering org settings, integrations, repo mappings, observability config, membership, agent runs, and postures — consumed by both plugins and by a new `requirePermission()` server helper.
+- Introduce a shared access-control statement set (`createAccessControl`) built by spreading **both plugins' `defaultStatements`** and adding QuackOps resources (org settings, integrations, repo mappings, observability config, agent runs, postures) — consumed by both plugins and by a new `requirePermission()` server helper. The defaults are load-bearing: the org plugin's built-in `removeMember`/`updateMemberRole` authorize against `member.delete`/`member.update` from *your* roles, so a custom-only statement set would deny them even for owners.
 - Add a **membership gate**: an `ALLOWED_EMAIL_DOMAINS` allowlist auto-approves matching sign-ups into the org; everyone else lands membership-less (`pending`) and sees only an approval-request screen until an admin approves them. Every "member" capability in Phase 1 means *approved* member.
 - Migrate `users.isAdmin` → the admin plugin's `users.role` via expand-contract, keeping `isUserAdmin()` as a compatibility wrapper. Bootstrap admins from an `ADMIN_EMAILS` config allowlist so a fresh deploy is never adminless.
 - Add an `org_settings` table keyed by `organizationId` (not a fixed-id singleton) carrying the **global kill switch** (`agentRunsPaused`) and the **org daily token budget** consumed by WS-1.1.
-- Gate integration lifecycle mutations (Linear connect/disconnect, shared GitHub installation removal, sandbox provider defaults, observability configuration) behind permission checks; read/use paths stay open to approved members.
-- Add **deletion protection** for destructive shared-config actions: typed confirmation in the UI, soft delete with `deletedAt`, restore within 14 days, and a production-only purge job.
-- Add a `config_audit` table recording actor, organization, target, action, and before/after summary for every shared-config mutation.
-- Consolidate the Linear webhook secret to a single source of truth so a restored connection still verifies signatures.
-- Remove plaintext provider API keys from `user_sandbox_configs.config`.
+- Enforce membership at a **structural chokepoint** (the server session helper) rather than a per-route checklist, and add an explicit membership check to the Linear webhook path, which resolves a user by actor email and has no browser session.
+- Make removal and demotion effective immediately: revoke sessions on removal/ban, prohibit session cookie caching, gate share creation on membership, and revoke a removed user's shares.
+- Give the platform role a managed lifecycle (grant/revoke at runtime, last-platform-admin invariant) and constrain the admin plugin's newly exposed impersonation and user-management endpoints.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `org-membership-gate`: Domain-allowlist auto-approval, `pending` state for everyone else, admin approval/rejection flow, and server-side enforcement that pending users reach no org data.
-- `org-roles-and-permissions`: Better Auth organization + admin plugin adoption, the shared access-control statement set, `requirePermission()`/`requireApprovedMember()` helpers, admin bootstrap, role management UI, and the last-admin protection invariant.
-- `org-settings`: Org-scoped settings record holding the agent-run kill switch and org daily token budget, with an enforcement point that halts new runs within one request cycle.
-- `integration-admin-gating`: Permission gates on Linear workspace lifecycle, shared GitHub installations, sandbox provider defaults, and observability configuration.
-- `config-audit-trail`: Append-only audit records plus soft-delete, typed confirmation, restore, and production-only purge for destructive shared-config actions.
-- `sandbox-credential-protection`: Removal of plaintext provider credentials from `user_sandbox_configs`.
+- `org-membership-gate`: Verified-email domain-allowlist auto-approval, `pending` state for everyone else, admin approval/rejection, structural enforcement, immediate revocation, and the share-link carve-out.
+- `org-roles-and-permissions`: Better Auth organization + admin plugin adoption, the shared access-control statement set built on the plugins' `defaultStatements`, `requirePermission()`/`requireApprovedMember()` helpers, admin bootstrap, role management, platform-role lifecycle, and last-admin invariants.
+- `org-settings`: Org-scoped settings record holding the agent-run kill switch and org daily token budget.
 
 ### Modified Capabilities
 
-- `linear-workspace-connection`: connect/disconnect become admin-gated, soft-deleted, audited, and restorable; the webhook secret gains a single source of truth.
-- `sandbox-provider-settings`: per-user provider choice is unchanged, but org-level defaults and which providers are enabled at all become admin-gated, and stored credentials stop being plaintext.
+- None. Integration gating and the audit trail moved to `shared-config-governance`; provider-credential protection moved to `sandbox-credential-protection`. Both stack on this change.
 
 ## Impact
 
 - **Auth**: `apps/web/lib/auth/config.ts` gains two plugins, an access-control instance, `databaseHooks` for domain-allowlist approval and admin bootstrap, and a session hook setting `activeOrganizationId`. The Drizzle adapter schema map grows to cover the new plugin models.
-- **Database**: new `organizations`, `org_members`, `org_invitations`, `org_settings`, `config_audit` tables; `users.role` added (`users.isAdmin` retained then dropped); `auth_sessions.active_organization_id` added; `deleted_at` added to shared-integration tables; `user_sandbox_configs.config` credential fields removed. Drizzle migrations required for each.
-- **API routes**: `/api/linear/connect`, `/api/linear/disconnect`, sandbox provider settings routes, and the admin server actions gain permission checks and audit writes. New routes for approval, role management, org settings, and restore.
-- **New libs**: `apps/web/lib/auth/permissions.ts` (statement set + roles), `apps/web/lib/auth/require-permission.ts`, `apps/web/lib/org/settings.ts`, `apps/web/lib/audit/`.
-- **UI**: pending-approval screen; admin area gains members/approvals, org settings (kill switch, budget), and typed-confirmation dialogs for destructive actions.
+- **Database**: new `organizations`, `org_members`, `org_invitations`, `org_settings` tables; `users.role`, `users.banned`, `users.ban_reason`, `users.ban_expires`, `auth_sessions.active_organization_id`, `auth_sessions.impersonated_by` added (`users.isAdmin` retained then dropped in a later PR). The four ban/impersonation columns are not optional: Better Auth selects every field its plugin schemas declare, so omitting them is a SQL error on authenticated requests.
+- **Boot**: an idempotent runtime seeder in `instrumentation.ts` creates the organization, its settings row, membership for existing users, and backfills `active_organization_id` on existing sessions. Seeding cannot live in a migration — migrations are static SQL and cannot read configuration.
+- **API routes**: new routes for approval, role management, and org settings. The Linear webhook route gains a membership check on the matched user. Share creation gains a membership gate.
+- **New libs**: `apps/web/lib/auth/permissions.ts` (statement set + roles), `apps/web/lib/auth/require-permission.ts`, `apps/web/lib/org/seed.ts`, `apps/web/lib/org/settings.ts`.
+- **UI**: pending-approval screen; admin area gains members/approvals, role management, and org settings (kill switch, budget).
 - **Environment variables**: `ALLOWED_EMAIL_DOMAINS`, `ADMIN_EMAILS`, `DEFAULT_ORG_NAME`/`DEFAULT_ORG_SLUG`, declared in the existing `authEnv` group (`apps/web/lib/config/auth.ts`) with axes and descriptions, read through accessors on that module, and reflected in a regenerated `apps/web/.env.example`. WS-0.1 has landed, so `scripts/check-env-boundary.ts` fails CI on any raw `process.env` read outside a config module.
-- **Cron**: soft-delete purge handler, no-op unless `VERCEL_ENV === "production"`.
-- **Downstream**: WS-1.1 (postures, `dangerous` gating, org daily budget), WS-1.2 (observability config gating, approved-member default), WS-1.3 (repo mappings, org agent identity, kill-switch check), WS-1.4 (org-shared warm-state opt-in), WS-1.5 (admin runs dashboard, kill switch surfacing) all consume this change's permission model.
-- **Docs**: `docs/agents/architecture.md` and the CLAUDE.md Authentication section both describe the current auth story and must be updated; `docs/agents/lessons-learned.md` records the plugin-adoption decision.
+- **Downstream**: `shared-config-governance` and `sandbox-credential-protection` stack directly on this change. WS-1.1 (postures, `dangerous` gating, org daily budget), WS-1.2 (observability config gating, approved-member default), WS-1.3 (repo mappings, org agent identity, kill-switch check), WS-1.4 (org-shared warm-state opt-in), and WS-1.5 (admin runs dashboard, per-run stop, kill-switch surfacing) all consume this change's permission model. WS-1.5 in particular owns terminating a removed member's in-flight runs, which this change explicitly does not do.
+- **Docs**: `docs/agents/architecture.md` and the AGENTS.md Authentication section both describe the current auth story and must be updated; `docs/agents/lessons-learned.md` records the plugin-adoption decision and the two schema traps it exposed.

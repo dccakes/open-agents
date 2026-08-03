@@ -34,6 +34,10 @@ The system SHALL verify Linear webhook signatures using the secret stored on the
 - **WHEN** the webhook route is exercised with no `LINEAR_WEBHOOK_SECRET` set and a workspace record present
 - **THEN** verification behavior is unchanged, demonstrating the environment variable is not consulted
 
+#### Scenario: The variable is removed from configuration
+- **WHEN** the configuration catalog is inspected after this change
+- **THEN** `LINEAR_WEBHOOK_SECRET` is absent from `lib/config/linear.ts` and from the generated `.env.example`
+
 ### Requirement: Shared GitHub installations are admin-gated
 The system SHALL distinguish organization-shared GitHub App installations from personal ones. Removing an organization-shared installation SHALL require `integration.disconnect`. Removing a personal installation SHALL remain available to its owning user. Existing installations SHALL remain personal after the migration; making an installation organization-shared SHALL be an explicit admin action.
 
