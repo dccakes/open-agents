@@ -148,6 +148,28 @@ covers "who may manage shared org configuration."
 
 ## WS-1.1 — Command policy & security postures
 
+> **Status:** WS-1.1 is specified by `openspec/changes/command-policy-and-postures/`, which is the
+> authority for this workstream. It refines the design below after reading the code:
+>
+> - The repo already has AI SDK v6 tool approvals (`needsApproval` → `approval-requested` part →
+>   the workflow loop breaks at `chat.ts:89-94`), so the approval flow is an existing rail to
+>   harden, not one to build. `needsApproval` can pause but has no "reject" return, so `deny`
+>   must live in `execute` — two enforcement points, with `execute` authoritative.
+> - Approval today is **client-asserted**: the decision travels back inside the client-supplied
+>   `messages[].parts`. That is the strongest reason for the `approval` table — it makes the
+>   decision authorizable, expirable, single-use, and auditable.
+> - The workflow *ends* rather than parks on a pause, so resume already reprovisions a hibernated
+>   sandbox via the existing provisioning path. "Approvals survive sandbox death" is a test of
+>   existing machinery, not new machinery.
+> - There is a third subagent (`design`) beyond executor and explorer, and each builds a fresh
+>   `experimental_context` — policy does not propagate implicitly, so a registry conformance test
+>   guards against an unwired fourth.
+> - `usage_events` cannot back a live budget (written once, terminally, best-effort, no run key),
+>   so per-run budgets are enforced from the workflow's accumulated usage and persisted per step;
+>   `workflow_runs` gains an in-progress lifecycle.
+>
+> See its `design.md` for decisions, rejected alternatives, and open questions.
+
 **Problem.** The agent's `bash` tool executes whatever the loop decides, in a sandbox with
 open egress and (in dev-task use) real repo credentials. There is no notion of "this
 command requires human approval." QM's model: named postures (Strict / Auto / Dangerous)
