@@ -76,6 +76,7 @@ const { taskTool } = await import("./task");
 const { todoWriteTool } = await import("./todo");
 const { editFileTool, writeFileTool } = await import("./write");
 const { buildSystemPrompt } = await import("../system-prompt");
+const { defaultCommandPolicy } = await import("../policy");
 
 function createContext(sandbox: Record<string, unknown>) {
   const sandboxId = `sandbox-${sandboxRegistry.size + 1}`;
@@ -91,6 +92,9 @@ function createContext(sandbox: Record<string, unknown>) {
     },
     approval: {},
     model: "test-model",
+    // Side-effecting tools fail closed without a policy, so every construction
+    // site — tests included — has to wire one.
+    policy: { policy: defaultCommandPolicy, posture: "auto" as const },
   };
 }
 

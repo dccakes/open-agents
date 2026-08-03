@@ -1,7 +1,21 @@
 import { tool } from "ai";
 import { z } from "zod";
-import * as path from "path";
+import { commandNeedsApproval } from "../policy";
+import { resolveBashWorkingDirectory } from "./bash-working-directory";
+import {
+  enforcePolicy,
+  type PolicyRefusal,
+  policyNeedsApproval,
+  refuseWithRule,
+} from "./policy-enforcement";
 import { getSandbox } from "./utils";
+
+/**
+ * `commandNeedsApproval` now lives in the policy module — it is a thin wrapper
+ * over `evaluate()` against the absorbed legacy rules. It stays exported from
+ * here so existing importers of `./bash` keep working.
+ */
+export { commandNeedsApproval } from "../policy";
 
 const TIMEOUT_MS = 120_000;
 
@@ -28,52 +42,38 @@ interface ToolOptions {
   needsApproval?: boolean | ApprovalFn;
 }
 
-// Commands that should require approval
-const DANGEROUS_COMMAND_PATTERNS = [
-  /\bcurl\b/,
-  /\brm\s+(?:[^\n;&|]*\s)?(?:-[A-Za-z]*r[A-Za-z]*f|-[A-Za-z]*f[A-Za-z]*r|-r\s+-f|-f\s+-r|-{1,2}recursive\b.*-{1,2}force\b|-{1,2}force\b.*-{1,2}recursive\b)/,
-  /\bfind\b[^\n;&|]*(?:-delete|-exec\s+rm\b)/,
-  /\b(?:shred|mkfs|dd)\b/,
-  /:\(\)\s*\{\s*:\|:/,
-];
+function policyCall(command: string) {
+  return { toolName: "bash", command };
+}
 
-const SENSITIVE_FILE_PATTERNS = [
-  /\.\s*env/i,
-  /\.e(?:['"]{2}|\\|\$\{[^}]*\}|\$\([^)]*\))?nv/i,
-  /\.e\$\([^)]*nv[^)]*\)/i,
-  /\$\([^)]*env[^)]*\)/i,
-  /`[^`]*env[^`]*`/i,
-  /\b(?:aws\/credentials|id_rsa|id_ed25519|\.ssh|proc\/self\/environ)\b/i,
-];
-
-/**
- * Check if a command should require approval.
- * Returns true for dangerous patterns or commands that reference dotenv files.
- */
-export function commandNeedsApproval(command: string): boolean {
-  const trimmedCommand = command.trim();
-  const lowerCommand = trimmedCommand.toLowerCase();
-
-  for (const pattern of DANGEROUS_COMMAND_PATTERNS) {
-    if (pattern.test(trimmedCommand)) {
-      return true;
-    }
-  }
-
-  return SENSITIVE_FILE_PATTERNS.some((pattern) => pattern.test(lowerCommand));
+/** A refusal in the bash result shape, so the model reads it like any failure. */
+function refusalResult(refusal: PolicyRefusal) {
+  return {
+    ...refusal,
+    exitCode: null,
+    stdout: "",
+    stderr: refusal.error,
+  };
 }
 
 export const bashTool = (options?: ToolOptions) =>
   tool({
-    needsApproval: async (args) => {
-      if (commandNeedsApproval(args.command)) {
-        if (typeof options?.needsApproval === "function") {
-          return options.needsApproval(args);
-        }
-        return options?.needsApproval ?? true;
+    needsApproval: async (args, { experimental_context }) => {
+      // `null` means nothing was wired: fall back to the pre-policy answer so a
+      // partially-wired caller is never *less* gated than before. `execute`
+      // refuses that call outright regardless.
+      const requiresApproval =
+        policyNeedsApproval(experimental_context, policyCall(args.command)) ??
+        commandNeedsApproval(args.command);
+
+      if (!requiresApproval) {
+        return false;
       }
 
-      return false;
+      if (typeof options?.needsApproval === "function") {
+        return options.needsApproval(args);
+      }
+      return options?.needsApproval ?? true;
     },
     description: `Execute a bash command in the user's shell (non-interactive).
 
@@ -118,15 +118,30 @@ EXAMPLES:
       { command, cwd, detached },
       { experimental_context, abortSignal },
     ) => {
+      // Authoritative gate: re-evaluated here rather than trusting that a pause
+      // happened, and before the sandbox is touched, so a denied command never
+      // reaches a shell.
+      const refusal = enforcePolicy(experimental_context, policyCall(command));
+      if (refusal) {
+        return refusalResult(refusal);
+      }
+
       const sandbox = await getSandbox(experimental_context, "bash");
       const workingDirectory = sandbox.workingDirectory;
 
-      // Resolve the working directory
-      const workingDir = cwd
-        ? path.isAbsolute(cwd)
-          ? cwd
-          : path.resolve(workingDirectory, cwd)
-        : workingDirectory;
+      const resolvedCwd = resolveBashWorkingDirectory({
+        cwd,
+        workingDirectory,
+      });
+      if (!resolvedCwd.ok) {
+        return refusalResult(
+          refuseWithRule(experimental_context, policyCall(command), {
+            id: "bash.deny.cwd-outside-workspace",
+            reason: resolvedCwd.reason,
+          }),
+        );
+      }
+      const workingDir = resolvedCwd.workingDir;
 
       // Detached mode: start the command in the background and return immediately
       if (detached) {

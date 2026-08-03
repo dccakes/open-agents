@@ -6,6 +6,36 @@ export type {
   OpenAgentModelInput,
 } from "./open-agent";
 export { defaultModel, defaultModelLabel, openAgent } from "./open-agent";
+// Policy exports: the host assembles a session's policy, posture, and event
+// recorder and passes them in the agent's call options.
+export type {
+  AgentPolicyContext,
+  CommandPolicy,
+  PolicyAction,
+  PolicyCallOptions,
+  PolicyDecision,
+  PolicyEvent,
+  PolicyEventPhase,
+  PolicyEventRecorder,
+  PolicyOutcome,
+  PolicyRule,
+  PolicyToolCall,
+  Posture,
+  RuleCapability,
+} from "./policy";
+export {
+  commandNeedsApproval,
+  createReadOnlyPolicy,
+  defaultCommandPolicy,
+  evaluate,
+  noopPolicyEventRecorder,
+  policyCallOptionsSchema,
+  policyEventSchema,
+  postureSchema,
+  readOnlyPolicy,
+  redactPolicyInput,
+  resolvePolicyContext,
+} from "./policy";
 // Skills exports
 export { discoverSkills, parseSkillFrontmatter } from "./skills/discovery";
 export { extractSkillBody, substituteArguments } from "./skills/loader";

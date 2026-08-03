@@ -7,6 +7,7 @@ import {
   gateway,
   type ProviderOptionsByProvider,
 } from "./models";
+import { policyCallOptionsSchema, resolvePolicyContext } from "./policy";
 
 import type { SkillMetadata } from "./skills/types";
 import { buildSystemPrompt } from "./system-prompt";
@@ -44,6 +45,9 @@ const callOptionsSchema = z.object({
   subagentModel: z.custom<OpenAgentModelInput>().optional(),
   customInstructions: z.string().optional(),
   skills: z.custom<SkillMetadata[]>().optional(),
+  // The session's security policy, posture, and audit sink. Omitted, they
+  // resolve to the shipped baseline under `auto` — today's behaviour.
+  ...policyCallOptionsSchema.shape,
 });
 
 export type OpenAgentCallOptions = z.infer<typeof callOptionsSchema>;
@@ -137,6 +141,8 @@ export const openAgent = new ToolLoopAgent({
         skills,
         model: callModel,
         subagentModel,
+        // The main agent has a UI channel, so an `ask` decision can pause.
+        policy: resolvePolicyContext(options, { interactive: true }),
       },
     };
   },

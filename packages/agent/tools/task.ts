@@ -12,7 +12,7 @@ import {
 } from "../subagents/registry";
 import { SUBAGENT_STEP_LIMIT } from "../subagents/constants";
 import { sumLanguageModelUsage } from "../usage";
-import { getSandboxContext, getSubagentModel } from "./utils";
+import { getPolicy, getSandboxContext, getSubagentModel } from "./utils";
 
 const subagentTypeSchema = z.enum(SUBAGENT_TYPES);
 
@@ -103,6 +103,10 @@ IMPORTANT:
         instructions,
         sandbox: sandboxContext.sandbox,
         model,
+        // The session's policy travels down explicitly: each subagent builds a
+        // fresh execution context, and its `prepareCall` narrows this to a
+        // non-interactive (and, for read-only subagents, restricted) profile.
+        policy: getPolicy(experimental_context),
       },
       abortSignal,
     });

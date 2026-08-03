@@ -8,6 +8,7 @@ import {
   resolveSandboxRealPath,
   resolveWorkspacePath,
 } from "./path-security";
+import { enforcePolicy, policyNeedsApproval } from "./policy-enforcement";
 
 const writeInputSchema = z.object({
   filePath: z
@@ -42,6 +43,18 @@ export const writeFileTool = () =>
   tool({
     needsApproval: async ({ filePath }, { experimental_context }) => {
       if (isDotEnvFilePath(filePath)) {
+        return true;
+      }
+
+      // A policy that gates a specific path pauses here. Under the shipped
+      // baseline this is `false` for every workspace path, so writing is not
+      // gated per file — that would make `strict` unusable for a coding agent.
+      if (
+        policyNeedsApproval(experimental_context, {
+          toolName: "write",
+          target: filePath,
+        })
+      ) {
         return true;
       }
 
@@ -97,6 +110,17 @@ EXAMPLES:
 - Replace a script after reading it: filePath: "scripts/build.sh", content: "<entire updated script>"`,
     inputSchema: writeInputSchema,
     execute: async ({ filePath, content }, { experimental_context }) => {
+      // Policy is added alongside the workspace and dotenv checks below, not in
+      // place of them. Under the shipped baseline a write inside the workspace
+      // is allowed in every posture; a restricted profile denies it here.
+      const refusal = enforcePolicy(experimental_context, {
+        toolName: "write",
+        target: filePath,
+      });
+      if (refusal) {
+        return refusal;
+      }
+
       const sandbox = await getSandbox(experimental_context, "write");
       const workingDirectory = sandbox.workingDirectory;
 
@@ -146,6 +170,15 @@ export const editFileTool = () =>
   tool({
     needsApproval: async ({ filePath }, { experimental_context }) => {
       if (isDotEnvFilePath(filePath)) {
+        return true;
+      }
+
+      if (
+        policyNeedsApproval(experimental_context, {
+          toolName: "edit",
+          target: filePath,
+        })
+      ) {
         return true;
       }
 
@@ -206,6 +239,14 @@ EXAMPLES:
       { filePath, oldString, newString, replaceAll = false },
       { experimental_context },
     ) => {
+      const refusal = enforcePolicy(experimental_context, {
+        toolName: "edit",
+        target: filePath,
+      });
+      if (refusal) {
+        return refusal;
+      }
+
       const sandbox = await getSandbox(experimental_context, "edit");
       const workingDirectory = sandbox.workingDirectory;
 

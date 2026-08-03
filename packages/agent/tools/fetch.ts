@@ -1,5 +1,6 @@
 import { tool } from "ai";
 import { z } from "zod";
+import { enforcePolicy, policyRefusalDetailSchema } from "./policy-enforcement";
 import { getSandbox, shellEscape } from "./utils";
 
 const TIMEOUT_MS = 30_000;
@@ -241,6 +242,9 @@ const fetchOutputSchema = z.union([
   z.object({
     success: z.literal(false),
     error: z.string(),
+    // Present when the refusal came from policy rather than from the request.
+    refusedByPolicy: z.literal(true).optional(),
+    policy: policyRefusalDetailSchema.optional(),
   }),
 ]);
 
@@ -263,6 +267,15 @@ EXAMPLES:
     { url, method = "GET", headers, body },
     { experimental_context, abortSignal },
   ) => {
+    // Policy first, then the existing SSRF checks: neither replaces the other.
+    const refusal = enforcePolicy(experimental_context, {
+      toolName: "web_fetch",
+      target: url,
+    });
+    if (refusal) {
+      return refusal;
+    }
+
     const sandbox = await getSandbox(experimental_context, "web_fetch");
     const workingDirectory = sandbox.workingDirectory;
 
