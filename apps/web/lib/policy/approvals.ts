@@ -138,6 +138,34 @@ export async function getApprovalByToolCall(
   return rows[0] ?? null;
 }
 
+/**
+ * The approval gating this run's application-level git automation.
+ *
+ * There is at most one per run: the turn's auto-commit and auto-PR are approved
+ * as a unit. Looked up rather than tracked in memory because the workflow step
+ * that requests it can be retried, and a retry must find the row it already
+ * wrote instead of asking the user a second time.
+ */
+export async function getAppSideEffectApproval(
+  sessionId: string,
+  workflowRunId: string,
+): Promise<Approval | null> {
+  const rows = await db
+    .select()
+    .from(approvals)
+    .where(
+      and(
+        eq(approvals.sessionId, sessionId),
+        eq(approvals.workflowRunId, workflowRunId),
+        eq(approvals.kind, "app-side-effect"),
+      ),
+    )
+    .orderBy(desc(approvals.createdAt))
+    .limit(1);
+
+  return rows[0] ?? null;
+}
+
 /** Every approval on a session, newest first, with expiry already applied. */
 export async function listSessionApprovals(
   sessionId: string,

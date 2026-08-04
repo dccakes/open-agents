@@ -114,6 +114,7 @@ let testSessionRecord: {
   autoCreatePrOverride: boolean | null;
   repoOwner: string | null;
   repoName: string | null;
+  posture?: string;
 };
 let testChatRecord: {
   id: string;
@@ -171,6 +172,15 @@ const runProgressWrites: unknown[] = [];
 // than exercised: `chat-run-policy.test.ts` covers the assembly itself.
 const runPolicyResolutions: unknown[] = [];
 const runPolicyMaterializations: unknown[] = [];
+// The session posture the run resolves to. `auto` is the default because it is
+// what every session did before postures existed: the auto-commit assertions
+// below are the record of "unchanged from today", and they must run under it.
+let testRunPosture: "strict" | "auto" | "dangerous" = "auto";
+
+// Application-level side-effect approvals. The request is spied on; the
+// persistence it wraps is covered in `lib/policy/app-side-effect-approvals`.
+const appSideEffectRequests: Record<string, unknown>[] = [];
+let appSideEffectApproval: Record<string, unknown> | null = null;
 
 function buildAgentSteps() {
   return [
@@ -392,19 +402,26 @@ mock.module("./chat-run-record", () => ({
 mock.module("./chat-run-policy", () => ({
   resolveRunPolicy: async (params: unknown) => {
     runPolicyResolutions.push(params);
-    return { posture: "strict", profile: "default" };
+    return { posture: testRunPosture, profile: "default" };
   },
   buildRunPolicyOptions: async (params: unknown) => {
     runPolicyMaterializations.push(params);
     return {
       policy: { id: "default", deny: [], ask: [], allow: [] },
-      posture: "strict",
+      posture: testRunPosture,
       policyEventRecorder: { record: () => undefined },
       approvalGate: {
         request: async () => undefined,
         verify: async () => ({ authorized: true }),
       },
     };
+  },
+}));
+
+mock.module("./chat-app-side-effects", () => ({
+  requestAppSideEffectApprovalStep: async (params: Record<string, unknown>) => {
+    appSideEffectRequests.push(params);
+    return appSideEffectApproval;
   },
 }));
 
@@ -471,6 +488,16 @@ beforeEach(() => {
   runPolicyMaterializations.length = 0;
   runRecordStarts.length = 0;
   runProgressWrites.length = 0;
+  testRunPosture = "auto";
+  appSideEffectRequests.length = 0;
+  appSideEffectApproval = {
+    approvalId: "approval-1",
+    decision: "pending",
+    operation: "Commit and push this session's changes to acme/repo.",
+    rule: "app.side-effect.git-push",
+    posture: "strict",
+    toolName: "app.git-automation",
+  };
   testStepBudget = 500;
   testTokenBudget = { limit: "unlimited" };
   testDailySnapshot = { limit: { limit: "unlimited" }, usedToday: 0 };
@@ -658,7 +685,7 @@ describe("runAgentWorkflow", () => {
     ]);
     expect(runPolicyMaterializations).toEqual([
       expect.objectContaining({
-        selection: { posture: "strict", profile: "default" },
+        selection: { posture: "auto", profile: "default" },
         sessionId: "session-1",
         chatId: "chat-1",
         workflowRunId: "wrun_test-123",
@@ -672,7 +699,7 @@ describe("runAgentWorkflow", () => {
       approvalGate?: unknown;
       sandbox?: unknown;
     };
-    expect(options.posture).toBe("strict");
+    expect(options.posture).toBe("auto");
     expect(options.policy?.id).toBe("default");
     expect(options.policyEventRecorder).toBeDefined();
     expect(options.approvalGate).toBeDefined();
@@ -1813,6 +1840,249 @@ describe("runAgentWorkflow", () => {
     );
 
     expect(spies.runAutoCommitStep).not.toHaveBeenCalled();
+  });
+
+  // ── Application-level side effects under a posture ────────────────
+  //
+  // These two paths — auto-commit and auto-PR — are the only ones that reach
+  // GitHub outside tool dispatch, and each mints its own installation token.
+  // The claim under test is that neither runs under `strict` without an
+  // approval, and that nothing about them changes under `auto`.
+
+  test("strict withholds the auto-commit and records an approval instead", async () => {
+    testRunPosture = "strict";
+
+    await runAgentWorkflow(
+      makeOptions({
+        autoCommitEnabled: true,
+        repoOwner: "acme",
+        repoName: "repo",
+      }),
+    );
+
+    expect(spies.runAutoCommitStep).not.toHaveBeenCalled();
+    expect(appSideEffectRequests).toHaveLength(1);
+    expect(appSideEffectRequests[0]).toMatchObject({
+      sessionId: "session-1",
+      chatId: "chat-1",
+      workflowRunId: "wrun_test-123",
+      messageId: "gen-id-1",
+      operations: ["auto-commit"],
+      repoOwner: "acme",
+      repoName: "repo",
+      posture: "strict",
+    });
+  });
+
+  test("strict surfaces the pause on the run, naming tool, operation, rule and posture", async () => {
+    testRunPosture = "strict";
+
+    await runAgentWorkflow(
+      makeOptions({
+        autoCommitEnabled: true,
+        repoOwner: "acme",
+        repoName: "repo",
+      }),
+    );
+
+    expect(
+      writtenChunks.filter((chunk) => chunk.type === "data-approval-request"),
+    ).toEqual([
+      {
+        type: "data-approval-request",
+        id: "gen-id-1:approval",
+        data: {
+          approvalId: "approval-1",
+          tool: "app.git-automation",
+          operation: "Commit and push this session's changes to acme/repo.",
+          rule: "app.side-effect.git-push",
+          posture: "strict",
+          status: "pending",
+          detail: expect.stringContaining("strict"),
+        },
+      },
+    ]);
+  });
+
+  /**
+   * The pull request is a second, independent push path: it mints its own token
+   * and it runs even when the commit had nothing to do. Gating only the commit
+   * would leave it wide open.
+   */
+  test("strict withholds the pull request too, including when there is nothing to commit", async () => {
+    testRunPosture = "strict";
+    spies.hasAutoCommitChangesStep.mockImplementationOnce(() =>
+      Promise.resolve(false),
+    );
+
+    await runAgentWorkflow(
+      makeOptions({
+        autoCommitEnabled: true,
+        autoCreatePrEnabled: true,
+        repoOwner: "acme",
+        repoName: "repo",
+      }),
+    );
+
+    expect(spies.runAutoCommitStep).not.toHaveBeenCalled();
+    expect(spies.runAutoCreatePrStep).not.toHaveBeenCalled();
+    expect(appSideEffectRequests[0]).toMatchObject({
+      operations: ["auto-create-pr"],
+    });
+  });
+
+  test("strict gates commit and pull request under one approval", async () => {
+    testRunPosture = "strict";
+
+    await runAgentWorkflow(
+      makeOptions({
+        autoCommitEnabled: true,
+        autoCreatePrEnabled: true,
+        repoOwner: "acme",
+        repoName: "repo",
+      }),
+    );
+
+    expect(appSideEffectRequests).toHaveLength(1);
+    expect(appSideEffectRequests[0]).toMatchObject({
+      operations: ["auto-commit", "auto-create-pr"],
+    });
+    expect(
+      writtenChunks.filter(
+        (chunk) => chunk.type === "data-commit" || chunk.type === "data-pr",
+      ),
+    ).toEqual([]);
+  });
+
+  test("strict asks for nothing when there was nothing to do", async () => {
+    testRunPosture = "strict";
+    spies.hasAutoCommitChangesStep.mockImplementationOnce(() =>
+      Promise.resolve(false),
+    );
+
+    await runAgentWorkflow(
+      makeOptions({
+        autoCommitEnabled: true,
+        autoCreatePrEnabled: false,
+        repoOwner: "acme",
+        repoName: "repo",
+      }),
+    );
+
+    expect(appSideEffectRequests).toEqual([]);
+    expect(
+      writtenChunks.filter((chunk) => chunk.type === "data-approval-request"),
+    ).toEqual([]);
+  });
+
+  /** Fail closed: an approval that could not be written can never be granted. */
+  test("strict performs nothing when the approval could not be recorded", async () => {
+    testRunPosture = "strict";
+    appSideEffectApproval = null;
+
+    await runAgentWorkflow(
+      makeOptions({
+        autoCommitEnabled: true,
+        autoCreatePrEnabled: true,
+        repoOwner: "acme",
+        repoName: "repo",
+      }),
+    );
+
+    expect(spies.runAutoCommitStep).not.toHaveBeenCalled();
+    expect(spies.runAutoCreatePrStep).not.toHaveBeenCalled();
+    expect(
+      writtenChunks.filter((chunk) => chunk.type === "data-approval-request"),
+    ).toMatchObject([{ data: { status: "error" } }]);
+  });
+
+  test("strict persists the pending approval on the assistant message", async () => {
+    testRunPosture = "strict";
+
+    await runAgentWorkflow(
+      makeOptions({
+        autoCommitEnabled: true,
+        repoOwner: "acme",
+        repoName: "repo",
+      }),
+    );
+
+    const calls = spies.persistAssistantMessage.mock.calls as unknown[][];
+    const persisted = calls.at(-1)?.[1] as {
+      parts: Array<Record<string, unknown>>;
+    };
+    expect(
+      persisted.parts.find((part) => part.type === "data-approval-request"),
+    ).toBeDefined();
+  });
+
+  test("auto runs the commit and the pull request exactly as before", async () => {
+    testRunPosture = "auto";
+
+    await runAgentWorkflow(
+      makeOptions({
+        autoCommitEnabled: true,
+        autoCreatePrEnabled: true,
+        repoOwner: "acme",
+        repoName: "repo",
+      }),
+    );
+
+    expect(spies.runAutoCommitStep).toHaveBeenCalledTimes(1);
+    expect(spies.runAutoCreatePrStep).toHaveBeenCalledTimes(1);
+    expect(appSideEffectRequests).toEqual([]);
+    expect(
+      writtenChunks.filter((chunk) => chunk.type === "data-approval-request"),
+    ).toEqual([]);
+  });
+
+  test("dangerous collapses the ask into an allow, like every other ask", async () => {
+    testRunPosture = "dangerous";
+
+    await runAgentWorkflow(
+      makeOptions({
+        autoCommitEnabled: true,
+        autoCreatePrEnabled: true,
+        repoOwner: "acme",
+        repoName: "repo",
+      }),
+    );
+
+    expect(spies.runAutoCommitStep).toHaveBeenCalledTimes(1);
+    expect(spies.runAutoCreatePrStep).toHaveBeenCalledTimes(1);
+    expect(appSideEffectRequests).toEqual([]);
+  });
+
+  /**
+   * A posture change is not a kill switch. The run resolved its posture once, at
+   * the start, and a change made while it is executing applies to what comes
+   * after — it does not terminate the run or undo what already happened.
+   */
+  test("a posture change mid-run does not terminate the run", async () => {
+    testRunPosture = "auto";
+    let tightenedDuringRun = false;
+    spies.runAutoCommitStep.mockImplementationOnce(() => {
+      testRunPosture = "strict";
+      testSessionRecord = { ...testSessionRecord, posture: "strict" };
+      tightenedDuringRun = true;
+      return Promise.resolve({ committed: true, pushed: true });
+    });
+
+    await runAgentWorkflow(
+      makeOptions({
+        autoCommitEnabled: true,
+        autoCreatePrEnabled: true,
+        repoOwner: "acme",
+        repoName: "repo",
+      }),
+    );
+
+    expect(tightenedDuringRun).toBe(true);
+    // The pull request that was already in flight still ran, and the run
+    // finished normally rather than being cut short.
+    expect(spies.runAutoCreatePrStep).toHaveBeenCalledTimes(1);
+    expect(budgetRunRecord().status).toBe("completed");
+    expect(spies.sendFinish).toHaveBeenCalled();
   });
 
   test("still clears stream and sends finish even on step error", async () => {

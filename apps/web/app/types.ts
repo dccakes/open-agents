@@ -42,6 +42,8 @@ export type WebAgentCommitData = {
   commitSha?: string;
   url?: string;
   error?: string;
+  /** Why nothing was committed — including a policy refusal. */
+  skipReason?: string;
 };
 
 export type WebAgentPrData = {
@@ -81,12 +83,42 @@ export type WebAgentBudgetHaltData = {
   dayBoundary?: string;
 };
 
+/**
+ * Where a run's application-level side effect stands.
+ *
+ * `pending` is a state the *run* carries rather than a tool part, because the
+ * agent loop has already finished by the time auto-commit is gated — there is
+ * no tool call to attach an approval to.
+ */
+export type WebAgentApprovalStatus =
+  | "pending"
+  | "executed"
+  | "skipped"
+  | "expired"
+  | "error";
+
+export type WebAgentApprovalRequestData = {
+  approvalId: string;
+  /** What is being gated — a tool name, or the application operation. */
+  tool: string;
+  /** The exact operation, in words. */
+  operation: string;
+  /** The policy rule that matched. */
+  rule: string;
+  /** The posture that caused the pause. */
+  posture: string;
+  status: WebAgentApprovalStatus;
+  /** Why it paused, and once answered, what happened. */
+  detail?: string;
+};
+
 export type WebAgentDataParts = {
   commit: WebAgentCommitData;
   pr: WebAgentPrData;
   snippet: WebAgentSnippetData;
   "workspace-status": WebAgentWorkspaceStatusData;
   "budget-halt": WebAgentBudgetHaltData;
+  "approval-request": WebAgentApprovalRequestData;
 };
 
 // All types derived from the agent
@@ -113,6 +145,10 @@ export type WebAgentSnippetDataPart = Extract<
 export type WebAgentBudgetHaltDataPart = Extract<
   WebAgentUIMessagePart,
   { type: "data-budget-halt" }
+>;
+export type WebAgentApprovalRequestDataPart = Extract<
+  WebAgentUIMessagePart,
+  { type: "data-approval-request" }
 >;
 export type WebAgentUIToolPart =
   | DynamicToolUIPart

@@ -52,7 +52,10 @@ mock.module("@/lib/db/client", () => ({
           const rows = conflictRows.length > 0 ? conflictRows : selectRows;
           return Object.assign(Promise.resolve(rows), {
             limit: () => Promise.resolve(rows.slice(0, 1)),
-            orderBy: () => Promise.resolve(rows),
+            orderBy: () =>
+              Object.assign(Promise.resolve(rows), {
+                limit: (count: number) => Promise.resolve(rows.slice(0, count)),
+              }),
           });
         },
       }),
@@ -267,5 +270,32 @@ describe("approval row typing", () => {
     const typed: Approval | null = approval;
 
     expect(typed?.kind).toBe("tool-call");
+  });
+});
+
+describe("getAppSideEffectApproval", () => {
+  test("finds the approval already gating this run's git automation", async () => {
+    selectRows = [
+      pendingRow({
+        id: "app-1",
+        kind: "app-side-effect",
+        toolName: "app.git-automation",
+        toolCallId: null,
+      }),
+    ];
+    const { getAppSideEffectApproval } = await modulePromise;
+
+    const found = await getAppSideEffectApproval("session-1", "run-1");
+
+    expect(found?.id).toBe("app-1");
+  });
+
+  test("returns null when this run has never requested one", async () => {
+    selectRows = [];
+    const { getAppSideEffectApproval } = await modulePromise;
+
+    await expect(
+      getAppSideEffectApproval("session-1", "run-1"),
+    ).resolves.toBeNull();
   });
 });

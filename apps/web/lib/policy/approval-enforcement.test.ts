@@ -322,3 +322,98 @@ describe("consumeToolCallApproval", () => {
     ).toBeGreaterThan(0);
   });
 });
+
+describe("consumeAppSideEffectApproval", () => {
+  test("spends an approved application side effect once", async () => {
+    storedRow = approvedRow({
+      kind: "app-side-effect",
+      toolName: "app.git-automation",
+      toolCallId: null,
+    });
+    const { consumeAppSideEffectApproval } = await modulePromise;
+
+    const result = await consumeAppSideEffectApproval({
+      sessionId: "session-1",
+      approvalId: "approval-1",
+      now: NOW,
+    });
+
+    expect(result).toMatchObject({
+      authorized: true,
+      approvalId: "approval-1",
+    });
+    expect(updateSets).toEqual([{ consumedAt: NOW }]);
+  });
+
+  test("refuses a second spend of the same approval", async () => {
+    storedRow = approvedRow({
+      kind: "app-side-effect",
+      toolCallId: null,
+      consumedAt: new Date(NOW.getTime() - 1000),
+    });
+    const { consumeAppSideEffectApproval } = await modulePromise;
+
+    const result = await consumeAppSideEffectApproval({
+      sessionId: "session-1",
+      approvalId: "approval-1",
+      now: NOW,
+    });
+
+    expect(result.authorized === false && result.code).toBe("already_consumed");
+    expect(updateSets).toEqual([]);
+  });
+
+  test("treats a denied application side effect as a denial", async () => {
+    storedRow = approvedRow({
+      kind: "app-side-effect",
+      toolCallId: null,
+      decision: "denied",
+    });
+    const { consumeAppSideEffectApproval } = await modulePromise;
+
+    const result = await consumeAppSideEffectApproval({
+      sessionId: "session-1",
+      approvalId: "approval-1",
+      now: NOW,
+    });
+
+    expect(result.authorized === false && result.code).toBe("denied");
+  });
+
+  /**
+   * A tool-call approval and an application side effect are different
+   * authorizations. Letting one be spent as the other would mean approving a
+   * `git push` also authorized the run's auto-commit, and vice versa.
+   */
+  test("refuses to spend a tool-call approval as an application side effect", async () => {
+    storedRow = approvedRow({ kind: "tool-call" });
+    const { consumeAppSideEffectApproval } = await modulePromise;
+
+    const result = await consumeAppSideEffectApproval({
+      sessionId: "session-1",
+      approvalId: "approval-1",
+      now: NOW,
+    });
+
+    expect(result.authorized === false && result.code).toBe(
+      "no_approval_record",
+    );
+    expect(updateSets).toEqual([]);
+  });
+
+  test("refuses to spend an application side effect as a tool call", async () => {
+    storedRow = approvedRow({ kind: "app-side-effect", toolCallId: "call-1" });
+    const { consumeToolCallApproval } = await modulePromise;
+
+    const result = await consumeToolCallApproval({
+      sessionId: "session-1",
+      toolCallId: "call-1",
+      now: NOW,
+    });
+
+    expect(result.authorized === false && result.code).toBe(
+      "no_approval_record",
+    );
+    expect(updateSets).toEqual([]);
+  });
+});

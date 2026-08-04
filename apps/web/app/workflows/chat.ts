@@ -15,11 +15,10 @@ import { assistantFileLinkPrompt } from "@/lib/assistant-file-links";
 import { addLanguageModelUsage } from "./usage-utils";
 import { extractGatewayCost } from "./gateway-metadata";
 import type {
+  WebAgentApprovalRequestDataPart,
   WebAgentBudgetHaltDataPart,
-  WebAgentCommitData,
   WebAgentCommitDataPart,
   WebAgentMessageMetadata,
-  WebAgentPrData,
   WebAgentPrDataPart,
   WebAgentStepFinishMetadata,
   WebAgentUIMessage,
@@ -70,6 +69,17 @@ import {
 } from "./chat-run-budget";
 import { persistRunProgress, startRunRecord } from "./chat-run-record";
 import { type BudgetBreach, checkRunBudget } from "@/lib/budget/run-budget";
+import {
+  buildCommitData,
+  buildPrData,
+  shouldCreatePrAfterCommit,
+} from "@/lib/chat/git-data-parts";
+import {
+  APP_SIDE_EFFECT_SKIP_REASON,
+  type AppSideEffectOperation,
+  gateAppSideEffects,
+} from "@/lib/policy/app-side-effects";
+import { requestAppSideEffectApprovalStep } from "./chat-app-side-effects";
 
 type AuthSessionContext = Pick<AuthSession, "authProvider" | "user"> | null;
 
@@ -486,93 +496,11 @@ function stringifyDebugPayload(value: unknown): string {
   );
 }
 
-function buildGitHubCommitUrl(
-  repoOwner: string,
-  repoName: string,
-  commitSha: string,
-): string {
-  return `https://github.com/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/commit/${encodeURIComponent(commitSha)}`;
-}
-
-function buildCommitData(
-  result: Awaited<ReturnType<typeof runAutoCommitStep>>,
-  repoOwner: string,
-  repoName: string,
-): WebAgentCommitData {
-  if (result.error) {
-    return {
-      status: "error",
-      committed: result.committed,
-      pushed: result.pushed,
-      commitMessage: result.commitMessage,
-      commitSha: result.commitSha,
-      url:
-        result.pushed && result.commitSha
-          ? buildGitHubCommitUrl(repoOwner, repoName, result.commitSha)
-          : undefined,
-      error: result.error,
-    };
-  }
-
-  if (result.committed) {
-    return {
-      status: "success",
-      committed: result.committed,
-      pushed: result.pushed,
-      commitMessage: result.commitMessage,
-      commitSha: result.commitSha,
-      url:
-        result.pushed && result.commitSha
-          ? buildGitHubCommitUrl(repoOwner, repoName, result.commitSha)
-          : undefined,
-    };
-  }
-
-  return {
-    status: "skipped",
-    committed: false,
-    pushed: false,
-  };
-}
-
-function buildPrData(
-  result: Awaited<ReturnType<typeof runAutoCreatePrStep>>,
-): WebAgentPrData {
-  if (result.error) {
-    return {
-      status: "error",
-      created: result.created,
-      syncedExisting: result.syncedExisting,
-      prNumber: result.prNumber,
-      url: result.prUrl,
-      error: result.error,
-    };
-  }
-
-  if (result.skipped) {
-    return {
-      status: "skipped",
-      created: result.created,
-      syncedExisting: result.syncedExisting,
-      prNumber: result.prNumber,
-      url: result.prUrl,
-      skipReason: result.skipReason,
-    };
-  }
-
-  return {
-    status: "success",
-    created: result.created,
-    syncedExisting: result.syncedExisting,
-    prNumber: result.prNumber,
-    url: result.prUrl,
-  };
-}
-
 type AssistantDataPart =
   | WebAgentCommitDataPart
   | WebAgentPrDataPart
-  | WebAgentBudgetHaltDataPart;
+  | WebAgentBudgetHaltDataPart
+  | WebAgentApprovalRequestDataPart;
 
 function upsertAssistantDataPart(
   message: WebAgentUIMessage,
@@ -894,12 +822,24 @@ export async function runAgentWorkflow(options: Options) {
       finalFinishReason !== "tool-calls";
     const commitPartId = `${assistantId}:commit`;
     const prPartId = `${assistantId}:pr`;
+    const approvalPartId = `${assistantId}:approval`;
     const repoOwner = runtime.repoOwner;
     const repoName = runtime.repoName;
     let didUpdateGitData = false;
 
     let autoCommitResult: Awaited<ReturnType<typeof runAutoCommitStep>> | null =
       null;
+
+    const autoCreatePrEnabled =
+      options.autoCreatePrEnabled ?? modelRuntime.autoCreatePrEnabled;
+
+    // Chokepoint one. `performAutoCommit` and `performAutoCreatePr` each mint
+    // their own installation token, so a check inside the commit helper would
+    // miss the pull-request path entirely — the gate belongs here, where both
+    // paths are still ahead of us. Under `auto` and `dangerous` this resolves
+    // to `allow` and nothing below changes.
+    const sideEffectGate = gateAppSideEffects(runPolicy.posture);
+    const sideEffectsNeedApproval = sideEffectGate.decision === "ask";
 
     const canAutoCommit =
       finishedNaturally &&
@@ -908,7 +848,76 @@ export async function runAgentWorkflow(options: Options) {
       repoOwner != null &&
       repoName != null;
 
-    if (canAutoCommit) {
+    // Chokepoints two and three, taken together: under `strict` neither the
+    // commit nor the pull request runs, and one approval covering both is
+    // recorded instead. Reading `git status` first is a read, and it is what
+    // makes the prompt say exactly which operations were withheld.
+    if (canAutoCommit && sideEffectsNeedApproval) {
+      const hasAutoCommitChanges = await hasAutoCommitChangesStep({
+        sandboxState,
+      });
+      const gatedOperations: AppSideEffectOperation[] = [
+        ...(hasAutoCommitChanges ? (["auto-commit"] as const) : []),
+        ...(autoCreatePrEnabled ? (["auto-create-pr"] as const) : []),
+      ];
+
+      if (gatedOperations.length > 0) {
+        const approval = await requestAppSideEffectApprovalStep({
+          sessionId: options.sessionId,
+          chatId: options.chatId,
+          workflowRunId,
+          messageId: assistantId,
+          operations: gatedOperations,
+          repoOwner,
+          repoName,
+          posture: runPolicy.posture,
+        });
+
+        const approvalPart: WebAgentApprovalRequestDataPart = approval
+          ? {
+              type: "data-approval-request",
+              id: approvalPartId,
+              data: {
+                approvalId: approval.approvalId,
+                tool: approval.toolName,
+                operation: approval.operation,
+                rule: approval.rule,
+                posture: approval.posture,
+                // A retried step can find an approval that was already
+                // answered; it must report that rather than re-prompting.
+                status:
+                  approval.decision === "denied"
+                    ? "skipped"
+                    : approval.decision === "expired"
+                      ? "expired"
+                      : "pending",
+                detail: sideEffectGate.reason,
+              },
+            }
+          : {
+              // Fail closed: the approval could not be recorded, so the
+              // operation stays unperformed and the run says so.
+              type: "data-approval-request",
+              id: approvalPartId,
+              data: {
+                approvalId: "",
+                tool: "app.git-automation",
+                operation: `Commit and push this session's changes to ${repoOwner}/${repoName}.`,
+                rule: sideEffectGate.rule,
+                posture: sideEffectGate.posture,
+                status: "error",
+                detail: `${APP_SIDE_EFFECT_SKIP_REASON} The approval could not be recorded, so nothing was performed.`,
+              },
+            };
+
+        pendingAssistantResponse = upsertAssistantDataPart(
+          pendingAssistantResponse,
+          approvalPart,
+        );
+        await sendDataPart(writable, approvalPart);
+        didUpdateGitData = true;
+      }
+    } else if (canAutoCommit) {
       const hasAutoCommitChanges = await hasAutoCommitChangesStep({
         sandboxState,
       });
@@ -953,15 +962,9 @@ export async function runAgentWorkflow(options: Options) {
       }
     }
 
-    const canAutoCreatePr =
-      autoCommitResult != null &&
-      !autoCommitResult.error &&
-      (autoCommitResult.pushed || !autoCommitResult.committed);
+    const canAutoCreatePr = shouldCreatePrAfterCommit(autoCommitResult);
 
-    if (
-      canAutoCommit &&
-      (options.autoCreatePrEnabled ?? modelRuntime.autoCreatePrEnabled)
-    ) {
+    if (canAutoCommit && !sideEffectsNeedApproval && autoCreatePrEnabled) {
       if (canAutoCreatePr) {
         const pendingPrPart: WebAgentPrDataPart = {
           type: "data-pr",

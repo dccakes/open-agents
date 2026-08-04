@@ -2,6 +2,10 @@
 
 import type { AskUserQuestionInput } from "@open-agents/agent";
 import { BudgetHaltCard } from "./budget-halt-card";
+import { ApprovalRequestCard } from "./approval-request-card";
+import { useAppSideEffectApproval } from "./hooks/use-app-side-effect-approval";
+import { useSessionPosture } from "./hooks/use-session-posture";
+import { ApprovalPolicyProvider } from "@/components/tool-call/approval-policy-context";
 import { formatTokens } from "@open-agents/shared";
 import {
   isReasoningUIPart,
@@ -1258,6 +1262,19 @@ export function SessionChatContent({
       void checkBranchAndPr().catch(() => undefined);
     },
   );
+  // The posture in force, so a paused tool call can say what paused it.
+  const sessionPosture = useSessionPosture(session.id);
+  // Mounted here rather than inside the card: an answer in flight must survive
+  // the transcript re-rendering underneath it.
+  const appSideEffectApprovals = useAppSideEffectApproval({
+    sessionId: session.id,
+    onExecuted: () => {
+      void refreshGitStatus().catch(() => undefined);
+      void refreshDiff().catch(() => undefined);
+      void refreshFiles().catch(() => undefined);
+      void checkBranchAndPr().catch(() => undefined);
+    },
+  });
   const {
     messages,
     error,
@@ -3566,23 +3583,27 @@ export function SessionChatContent({
                                       key={`${m.id}-${group.renderKey}`}
                                       className="max-w-full pl-[22px]"
                                     >
-                                      <ToolCall
-                                        part={p as WebAgentUIToolPart}
-                                        isStreaming={isMessageStreaming}
-                                        onApprove={(id) =>
-                                          addToolApprovalResponse({
-                                            id,
-                                            approved: true,
-                                          })
-                                        }
-                                        onDeny={(id, reason) =>
-                                          addToolApprovalResponse({
-                                            id,
-                                            approved: false,
-                                            reason,
-                                          })
-                                        }
-                                      />
+                                      <ApprovalPolicyProvider
+                                        posture={sessionPosture.posture}
+                                      >
+                                        <ToolCall
+                                          part={p as WebAgentUIToolPart}
+                                          isStreaming={isMessageStreaming}
+                                          onApprove={(id) =>
+                                            addToolApprovalResponse({
+                                              id,
+                                              approved: true,
+                                            })
+                                          }
+                                          onDeny={(id, reason) =>
+                                            addToolApprovalResponse({
+                                              id,
+                                              approved: false,
+                                              reason,
+                                            })
+                                          }
+                                        />
+                                      </ApprovalPolicyProvider>
                                     </div>
                                   );
                                 }
@@ -3594,6 +3615,20 @@ export function SessionChatContent({
                                       className="max-w-full"
                                     >
                                       <BudgetHaltCard data={p.data} />
+                                    </div>
+                                  );
+                                }
+
+                                if (p.type === "data-approval-request") {
+                                  return (
+                                    <div
+                                      key={`${m.id}-${group.renderKey}`}
+                                      className="max-w-full"
+                                    >
+                                      <ApprovalRequestCard
+                                        data={p.data}
+                                        approvals={appSideEffectApprovals}
+                                      />
                                     </div>
                                   );
                                 }

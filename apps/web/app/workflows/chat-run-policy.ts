@@ -18,16 +18,25 @@
  *   `import()` of the agent package is already how the rest of this workflow
  *   reaches it. It turns those two strings into the policy object, the event
  *   recorder, and the approval gate, none of which ever cross a step boundary.
+ *
+ * Every value import in this module is dynamic, and that is load-bearing rather
+ * than stylistic. What decides where an import lands is *where its value is
+ * referenced*: a reference from inside a `"use step"` body is extracted into the
+ * step bundle, where Node modules are fine, while a reference from a plain
+ * function in a workflow module stays in the workflow bundle, where they are
+ * not. `buildRunPolicyOptions` is a plain function — its only caller is a step,
+ * but that does not move it — so a static import of `policy-event-recorder` or
+ * `approval-gate` reaches `lib/db/client` and fails the build with "postgres
+ * depends on Node.js modules". That is how this was found: at deploy, not in CI,
+ * because `bun run ci` does not run `next build`. `resolveRunPolicy` is a step
+ * and could import statically; it uses a dynamic import anyway so the rule for
+ * this file is uniform and there is nothing to get wrong when editing it.
+ * `workflow-import-boundary.test.ts` now covers all three paths.
  */
 
 import type { OpenAgentCallOptions } from "@open-agents/agent";
-import { createApprovalGate } from "@/lib/policy/approval-gate";
-import { createPolicyEventRecorder } from "@/lib/policy/policy-event-recorder";
 import type { Posture } from "@/lib/policy/posture";
-import {
-  type PolicyProfileName,
-  resolveSessionPolicy,
-} from "@/lib/policy/session-policy";
+import type { PolicyProfileName } from "@/lib/policy/session-policy";
 
 /** Everything about the run's policy that survives a step boundary. */
 export interface RunPolicySelection {
@@ -62,6 +71,8 @@ export async function resolveRunPolicy(params: {
   "use step";
 
   try {
+    const { resolveSessionPolicy } =
+      await import("@/lib/policy/session-policy");
     const resolution = await resolveSessionPolicy({
       sessionId: params.sessionId,
       trigger: "interactive",
@@ -90,8 +101,15 @@ export async function buildRunPolicyOptions(params: {
   chatId: string;
   workflowRunId: string;
 }): Promise<RunPolicyOptions> {
-  const { defaultCommandPolicy, readOnlyPolicy } =
-    await import("@open-agents/agent");
+  const [
+    { defaultCommandPolicy, readOnlyPolicy },
+    { createPolicyEventRecorder },
+    { createApprovalGate },
+  ] = await Promise.all([
+    import("@open-agents/agent"),
+    import("@/lib/policy/policy-event-recorder"),
+    import("@/lib/policy/approval-gate"),
+  ]);
 
   return {
     policy:

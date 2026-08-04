@@ -32,7 +32,11 @@ import {
   effectiveApprovalDecision,
   isPastExpiry,
 } from "@/lib/policy/approval-state";
-import { getApprovalByToolCall } from "@/lib/policy/approvals";
+import {
+  getApprovalByToolCall,
+  getApprovalForSession,
+} from "@/lib/policy/approvals";
+import type { Approval } from "@/lib/db/schema";
 
 /** Why an operation was refused. Distinct codes so the model can react. */
 export type ApprovalRefusalCode =
@@ -59,6 +63,13 @@ export type ApprovalVerification =
 export interface ToolCallApprovalRequest {
   sessionId: string;
   toolCallId: string;
+  /** Injected by tests; defaults to the current instant. */
+  now?: Date;
+}
+
+export interface AppSideEffectApprovalRequest {
+  sessionId: string;
+  approvalId: string;
   /** Injected by tests; defaults to the current instant. */
   now?: Date;
 }
@@ -106,6 +117,48 @@ export function spendableApprovalCondition(
 }
 
 /**
+ * The refusal a row in a terminal or unspendable state produces, if any.
+ *
+ * Shared by both consume paths so a denial, an expiry, and a second spend read
+ * identically whichever kind of approval is being spent.
+ */
+function refusalForRow(row: Approval, now: Date): ApprovalVerification | null {
+  if (isPastExpiry(row, now) || row.decision === "expired") {
+    return refuse("expired", row.id);
+  }
+  if (row.decision === "denied") {
+    return refuse("denied", row.id);
+  }
+  if (row.decision === "pending") {
+    return refuse("not_approved", row.id);
+  }
+  if (row.consumedAt !== null) {
+    return refuse("already_consumed", row.id);
+  }
+  return null;
+}
+
+/** The compare-and-set, shared by both consume paths. */
+async function spendApproval(
+  row: Approval,
+  now: Date,
+): Promise<ApprovalVerification> {
+  const spent = await db
+    .update(approvals)
+    .set({ consumedAt: now })
+    .where(spendableApprovalCondition(row.id, now))
+    .returning({ id: approvals.id });
+
+  if (spent.length === 0) {
+    // The row moved between the read and the write: another execution spent
+    // it, or it expired. Either way this call does not get to run.
+    return refuse("already_consumed", row.id);
+  }
+
+  return { authorized: true, approvalId: row.id };
+}
+
+/**
  * Whether this tool call is currently authorized — a read, with no side effect.
  *
  * Use this to *report*; use `consumeToolCallApproval` to actually execute.
@@ -119,7 +172,7 @@ export async function verifyToolCallApproval(
     request.toolCallId,
   );
 
-  if (!row) {
+  if (!row || row.kind !== "tool-call") {
     return refuse("no_approval_record", null);
   }
 
@@ -156,35 +209,47 @@ export async function consumeToolCallApproval(
     request.toolCallId,
   );
 
-  if (!row) {
+  // A kind mismatch is reported as "no record": an approval of the other kind
+  // is not this authorization, so from here it may as well not exist.
+  if (!row || row.kind !== "tool-call") {
     return refuse("no_approval_record", null);
   }
 
   // Refuse before writing, so a denied or expired approval is never touched.
-  if (isPastExpiry(row, now) || row.decision === "expired") {
-    return refuse("expired", row.id);
-  }
-  if (row.decision === "denied") {
-    return refuse("denied", row.id);
-  }
-  if (row.decision === "pending") {
-    return refuse("not_approved", row.id);
-  }
-  if (row.consumedAt !== null) {
-    return refuse("already_consumed", row.id);
+  const refusal = refusalForRow(row, now);
+  if (refusal) {
+    return refusal;
   }
 
-  const spent = await db
-    .update(approvals)
-    .set({ consumedAt: now })
-    .where(spendableApprovalCondition(row.id, now))
-    .returning({ id: approvals.id });
+  return spendApproval(row, now);
+}
 
-  if (spent.length === 0) {
-    // The row moved between the read and the write: another execution spent
-    // it, or it expired. Either way this call does not get to run.
-    return refuse("already_consumed", row.id);
+/**
+ * Spend the approval gating an application-level side effect.
+ *
+ * Keyed by approval id rather than tool call id, because there is no tool call
+ * — the agent loop had already finished when this was requested. Everything
+ * else is identical to the tool-call path, including single use: granting an
+ * auto-commit authorizes exactly one execution of it, so a replayed request to
+ * the execution route cannot push twice.
+ */
+export async function consumeAppSideEffectApproval(
+  request: AppSideEffectApprovalRequest,
+): Promise<ApprovalVerification> {
+  const now = request.now ?? new Date();
+  const row = await getApprovalForSession(
+    request.sessionId,
+    request.approvalId,
+  );
+
+  if (!row || row.kind !== "app-side-effect") {
+    return refuse("no_approval_record", null);
   }
 
-  return { authorized: true, approvalId: row.id };
+  const refusal = refusalForRow(row, now);
+  if (refusal) {
+    return refusal;
+  }
+
+  return spendApproval(row, now);
 }

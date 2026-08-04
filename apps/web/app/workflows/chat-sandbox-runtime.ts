@@ -4,16 +4,10 @@ import {
   type Sandbox,
   type SandboxState,
 } from "@open-agents/sandbox";
-import { getSessionById } from "@/lib/db/sessions";
-import {
-  kickSandboxProvisioningWorkflow,
-  waitForSandboxProvisioningRun,
-} from "@/lib/sandbox/provisioning-kick";
-import { isSandboxActive } from "@/lib/sandbox/utils";
+import { getReadySessionSandbox } from "@/lib/sandbox/ready-sandbox";
 import { getSandboxSkillDirectories } from "@/lib/skills/directories";
 import { getCachedSkills, setCachedSkills } from "@/lib/skills-cache";
 
-type SessionRecord = NonNullable<Awaited<ReturnType<typeof getSessionById>>>;
 type DiscoveredSkills = Awaited<ReturnType<typeof discoverSkills>>;
 
 export type ResolvedChatSandboxRuntime = {
@@ -49,40 +43,6 @@ async function loadSessionSkills(params: {
     discoveredSkills,
   );
   return discoveredSkills;
-}
-
-async function getReadySessionSandbox(params: {
-  sessionId: string;
-  userId: string;
-}): Promise<{ session: SessionRecord; didSetupWorkspace: boolean }> {
-  let session = await getSessionById(params.sessionId);
-  if (!session) {
-    throw new Error("Session not found");
-  }
-  if (session.userId !== params.userId) {
-    throw new Error("Unauthorized");
-  }
-  if (session.status === "archived") {
-    throw new Error("Session is archived");
-  }
-  if (isSandboxActive(session.sandboxState)) {
-    return { session, didSetupWorkspace: false };
-  }
-
-  const kick = await kickSandboxProvisioningWorkflow(params.sessionId);
-  if (kick.runId) {
-    await waitForSandboxProvisioningRun(kick.runId);
-  }
-
-  session = await getSessionById(params.sessionId);
-  if (!session) {
-    throw new Error("Session not found");
-  }
-  if (!isSandboxActive(session.sandboxState)) {
-    throw new Error(session.lifecycleError ?? "Workspace setup failed");
-  }
-
-  return { session, didSetupWorkspace: true };
 }
 
 export async function resolveChatSandboxRuntime(params: {

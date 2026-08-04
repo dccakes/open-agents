@@ -78,22 +78,22 @@ sequences it behind policy for that reason.
 
 ## 5. Application-level side-effect gating and chat UI
 
-- [ ] 5.1 Consult posture at the three workflow chokepoints — `canAutoCommit` (`apps/web/app/workflows/chat.ts:820-825`), before `runAutoCommitStep` (`:843`), and before `runAutoCreatePrStep` (`:877-892`). Do not put the check inside `performAutoCommit`; `performAutoCreatePr` mints its own token independently (`auto-commit-direct.ts:173-193`, `auto-pr-direct.ts:102`).
-- [ ] 5.2 Under `strict`, create an `app-side-effect` approval instead of performing the operation; surface it as a pending state on the run; execute the operation from a dedicated route when granted; skip it and report "skipped by policy" when denied.
-- [ ] 5.3 Approval prompt in chat reusing the existing rails (`apps/web/components/tool-call/approval-buttons.tsx`, `addToolApprovalResponse` at `session-chat-content.tsx:3571-3582`, render state from `packages/shared/lib/tool-state.ts:47-76`), showing tool, operation, matching rule, and posture.
-- [ ] 5.4 Posture selector and session posture badge, with the `dangerous` option hidden without the permission — and refused server-side regardless, since hiding a control is not authorization.
-- [ ] 5.5 Verify approval-resume across sandbox hibernation end to end: the resumed run reprovisions via the existing path (`chat-sandbox-runtime.ts:54-121` → `provisioning.ts:209-298`) and then executes. This is a test of existing machinery, not new machinery.
-- [ ] 5.6 Per the file-organization rules, put new chat behaviour in colocated hooks and child components rather than growing `session-chat-content.tsx`.
-- [ ] 5.7 Tests: strict blocks auto-commit until approved; approving commits; denying skips and reports it; auto posture unchanged from today; no push reaches GitHub through either path without approval under `strict`; posture change mid-run does not terminate the run.
+- [x] 5.1 Consult posture at the three workflow chokepoints — `canAutoCommit` (`apps/web/app/workflows/chat.ts:820-825`), before `runAutoCommitStep` (`:843`), and before `runAutoCreatePrStep` (`:877-892`). Do not put the check inside `performAutoCommit`; `performAutoCreatePr` mints its own token independently (`auto-commit-direct.ts:173-193`, `auto-pr-direct.ts:102`).
+- [x] 5.2 Under `strict`, create an `app-side-effect` approval instead of performing the operation; surface it as a pending state on the run; execute the operation from a dedicated route when granted; skip it and report "skipped by policy" when denied.
+- [x] 5.3 Approval prompt in chat reusing the existing rails (`apps/web/components/tool-call/approval-buttons.tsx`, `addToolApprovalResponse` at `session-chat-content.tsx:3571-3582`, render state from `packages/shared/lib/tool-state.ts:47-76`), showing tool, operation, matching rule, and posture.
+- [x] 5.4 Posture selector and session posture badge, with the `dangerous` option hidden without the permission — and refused server-side regardless, since hiding a control is not authorization.
+- [x] 5.5 Verify approval-resume across sandbox hibernation end to end: the resumed run reprovisions via the existing path (`chat-sandbox-runtime.ts:54-121` → `provisioning.ts:209-298`) and then executes. This is a test of existing machinery, not new machinery.
+- [x] 5.6 Per the file-organization rules, put new chat behaviour in colocated hooks and child components rather than growing `session-chat-content.tsx`.
+- [x] 5.7 Tests: strict blocks auto-commit until approved; approving commits; denying skips and reports it; auto posture unchanged from today; no push reaches GitHub through either path without approval under `strict`; posture change mid-run does not terminate the run.
 
 ## 6. Docs and verification
 
-- [ ] 6.1 Rewrite `packages/agent/docs/approval-system.md` — it currently documents a prefix allowlist and a cwd-escape rule that `bash.ts` never implemented. Replace with the posture/policy reference.
-- [ ] 6.2 Add a policy and posture reference under `docs/` covering the three postures, the rule classes, the enforcement point, and how to extend the corpus.
-- [ ] 6.3 Update `docs/agents/architecture.md` with the policy module, the enforcement point, and the new tables.
-- [ ] 6.4 Update the CLAUDE.md / AGENTS.md architecture summary with the policy layer, per the phase ground rules.
-- [ ] 6.5 Update `openspec/context.md`'s schema table with `approval`, `policy_event`, `sessions.posture`, the `usage_events` attribution columns, and the `workflow_runs` lifecycle change.
-- [ ] 6.6 Create `SECURITY.md` (the repo has none) with a "known limitations" section stating plainly that policy is pattern-based and bypassable by construction — `eval`, base64 pipelines, and any interpreter defeat a static parse — that the sandbox still holds a push token and open egress, and that a screening classifier is future work.
-- [ ] 6.7 Record in `docs/agents/lessons-learned.md`: enforcement belongs in the tool factories because subagents build their own tools; approval state arriving in the client-supplied message body is an assertion, not authorization; `needsApproval` can pause but cannot deny, so deny must live in `execute`; the workflow ends rather than parks on a pause, so resume already reprovisions the sandbox.
-- [ ] 6.8 `bun run ci` green.
-- [ ] 6.9 Manual: `strict` session pauses on `git push` and on auto-commit; approve → both proceed; deny → model continues; `auto` session denies an `rm -rf ~` variant without interaction; explorer refuses a write; a run over its step budget halts visibly.
+- [x] 6.1 Rewrite `packages/agent/docs/approval-system.md` — it currently documents a prefix allowlist and a cwd-escape rule that `bash.ts` never implemented. Replace with the posture/policy reference.
+- [x] 6.2 Add a policy and posture reference under `docs/` covering the three postures, the rule classes, the enforcement point, and how to extend the corpus.
+- [x] 6.3 Update `docs/agents/architecture.md` with the policy module, the enforcement point, and the new tables.
+- [x] 6.4 Update the CLAUDE.md / AGENTS.md architecture summary with the policy layer, per the phase ground rules.
+- [x] 6.5 Update `openspec/context.md`'s schema table with `approval`, `policy_event`, `sessions.posture`, the `usage_events` attribution columns, and the `workflow_runs` lifecycle change.
+- [x] 6.6 Create `SECURITY.md` (the repo has none) with a "known limitations" section stating plainly that policy is pattern-based and bypassable by construction — `eval`, base64 pipelines, and any interpreter defeat a static parse — that the sandbox still holds a push token and open egress, and that a screening classifier is future work.
+- [x] 6.7 Record in `docs/agents/lessons-learned.md`: enforcement belongs in the tool factories because subagents build their own tools; approval state arriving in the client-supplied message body is an assertion, not authorization; `needsApproval` can pause but cannot deny, so deny must live in `execute`; the workflow ends rather than parks on a pause, so resume already reprovisions the sandbox.
+- [x] 6.8 `bun run ci` green.
+- [x] 6.9 Manual: `strict` session pauses on `git push` and on auto-commit; approve → both proceed; deny → model continues; `auto` session denies an `rm -rf ~` variant without interaction; explorer refuses a write; a run over its step budget halts visibly.
