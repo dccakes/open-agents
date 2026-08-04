@@ -96,4 +96,60 @@ sequences it behind policy for that reason.
 - [x] 6.6 Create `SECURITY.md` (the repo has none) with a "known limitations" section stating plainly that policy is pattern-based and bypassable by construction — `eval`, base64 pipelines, and any interpreter defeat a static parse — that the sandbox still holds a push token and open egress, and that a screening classifier is future work.
 - [x] 6.7 Record in `docs/agents/lessons-learned.md`: enforcement belongs in the tool factories because subagents build their own tools; approval state arriving in the client-supplied message body is an assertion, not authorization; `needsApproval` can pause but cannot deny, so deny must live in `execute`; the workflow ends rather than parks on a pause, so resume already reprovisions the sandbox.
 - [x] 6.8 `bun run ci` green.
-- [x] 6.9 Manual: `strict` session pauses on `git push` and on auto-commit; approve → both proceed; deny → model continues; `auto` session denies an `rm -rf ~` variant without interaction; explorer refuses a write; a run over its step budget halts visibly.
+- [ ] 6.9 Manual: `strict` session pauses on `git push` and on auto-commit; approve → both proceed; deny → model continues; `auto` session denies an `rm -rf ~` variant without interaction; explorer refuses a write; a run over its step budget halts visibly. **Not done.** Everything above is covered by automated tests, but no one has driven a live session end to end. The approval loop in particular was broken through five task groups and caught by review rather than by CI, so this is worth doing before the posture is offered to anyone.
+
+---
+
+## Status
+
+Groups 0–6 are implemented and `bun run ci` + `bun run --cwd apps/web build` are green. Two
+task-group items are partial (3.7 scheduling, 6.9 manual verification) and are listed above at
+their own numbers. Everything below is deliberately **not** in this change.
+
+### Deferred to follow-up changes
+
+- **Budgets are denominated in tokens, and cost is what matters.** A cheaper model should buy
+  *more* usage, not the same number of tokens, so a token ceiling mismeasures the thing anyone
+  actually cares about. `extractGatewayCost` (`apps/web/app/workflows/gateway-metadata.ts`)
+  already parses per-step USD out of the gateway metadata and surfaces it as `lastStepCost`; it
+  is never accumulated, persisted, or budgeted on. Re-denominating touches WS-1.0's
+  `orgSettings.dailyTokenBudget`, so it wants an expand-contract migration rather than a rename,
+  and it needs a stated answer for the case `extractGatewayCost` returns undefined (direct,
+  non-gateway provider calls) — the proposal is to keep the step budget as the always-available
+  backstop rather than fail closed and refuse legitimate runs.
+- **The policy vocabulary is bash-shaped, and connectors will not fit it.** `PolicyRule.pattern`
+  is a single `RegExp` matched against "the command (for `bash`) or the target (for other
+  tools)", so every tool's policy surface is flattened to one string. A connector call is
+  structured — `{issueId, teamId, fields}`, a HogQL query plus its table list, `{channel, text}`
+  — and "deny posting to #general" is only expressible by regex accident. This is already why
+  `web_fetch` carries an unconditional `needsApproval` instead of a rule, and why
+  `LEGACY_UNRECORDED_APPROVAL_TOOLS` is a hardcoded name list: non-bash tools are handled by
+  exception because the vocabulary cannot describe them, and each new connector adds another
+  exception. Two things are missing: rules that match named fields of a structured tool input,
+  and tools *declaring* their own policy surface (capability plus which inputs are
+  policy-relevant) rather than a central baseline naming them — the second is what makes an
+  unknown tool fail closed by construction and retires the exception list. The narrowing
+  primitive already exists and generalizes: `createReadOnlyPolicy` and `strictPolicy` both derive
+  from a source policy by `capability` rather than restating rules, which is the bone an
+  org → session → connector-grant → subagent lattice hangs on. **WS-1.2 needs this first** — its
+  admin-defined allowlist of queryable PostHog tables, "enforced server-side, query AST check,
+  not prompt text", is a fine-grained per-connector rule that would otherwise land as a second
+  evaluator outside the policy module. Doing it before Phase 2 makes rules admin-authored also
+  avoids freezing regex-over-one-string as a compatibility surface.
+- **Cron scheduling for the approval expiry sweeper** (3.7) — the repo has no cron
+  infrastructure, and adding one means a `vercel.json` crons entry plus a scheduler secret, which
+  is config beyond this change's declared surface.
+- **A `./policy` subpath export on `packages/agent`.** `packages/agent/policy/**` depends on
+  nothing but zod, but the package root drags the AI SDK, so workflow code cannot import it.
+  That single constraint is why the posture enum is duplicated in `apps/web/lib/policy/posture.ts`,
+  why `session-policy.ts` passes a profile *name* rather than a policy, and why
+  `chat-run-policy.ts` is all dynamic imports. A subpath export dissolves all three.
+- **Consolidating the `approval-*` and posture module clusters.** `apps/web/lib/policy/` is ~22
+  modules; "where does approval verification happen" has three plausible answers with three
+  verify-shaped names. Discoverability, not correctness.
+- **Matching ask/allow rules against the parsed command word.** Fixed for the wrapper cases the
+  corpus covers, but the deeper version — matching rules against the segment's resolved command
+  rather than its raw text — is the robust form, and is worth doing while this repo is still the
+  only author of rules.
+- **A per-session index on `usage_events`** when per-session cost reporting lands; group 0 added
+  `(user_id, created_at)` and `(workflow_run_id)` only.
