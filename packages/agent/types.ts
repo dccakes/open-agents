@@ -2,6 +2,7 @@ import type { SandboxState } from "@open-agents/sandbox";
 import type { LanguageModel } from "ai";
 import { z } from "zod";
 import type { AgentSandboxContext } from "./open-agent";
+import type { AgentPolicyContext } from "./policy";
 import type { SkillMetadata } from "./skills/types";
 
 export const todoStatusSchema = z.enum(["pending", "in_progress", "completed"]);
@@ -21,6 +22,15 @@ export interface AgentContext {
   skills?: SkillMetadata[];
   model: LanguageModel;
   subagentModel?: LanguageModel;
+  /**
+   * The command policy and posture this run is evaluated under.
+   *
+   * Optional on the type so that existing zero-argument tool factories and
+   * read-only tools keep compiling — but a side-effecting tool with no policy
+   * here refuses (see `tools/policy-enforcement.ts`). Every construction site
+   * is expected to set it.
+   */
+  policy?: AgentPolicyContext;
 }
 
 export interface SandboxExecutionContext {

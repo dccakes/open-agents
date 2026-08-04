@@ -15,10 +15,10 @@ import { assistantFileLinkPrompt } from "@/lib/assistant-file-links";
 import { addLanguageModelUsage } from "./usage-utils";
 import { extractGatewayCost } from "./gateway-metadata";
 import type {
-  WebAgentCommitData,
+  WebAgentApprovalRequestDataPart,
+  WebAgentBudgetHaltDataPart,
   WebAgentCommitDataPart,
   WebAgentMessageMetadata,
-  WebAgentPrData,
   WebAgentPrDataPart,
   WebAgentStepFinishMetadata,
   WebAgentUIMessage,
@@ -40,6 +40,14 @@ import {
   sendFinish,
 } from "./chat-post-finish";
 import { dedupeMessageReasoning } from "@/lib/chat/dedupe-message-reasoning";
+// The part ids the resume path writes back through. Same helpers on both
+// sides, so an update lands on the part the run created. The module imports
+// nothing at runtime, which is what keeps it safe in the workflow bundle.
+import {
+  approvalPartId as buildApprovalPartId,
+  commitPartId as buildCommitPartId,
+  prPartId as buildPrPartId,
+} from "@/lib/chat/app-side-effect-parts";
 import { getChatById, getSessionById } from "@/lib/db/sessions";
 import { getUserPreferences } from "@/lib/db/user-preferences";
 import {
@@ -56,6 +64,30 @@ import type {
 } from "@/lib/db/workflow-runs";
 import { resolveChatModelSelection } from "../api/chat/_lib/model-selection";
 import { resolveChatSandboxRuntime } from "./chat-sandbox-runtime";
+import {
+  buildRunPolicyOptions,
+  resolveRunPolicy,
+  type RunPolicySelection,
+} from "./chat-run-policy";
+import {
+  accumulateRunUsage,
+  resolveRunBudget,
+  seedRunUsage,
+  toBudgetHaltData,
+} from "./chat-run-budget";
+import { persistRunProgress, startRunRecord } from "./chat-run-record";
+import { type BudgetBreach, checkRunBudget } from "@/lib/budget/run-budget";
+import {
+  buildCommitData,
+  buildPrData,
+  shouldCreatePrAfterCommit,
+} from "@/lib/chat/git-data-parts";
+import {
+  APP_SIDE_EFFECT_SKIP_REASON,
+  type AppSideEffectOperation,
+  gateAppSideEffects,
+} from "@/lib/policy/app-side-effects";
+import { requestAppSideEffectApprovalStep } from "./chat-app-side-effects";
 
 type AuthSessionContext = Pick<AuthSession, "authProvider" | "user"> | null;
 
@@ -472,92 +504,15 @@ function stringifyDebugPayload(value: unknown): string {
   );
 }
 
-function buildGitHubCommitUrl(
-  repoOwner: string,
-  repoName: string,
-  commitSha: string,
-): string {
-  return `https://github.com/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/commit/${encodeURIComponent(commitSha)}`;
-}
-
-function buildCommitData(
-  result: Awaited<ReturnType<typeof runAutoCommitStep>>,
-  repoOwner: string,
-  repoName: string,
-): WebAgentCommitData {
-  if (result.error) {
-    return {
-      status: "error",
-      committed: result.committed,
-      pushed: result.pushed,
-      commitMessage: result.commitMessage,
-      commitSha: result.commitSha,
-      url:
-        result.pushed && result.commitSha
-          ? buildGitHubCommitUrl(repoOwner, repoName, result.commitSha)
-          : undefined,
-      error: result.error,
-    };
-  }
-
-  if (result.committed) {
-    return {
-      status: "success",
-      committed: result.committed,
-      pushed: result.pushed,
-      commitMessage: result.commitMessage,
-      commitSha: result.commitSha,
-      url:
-        result.pushed && result.commitSha
-          ? buildGitHubCommitUrl(repoOwner, repoName, result.commitSha)
-          : undefined,
-    };
-  }
-
-  return {
-    status: "skipped",
-    committed: false,
-    pushed: false,
-  };
-}
-
-function buildPrData(
-  result: Awaited<ReturnType<typeof runAutoCreatePrStep>>,
-): WebAgentPrData {
-  if (result.error) {
-    return {
-      status: "error",
-      created: result.created,
-      syncedExisting: result.syncedExisting,
-      prNumber: result.prNumber,
-      url: result.prUrl,
-      error: result.error,
-    };
-  }
-
-  if (result.skipped) {
-    return {
-      status: "skipped",
-      created: result.created,
-      syncedExisting: result.syncedExisting,
-      prNumber: result.prNumber,
-      url: result.prUrl,
-      skipReason: result.skipReason,
-    };
-  }
-
-  return {
-    status: "success",
-    created: result.created,
-    syncedExisting: result.syncedExisting,
-    prNumber: result.prNumber,
-    url: result.prUrl,
-  };
-}
+type AssistantDataPart =
+  | WebAgentCommitDataPart
+  | WebAgentPrDataPart
+  | WebAgentBudgetHaltDataPart
+  | WebAgentApprovalRequestDataPart;
 
 function upsertAssistantDataPart(
   message: WebAgentUIMessage,
-  part: WebAgentCommitDataPart | WebAgentPrDataPart,
+  part: AssistantDataPart,
 ): WebAgentUIMessage {
   const nextParts = [...message.parts];
   const existingIndex = nextParts.findIndex(
@@ -577,10 +532,7 @@ function upsertAssistantDataPart(
   };
 }
 
-async function sendDataPart(
-  writable: Writable,
-  part: WebAgentCommitDataPart | WebAgentPrDataPart,
-) {
+async function sendDataPart(writable: Writable, part: AssistantDataPart) {
   "use step";
   const writer = writable.getWriter();
   try {
@@ -607,6 +559,17 @@ export async function runAgentWorkflow(options: Options) {
       ? latestMessage.id
       : (options.assistantId ?? generateIdAi());
 
+  // The run row exists from here on, so a run in flight is visible and its
+  // spend is readable before it ends.
+  const runRecordPromise = startRunRecord({
+    workflowRunId,
+    chatId: options.chatId,
+    sessionId: options.sessionId,
+    userId: options.userId,
+    modelId: options.modelId,
+    startedAt: new Date().toISOString(),
+  });
+
   const modelMessagesPromise = convertMessages(options.messages);
   const inputMessagesPersistPromise = options.inputMessagesPersisted
     ? Promise.resolve()
@@ -622,6 +585,15 @@ export async function runAgentWorkflow(options: Options) {
     userId: options.userId,
     sessionId: options.sessionId,
   });
+  // Two strings, resolved here and materialized inside the agent step — see
+  // the module comment in `chat-run-policy.ts` for why it is split that way.
+  const runPolicyPromise = resolveRunPolicy({
+    sessionId: options.sessionId,
+    workflowRunId,
+  });
+  // The ceilings this run executes under, resolved once: the configured
+  // per-run budgets plus the organization's position at run start.
+  const runBudgetPromise = resolveRunBudget();
 
   // Self-register this workflow's runId onto the chat as the very first step.
   // The HTTP POST handler also writes this (via compareAndSetChatActiveStreamId
@@ -646,6 +618,9 @@ export async function runAgentWorkflow(options: Options) {
       modelMessagesPromise,
       inputMessagesPersistPromise,
       modelRuntimePromise,
+      runPolicyPromise,
+      runBudgetPromise,
+      runRecordPromise,
     ]);
     await closeStream(writable);
     return;
@@ -680,7 +655,12 @@ export async function runAgentWorkflow(options: Options) {
   const stepTimings: WorkflowRunStepTiming[] = [];
   let wasAborted = false;
   let exhaustedMaxSteps = false;
+  let budgetBreach: BudgetBreach | undefined;
   let totalUsage: LanguageModelUsage | undefined;
+  // A resumed run continues an assistant message that has already spent; its
+  // budget is evaluated against that, not from zero.
+  const usageSeed = seedRunUsage(latestMessage);
+  let accumulatedUsage = usageSeed;
   let finalFinishReason: FinishReason | undefined;
   let streamClosed = false;
   let workflowStatus: WorkflowRunStatus = "completed";
@@ -689,13 +669,17 @@ export async function runAgentWorkflow(options: Options) {
   let shouldRefreshCachedDiff = false;
 
   try {
-    const [, runtime, modelRuntime, modelMessages] = await Promise.all([
-      activeStreamClaimPromise,
-      runtimePromise,
-      modelRuntimePromise,
-      modelMessagesPromise,
-      inputMessagesPersistPromise,
-    ]);
+    const [, runtime, modelRuntime, modelMessages, , runPolicy, runBudget] =
+      await Promise.all([
+        activeStreamClaimPromise,
+        runtimePromise,
+        modelRuntimePromise,
+        modelMessagesPromise,
+        inputMessagesPersistPromise,
+        runPolicyPromise,
+        runBudgetPromise,
+        runRecordPromise,
+      ]);
     selectedModelId = options.selectedModelId ?? modelRuntime.selectedModelId;
     modelId = options.modelId ?? modelRuntime.modelId;
     pendingAssistantResponse = {
@@ -740,6 +724,7 @@ export async function runAgentWorkflow(options: Options) {
           modelId,
           agentOptions,
           step + 1,
+          runPolicy,
         );
       } catch (error) {
         if (isStepTimingError(error)) {
@@ -763,6 +748,26 @@ export async function runAgentWorkflow(options: Options) {
         totalUsage = totalUsage
           ? addLanguageModelUsage(totalUsage, result.stepUsage)
           : result.stepUsage;
+      }
+
+      // Budget enforcement. Evaluated against orchestrator state (the only
+      // accurate live figure) seeded with what the message being continued has
+      // already spent, then persisted so the spend is observable mid-run.
+      accumulatedUsage = accumulateRunUsage(usageSeed, totalUsage, step + 1);
+      await persistRunProgress({
+        workflowRunId,
+        ...accumulatedUsage,
+      });
+
+      const budgetVerdict = checkRunBudget({
+        usage: accumulatedUsage,
+        stepBudget: runBudget.stepBudget,
+        tokenBudget: runBudget.tokenBudget,
+        daily: runBudget.daily,
+      });
+      if (!budgetVerdict.withinBudget) {
+        budgetBreach = budgetVerdict.breach;
+        break;
       }
 
       const shouldContinue =
@@ -795,6 +800,21 @@ export async function runAgentWorkflow(options: Options) {
       };
     }
 
+    if (budgetBreach) {
+      // Surfaced as a part on the assistant message so the halt is visible in
+      // the transcript and survives a reload, not only in the run record.
+      const budgetHaltPart: WebAgentBudgetHaltDataPart = {
+        type: "data-budget-halt",
+        id: `${assistantId}:budget`,
+        data: toBudgetHaltData(budgetBreach),
+      };
+      pendingAssistantResponse = upsertAssistantDataPart(
+        pendingAssistantResponse,
+        budgetHaltPart,
+      );
+      await sendDataPart(writable, budgetHaltPart);
+    }
+
     // Persist completed model output before post-finish work so it is not lost
     // if later automation fails. Sandbox state can persist in parallel.
     await Promise.all([
@@ -808,14 +828,26 @@ export async function runAgentWorkflow(options: Options) {
       !wasAborted &&
       finalFinishReason !== undefined &&
       finalFinishReason !== "tool-calls";
-    const commitPartId = `${assistantId}:commit`;
-    const prPartId = `${assistantId}:pr`;
+    const commitPartId = buildCommitPartId(assistantId);
+    const prPartId = buildPrPartId(assistantId);
+    const approvalPartId = buildApprovalPartId(assistantId);
     const repoOwner = runtime.repoOwner;
     const repoName = runtime.repoName;
     let didUpdateGitData = false;
 
     let autoCommitResult: Awaited<ReturnType<typeof runAutoCommitStep>> | null =
       null;
+
+    const autoCreatePrEnabled =
+      options.autoCreatePrEnabled ?? modelRuntime.autoCreatePrEnabled;
+
+    // Chokepoint one. `performAutoCommit` and `performAutoCreatePr` each mint
+    // their own installation token, so a check inside the commit helper would
+    // miss the pull-request path entirely — the gate belongs here, where both
+    // paths are still ahead of us. Under `auto` and `dangerous` this resolves
+    // to `allow` and nothing below changes.
+    const sideEffectGate = gateAppSideEffects(runPolicy.posture);
+    const sideEffectsNeedApproval = sideEffectGate.decision === "ask";
 
     const canAutoCommit =
       finishedNaturally &&
@@ -824,7 +856,76 @@ export async function runAgentWorkflow(options: Options) {
       repoOwner != null &&
       repoName != null;
 
-    if (canAutoCommit) {
+    // Chokepoints two and three, taken together: under `strict` neither the
+    // commit nor the pull request runs, and one approval covering both is
+    // recorded instead. Reading `git status` first is a read, and it is what
+    // makes the prompt say exactly which operations were withheld.
+    if (canAutoCommit && sideEffectsNeedApproval) {
+      const hasAutoCommitChanges = await hasAutoCommitChangesStep({
+        sandboxState,
+      });
+      const gatedOperations: AppSideEffectOperation[] = [
+        ...(hasAutoCommitChanges ? (["auto-commit"] as const) : []),
+        ...(autoCreatePrEnabled ? (["auto-create-pr"] as const) : []),
+      ];
+
+      if (gatedOperations.length > 0) {
+        const approval = await requestAppSideEffectApprovalStep({
+          sessionId: options.sessionId,
+          chatId: options.chatId,
+          workflowRunId,
+          messageId: assistantId,
+          operations: gatedOperations,
+          repoOwner,
+          repoName,
+          posture: runPolicy.posture,
+        });
+
+        const approvalPart: WebAgentApprovalRequestDataPart = approval
+          ? {
+              type: "data-approval-request",
+              id: approvalPartId,
+              data: {
+                approvalId: approval.approvalId,
+                tool: approval.toolName,
+                operation: approval.operation,
+                rule: approval.rule,
+                posture: approval.posture,
+                // A retried step can find an approval that was already
+                // answered; it must report that rather than re-prompting.
+                status:
+                  approval.decision === "denied"
+                    ? "skipped"
+                    : approval.decision === "expired"
+                      ? "expired"
+                      : "pending",
+                detail: sideEffectGate.reason,
+              },
+            }
+          : {
+              // Fail closed: the approval could not be recorded, so the
+              // operation stays unperformed and the run says so.
+              type: "data-approval-request",
+              id: approvalPartId,
+              data: {
+                approvalId: "",
+                tool: "app.git-automation",
+                operation: `Commit and push this session's changes to ${repoOwner}/${repoName}.`,
+                rule: sideEffectGate.rule,
+                posture: sideEffectGate.posture,
+                status: "error",
+                detail: `${APP_SIDE_EFFECT_SKIP_REASON} The approval could not be recorded, so nothing was performed.`,
+              },
+            };
+
+        pendingAssistantResponse = upsertAssistantDataPart(
+          pendingAssistantResponse,
+          approvalPart,
+        );
+        await sendDataPart(writable, approvalPart);
+        didUpdateGitData = true;
+      }
+    } else if (canAutoCommit) {
       const hasAutoCommitChanges = await hasAutoCommitChangesStep({
         sandboxState,
       });
@@ -869,15 +970,9 @@ export async function runAgentWorkflow(options: Options) {
       }
     }
 
-    const canAutoCreatePr =
-      autoCommitResult != null &&
-      !autoCommitResult.error &&
-      (autoCommitResult.pushed || !autoCommitResult.committed);
+    const canAutoCreatePr = shouldCreatePrAfterCommit(autoCommitResult);
 
-    if (
-      canAutoCommit &&
-      (options.autoCreatePrEnabled ?? modelRuntime.autoCreatePrEnabled)
-    ) {
+    if (canAutoCommit && !sideEffectsNeedApproval && autoCreatePrEnabled) {
       if (canAutoCreatePr) {
         const pendingPrPart: WebAgentPrDataPart = {
           type: "data-pr",
@@ -943,11 +1038,15 @@ export async function runAgentWorkflow(options: Options) {
     ]);
     streamClosed = true;
 
+    // A budget halt is not a failure: the run did what it was asked to do and
+    // then hit a ceiling. It gets its own status so the difference survives.
     workflowStatus = wasAborted
       ? "aborted"
-      : exhaustedMaxSteps
-        ? "failed"
-        : "completed";
+      : budgetBreach
+        ? "budget-exceeded"
+        : exhaustedMaxSteps
+          ? "failed"
+          : "completed";
   } catch (error) {
     workflowStatus = wasAborted ? "aborted" : "failed";
     caughtError = error;
@@ -987,6 +1086,10 @@ export async function runAgentWorkflow(options: Options) {
           startedAt: runStartedAt.toISOString(),
           finishedAt: runFinishedAt.toISOString(),
           totalDurationMs: runFinishedAt.getTime() - runStartedAt.getTime(),
+          inputTokens: accumulatedUsage.inputTokens,
+          outputTokens: accumulatedUsage.outputTokens,
+          stepCount: accumulatedUsage.stepCount,
+          haltReason: budgetBreach?.message ?? null,
           stepTimings,
         },
       );
@@ -1010,11 +1113,25 @@ const runAgentStep = async (
   modelId: string,
   agentOptions: OpenAgentCallOptions,
   stepNumber: number,
+  runPolicy: RunPolicySelection,
 ) => {
   "use step";
 
   const stepStartedAt = new Date();
   const { webAgent } = await import("@/app/config");
+
+  // Materialized here rather than in the workflow body: the policy object, the
+  // event recorder and the approval gate cannot cross a step boundary.
+  const policyOptions = await buildRunPolicyOptions({
+    selection: runPolicy,
+    sessionId,
+    chatId,
+    workflowRunId,
+  });
+  const policedAgentOptions: OpenAgentCallOptions = {
+    ...agentOptions,
+    ...policyOptions,
+  };
 
   const abortController = new AbortController();
   const stopMonitor = startStopMonitor(workflowRunId, abortController);
@@ -1042,7 +1159,7 @@ const runAgentStep = async (
 
     const result = await webAgent.stream({
       messages,
-      options: agentOptions,
+      options: policedAgentOptions,
       abortSignal: abortController.signal,
     });
 

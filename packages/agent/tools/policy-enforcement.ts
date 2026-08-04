@@ -1,0 +1,332 @@
+import { z } from "zod";
+import {
+  type AgentPolicyContext,
+  buildPolicyEvent,
+  evaluate,
+  isInteractivePolicyContext,
+  type PolicyDecision,
+  type PolicyToolCall,
+  postureSchema,
+  recordPolicyEvent,
+  redactPolicyInput,
+  requestApprovalRecord,
+  verifyApprovalRecord,
+} from "../policy";
+import { getPolicy } from "./utils";
+
+/**
+ * The enforcement point.
+ *
+ * Policy lives here — in the tool layer — rather than in a wrapper around any
+ * one agent's dispatch, because three of the four `ToolLoopAgent`s in this
+ * package build their own tools. A tool that calls these helpers is policed no
+ * matter who constructed it.
+ *
+ * Two hooks, two jobs:
+ * - `policyNeedsApproval` feeds the SDK's `needsApproval`, which can pause but
+ *   cannot refuse.
+ * - `enforcePolicy` runs inside `execute` and is authoritative: it re-evaluates
+ *   the policy for the call it is about to perform and refuses a `deny`
+ *   regardless of whether an approval pause happened. An approval is never a
+ *   substitute for evaluation.
+ */
+
+/** Why a call was refused. */
+export const policyRefusalKindSchema = z.enum([
+  "deny",
+  "approval-unavailable",
+  "missing-policy",
+  /** Policy said `ask` and no server-side record authorized this call. */
+  "approval-not-verified",
+]);
+export type PolicyRefusalKind = z.infer<typeof policyRefusalKindSchema>;
+
+export const policyRefusalDetailSchema = z.object({
+  tool: z.string(),
+  decision: policyRefusalKindSchema,
+  /** Id of the matching rule, or null for a policy default. */
+  rule: z.string().nullable(),
+  reason: z.string(),
+  posture: postureSchema.nullable(),
+});
+
+export const policyRefusalSchema = z.object({
+  success: z.literal(false),
+  /** Discriminator so callers and UIs can tell policy apart from tool failure. */
+  refusedByPolicy: z.literal(true),
+  error: z.string(),
+  policy: policyRefusalDetailSchema,
+});
+export type PolicyRefusal = z.infer<typeof policyRefusalSchema>;
+
+export function isPolicyRefusal(value: unknown): value is PolicyRefusal {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { refusedByPolicy?: unknown }).refusedByPolicy === true
+  );
+}
+
+/** The text a rule is matched against, for the audit record. */
+function describeCall(call: PolicyToolCall): string {
+  return call.command ?? call.target ?? "";
+}
+
+export function missingPolicyRefusal(toolName: string): PolicyRefusal {
+  const reason =
+    "No security policy is present on the agent execution context, so this call cannot be checked. This is a wiring error, not something to work around.";
+  return {
+    success: false,
+    refusedByPolicy: true,
+    error: `The ${toolName} tool refused this call: ${reason}`,
+    policy: {
+      tool: toolName,
+      decision: "missing-policy",
+      rule: null,
+      reason,
+      posture: null,
+    },
+  };
+}
+
+function refusalPreamble(
+  call: PolicyToolCall,
+  kind: PolicyRefusalKind,
+): string {
+  if (kind === "approval-unavailable") {
+    return `The ${call.toolName} tool refused this call: it requires approval, and this agent has no approver available (subagents cannot prompt anyone). Report back so the parent agent can request approval.`;
+  }
+  if (kind === "approval-not-verified") {
+    return `The ${call.toolName} tool refused this call: it requires approval and no approval on the server authorizes it.`;
+  }
+  return `The ${call.toolName} tool refused this call: it is denied by security policy.`;
+}
+
+function refusal(
+  call: PolicyToolCall,
+  decision: PolicyDecision,
+  kind: PolicyRefusalKind,
+  reasonOverride?: string,
+): PolicyRefusal {
+  const reason = reasonOverride ?? decision.reason;
+
+  return {
+    success: false,
+    refusedByPolicy: true,
+    error: `${refusalPreamble(call, kind)} Reason: ${reason}`,
+    policy: {
+      tool: call.toolName,
+      decision: kind,
+      rule: decision.rule?.id ?? null,
+      reason,
+      posture: decision.posture,
+    },
+  };
+}
+
+function record(
+  context: AgentPolicyContext,
+  call: PolicyToolCall,
+  decision: PolicyDecision,
+  phase: "approval" | "execute",
+): void {
+  recordPolicyEvent(
+    context,
+    buildPolicyEvent({
+      toolName: call.toolName,
+      phase,
+      decision,
+      input: describeCall(call),
+      interactive: isInteractivePolicyContext(context),
+    }),
+  );
+}
+
+/**
+ * Refuse a call against a rule the tool enforces itself, in the same shape and
+ * with the same audit trail as a policy denial.
+ *
+ * For containment rules that are not expressible as a command pattern — the
+ * bash `cwd` argument is the one that exists today.
+ */
+export function refuseWithRule(
+  experimental_context: unknown,
+  call: PolicyToolCall,
+  rule: { id: string; reason: string },
+): PolicyRefusal {
+  const context = getPolicy(experimental_context);
+  const decision: PolicyDecision = {
+    action: "deny",
+    outcome: "deny",
+    rule: {
+      id: rule.id,
+      action: "deny",
+      tool: call.toolName,
+      capability: "other",
+      reason: rule.reason,
+    },
+    reason: rule.reason,
+    posture: context?.posture ?? "auto",
+    matchedText: describeCall(call) || null,
+  };
+
+  if (context) {
+    record(context, call, decision, "execute");
+  }
+
+  return refusal(call, decision, "deny");
+}
+
+/**
+ * Whether the SDK should pause this call for approval.
+ *
+ * Returns `null` when no policy is wired, so each tool can decide what its
+ * unpoliced fallback is — `execute` refuses either way.
+ */
+export function policyNeedsApproval(
+  experimental_context: unknown,
+  call: PolicyToolCall,
+): boolean | null {
+  const context = getPolicy(experimental_context);
+  if (!context) {
+    return null;
+  }
+
+  const decision = evaluate(call, context.policy, context.posture);
+  if (decision.action !== "ask") {
+    return false;
+  }
+
+  // A non-interactive context has no one to ask: do not pause (that would hang
+  // the parent tool call), and let `execute` turn the ask into a refusal.
+  if (!isInteractivePolicyContext(context)) {
+    return false;
+  }
+
+  record(context, call, decision, "approval");
+  return true;
+}
+
+/**
+ * The outcome of one evaluation, kept together so callers that need both the
+ * refusal and the decision behind it do not evaluate the policy twice. For
+ * `bash` a second evaluation would re-run the whole quote-aware parse.
+ */
+type Enforcement =
+  | { refused: PolicyRefusal }
+  | {
+      refused: null;
+      context: AgentPolicyContext;
+      decision: PolicyDecision;
+    };
+
+/**
+ * Evaluate once and decide whether the call is refused. Shared by
+ * `enforcePolicy` and `enforcePolicyWithApproval`.
+ */
+function enforce(
+  experimental_context: unknown,
+  call: PolicyToolCall,
+): Enforcement {
+  const context = getPolicy(experimental_context);
+  if (!context) {
+    return { refused: missingPolicyRefusal(call.toolName) };
+  }
+
+  const decision = evaluate(call, context.policy, context.posture);
+
+  if (decision.action === "deny") {
+    record(context, call, decision, "execute");
+    return { refused: refusal(call, decision, "deny") };
+  }
+
+  if (decision.action === "ask" && !isInteractivePolicyContext(context)) {
+    record(context, call, decision, "execute");
+    return { refused: refusal(call, decision, "approval-unavailable") };
+  }
+
+  return { refused: null, context, decision };
+}
+
+/**
+ * Authoritative gate, called from `execute` before any side effect.
+ *
+ * Returns a structured refusal to hand back to the model, or `null` when the
+ * call may proceed. It never throws: a denial is a tool result the model can
+ * read and route around, not an exception that fails the run.
+ */
+export function enforcePolicy(
+  experimental_context: unknown,
+  call: PolicyToolCall,
+): PolicyRefusal | null {
+  return enforce(experimental_context, call).refused;
+}
+
+/**
+ * `policyNeedsApproval` plus the server-side record the pause needs.
+ *
+ * The record is written *before* the pause, so an approval the user answers has
+ * something to attribute the answer to and something for `execute` to spend.
+ * A failed write still pauses: the fail-closed direction is "the record is
+ * missing at execute time", not "the call proceeds without a pause".
+ */
+export async function requestPolicyApproval(
+  experimental_context: unknown,
+  call: PolicyToolCall,
+  toolCallId: string,
+): Promise<boolean | null> {
+  const needed = policyNeedsApproval(experimental_context, call);
+  if (needed !== true) {
+    return needed;
+  }
+
+  const context = getPolicy(experimental_context);
+  await requestApprovalRecord(context?.approvalGate, {
+    toolName: call.toolName,
+    toolCallId,
+    inputSummary: redactPolicyInput(describeCall(call)),
+  });
+
+  return true;
+}
+
+/**
+ * `enforcePolicy` plus execute-time approval verification.
+ *
+ * Order matters and is the whole point: policy is re-evaluated first, so a rule
+ * that became a denial after the approval was granted still refuses. Only then
+ * is the approval spent, and only when the decision is actually `ask` — a call
+ * the policy allows outright never consumes an approval, and a call the policy
+ * denies never reaches the record at all.
+ */
+export async function enforcePolicyWithApproval(
+  experimental_context: unknown,
+  call: PolicyToolCall,
+  toolCallId: string,
+): Promise<PolicyRefusal | null> {
+  const enforcement = enforce(experimental_context, call);
+  if (enforcement.refused) {
+    return enforcement.refused;
+  }
+
+  const { context, decision } = enforcement;
+  if (decision.action !== "ask") {
+    return null;
+  }
+
+  // No `context.approvalGate` check: an absent gate is a refusal, decided in
+  // `verifyApprovalRecord`. Returning `null` here would have made "an `ask` is
+  // backed by a server-side record" a property of the one call site that wires
+  // a gate rather than of this enforcement point.
+
+  const verification = await verifyApprovalRecord(context.approvalGate, {
+    toolName: call.toolName,
+    toolCallId,
+  });
+  if (verification.authorized) {
+    return null;
+  }
+
+  record(context, call, decision, "execute");
+  return refusal(call, decision, "approval-not-verified", verification.message);
+}

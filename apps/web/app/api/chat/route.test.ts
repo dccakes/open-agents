@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { orgSettings, organizations } from "@/lib/db/schema";
+import { orgSettings, organizations, usageEvents } from "@/lib/db/schema";
 
 mock.module("server-only", () => ({}));
 
@@ -64,6 +64,8 @@ let cachedSkillsState: unknown = null;
 let discoverSkillDirsCalls: string[][] = [];
 let agentRunsPaused = false;
 let orgSettingsReadError: Error | null = null;
+let dailyTokenBudget: number | null = null;
+let dailyTokensUsedToday = 0;
 
 const claimChatActiveStreamIdSpy = mock(
   async () => claimActiveStreamDefaultResult,
@@ -249,17 +251,22 @@ mock.module("@/lib/db/client", () => ({
               {
                 organizationId: "org-1",
                 agentRunsPaused,
-                dailyTokenBudget: null,
+                dailyTokenBudget,
               },
             ];
+          }
+          if (table === usageEvents) {
+            return [{ tokens: dailyTokensUsedToday }];
           }
           return [];
         };
         const chain: {
           where: () => typeof chain;
+          innerJoin: () => typeof chain;
           limit: () => Promise<Record<string, unknown>[]>;
         } = {
           where: () => chain,
+          innerJoin: () => chain,
           limit: () => rows(),
         };
         return chain;
@@ -315,6 +322,8 @@ describe("/api/chat route", () => {
     discoverSkillDirsCalls = [];
     agentRunsPaused = false;
     orgSettingsReadError = null;
+    dailyTokenBudget = null;
+    dailyTokensUsedToday = 0;
     existingUserMessageCount = 0;
     existingChatMessage = null;
     existingScopedChatMessage = null;
@@ -471,7 +480,9 @@ describe("/api/chat route", () => {
     expect(startCalls).toHaveLength(0);
   });
 
-  test("passes the 500 maxSteps limit to the workflow", async () => {
+  test("passes the configured step budget to the workflow", async () => {
+    const { DEFAULT_RUN_STEP_BUDGET, getRunStepBudget } =
+      await import("@/lib/config/agent-policy");
     const { POST } = await routeModulePromise;
 
     const response = await POST(createValidRequest());
@@ -481,11 +492,15 @@ describe("/api/chat route", () => {
     expect(startCalls[0]?.[1]).toEqual([
       expect.objectContaining({
         assistantId: "gen-id-1",
-        maxSteps: 500,
+        maxSteps: getRunStepBudget(),
         requestUrl: "http://localhost/api/chat",
         authSession: currentAuthSession,
       }),
     ]);
+    // The default is today's hard-coded ceiling, so nothing changes until a
+    // deployment sets `AGENT_RUN_STEP_BUDGET`.
+    expect(getRunStepBudget()).toBe(DEFAULT_RUN_STEP_BUDGET);
+    expect(DEFAULT_RUN_STEP_BUDGET).toBe(500);
   });
 
   test("defers selected model resolution to the workflow", async () => {
@@ -703,6 +718,54 @@ describe("/api/chat route", () => {
     chatRecord.activeStreamId = "wrun_existing-456";
     existingRunStatus = "running";
     agentRunsPaused = true;
+    const { POST } = await routeModulePromise;
+
+    const response = await POST(createValidRequest());
+
+    expect(response.ok).toBe(true);
+    expect(response.headers.get("x-workflow-run-id")).toBe("wrun_existing-456");
+    expect(startCalls).toHaveLength(0);
+  });
+
+  test("refuses to start a run once the organization is over its daily budget", async () => {
+    dailyTokenBudget = 1000;
+    dailyTokensUsedToday = 1000;
+    const { POST } = await routeModulePromise;
+
+    const response = await POST(createValidRequest());
+    const body = (await response.json()) as {
+      error: string;
+      code: string;
+      agentRunsPaused: boolean;
+    };
+
+    expect(response.status).toBe(503);
+    expect(body.code).toBe("daily_token_budget_exhausted");
+    // Same structured shape as the kill switch, so one client branch handles both.
+    expect(body.agentRunsPaused).toBe(false);
+    // The day boundary is stated wherever the budget is.
+    expect(body.error).toContain("UTC");
+    expect(startCalls).toHaveLength(0);
+    expect(createChatMessageIfNotExistsSpy).not.toHaveBeenCalled();
+  });
+
+  test("starts a run while the organization is still under its daily budget", async () => {
+    dailyTokenBudget = 1000;
+    dailyTokensUsedToday = 999;
+    const { POST } = await routeModulePromise;
+
+    const response = await POST(createValidRequest());
+
+    expect(response.ok).toBe(true);
+    expect(startCalls).toHaveLength(1);
+  });
+
+  test("still reconnects to an in-flight run while over the daily budget", async () => {
+    if (!chatRecord) throw new Error("chatRecord must be set");
+    chatRecord.activeStreamId = "wrun_existing-456";
+    existingRunStatus = "running";
+    dailyTokenBudget = 1000;
+    dailyTokensUsedToday = 5000;
     const { POST } = await routeModulePromise;
 
     const response = await POST(createValidRequest());

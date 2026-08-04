@@ -9,6 +9,7 @@ This file provides guidance for AI coding agents working in this repository.
 - [Architecture & Workspace Structure](docs/agents/architecture.md)
 - [Code Style & Patterns](docs/agents/code-style.md)
 - [Lessons Learned](docs/agents/lessons-learned.md)
+- [Policy and Postures](docs/policy-and-postures.md) · [Security](SECURITY.md)
 
 ## Authentication
 
@@ -115,9 +116,47 @@ git add "apps/web/app/tasks/[id]/page.tsx"
 
 ```
 Web -> Agent (packages/agent) -> Sandbox (packages/sandbox)
+                 ^
+                 └─ Command policy (packages/agent/policy + apps/web/lib/policy)
 ```
 
 See [Architecture & Workspace Structure](docs/agents/architecture.md) for details.
+
+### Command policy and postures
+
+Every side-effecting tool call is evaluated against a `CommandPolicy` under the
+session's posture before it runs. Full reference:
+[Policy and Postures](docs/policy-and-postures.md).
+
+- **Enforcement lives in the tool factories** (`packages/agent/tools/policy-enforcement.ts`),
+  not in a wrapper around the agent loop — three of the four `ToolLoopAgent`s
+  build their own tools. `needsApproval` can only pause; `execute` is
+  authoritative and re-evaluates the policy before any side effect. A refusal is
+  a structured tool result, never a thrown error.
+- **Precedence is deny → ask → allow**, first match within a class, most
+  restrictive segment of a compound command wins, posture applied last.
+- **Three postures** on `sessions.posture`: `strict`, `auto` (default),
+  `dangerous`. `dangerous` collapses `ask` → `allow`, never `deny`, requires the
+  `posture: ["setDangerous"]` permission, and is refused for non-interactive
+  triggers.
+- **Fail closed.** A side-effecting tool with no policy on `experimental_context`
+  refuses; `read`/`grep`/`glob` proceed. Add a tool that can mutate state or
+  reach the network, and wire policy into it in the same PR.
+- **Approvals are server-side records** (`approval` table), single-use and
+  expiring — the approval state in a client-supplied message body is an
+  assertion, not authorization. Every `ask`/`deny` is written to the append-only
+  `policy_event`.
+- **Runs are budgeted** (tokens, steps, org daily tokens); a breach halts in a
+  distinct `budget-exceeded` state.
+- **Changing the shipped baseline requires corpus entries.**
+  `packages/agent/policy/golden-corpus.ts` must cover every rule id, and a new
+  rule needs both the commands it should catch and a near-miss it must not.
+- Workflow modules must not statically import `@open-agents/agent`,
+  `@/lib/org/settings`, `@/lib/auth/require-permission`, or `next/headers` —
+  `workflow-import-boundary.test.ts` enforces this.
+
+[`SECURITY.md`](SECURITY.md) states plainly what this system does not protect
+against. Read it before describing the agent as sandboxed or contained.
 
 ## File Organization & Separation of Concerns
 

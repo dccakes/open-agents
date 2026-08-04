@@ -21,6 +21,10 @@ export async function recordUsage(
       outputTokens: number;
     };
     toolCallCount?: number;
+    /** Session the usage belongs to, when it originates from an agent run. */
+    sessionId?: string;
+    /** Workflow run the usage belongs to, when it originates from an agent run. */
+    workflowRunId?: string;
   },
 ) {
   const inferredToolCallCount = data.messages
@@ -38,6 +42,8 @@ export async function recordUsage(
   await db.insert(usageEvents).values({
     id: nanoid(),
     userId,
+    sessionId: data.sessionId ?? null,
+    workflowRunId: data.workflowRunId ?? null,
     source: data.source,
     agentType: data.agentType ?? "main",
     provider: provider ?? null,

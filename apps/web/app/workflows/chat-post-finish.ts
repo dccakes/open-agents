@@ -364,6 +364,12 @@ export async function recordWorkflowUsage(
     startedAt: string;
     finishedAt: string;
     totalDurationMs: number;
+    /** The run's final totals, already persisted per step by the loop. */
+    inputTokens?: number;
+    outputTokens?: number;
+    stepCount?: number;
+    /** Names the budget and the totals when a budget stopped the run. */
+    haltReason?: string | null;
     stepTimings: WorkflowRunStepTiming[];
   },
 ): Promise<void> {
@@ -385,12 +391,23 @@ export async function recordWorkflowUsage(
           startedAt: workflowRun.startedAt,
           finishedAt: workflowRun.finishedAt,
           totalDurationMs: workflowRun.totalDurationMs,
+          inputTokens: workflowRun.inputTokens,
+          outputTokens: workflowRun.outputTokens,
+          stepCount: workflowRun.stepCount,
+          haltReason: workflowRun.haltReason,
           stepTimings: workflowRun.stepTimings,
         });
       } catch (error) {
         console.error("[workflow] Failed to record workflow run:", error);
       }
     }
+
+    // Run attribution, so usage is queryable per session and per run. Absent
+    // when the caller did not supply run context.
+    const attribution = {
+      sessionId: workflowRun?.sessionId,
+      workflowRunId: workflowRun?.workflowRunId,
+    };
 
     // Record main agent usage
     if (totalUsage) {
@@ -404,6 +421,7 @@ export async function recordWorkflowUsage(
           cachedInputTokens: cachedInputTokensFor(totalUsage),
           outputTokens: totalUsage.outputTokens ?? 0,
         },
+        ...attribution,
       });
     }
 
@@ -460,6 +478,7 @@ export async function recordWorkflowUsage(
             outputTokens: modelUsage.usage.outputTokens ?? 0,
           },
           toolCallCount: modelUsage.toolCallCount,
+          ...attribution,
         });
       }
     }

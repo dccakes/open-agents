@@ -88,22 +88,26 @@ Key tables and their roles:
 | `verification` | Auth verification tokens |
 | `githubInstallations` | GitHub App installations per user |
 | `vercelProjectLinks` | Repo ↔ Vercel project mappings per user |
-| `sessions` | Core entity — coding sessions with repo, branch, sandbox state, PR info, lifecycle |
+| `sessions` | Core entity — coding sessions with repo, branch, sandbox state, PR info, lifecycle, `posture` (`strict`/`auto`/`dangerous`, default `auto`) |
 | `chats` | Chat conversations attached to sessions |
 | `chatMessages` | Individual messages (role + parts JSONB) |
 | `chatReads` | Per-user read tracking for chats |
 | `shares` | Read-only share tokens for sessions |
-| `workflowRuns` | Durable workflow execution records |
+| `workflowRuns` | Durable workflow execution records — inserted at run *start*, so `finishedAt`/`totalDurationMs` are nullable and a row no longer implies a finished run. Carries running `inputTokens`/`outputTokens`/`stepCount`, a `haltReason`, and a `budget-exceeded` status |
 | `workflowRunSteps` | Individual steps within a workflow run |
+| `approvals` (`approval`) | Server-side record behind a policy `ask` — decision, `decidedBy`, `expiresAt`, `consumedAt` (single-use). The authority a client-supplied approval claim is checked against |
+| `policyEvents` (`policy_event`) | Append-only policy audit: every `ask`/`deny`, plus `expired` and `downgraded`, with redacted input |
 | `userPreferences` | Per-user defaults: model, subagent model, sandbox type, diff mode, flags |
 | `userSandboxConfigs` | Per-user per-provider sandbox credentials (config stored as JSONB) |
-| `usageEvents` | Append-only token/cost telemetry |
+| `usageEvents` | Append-only token/cost telemetry, attributed by nullable `sessionId` + `workflowRunId` (indexed on `(userId, createdAt)` and `(workflowRunId)` — the table had no index before) |
 | `organizations` | Better Auth organization plugin — single seeded org |
 | `orgMembers` | Org membership + role (`owner`/`admin`/`member`); absence of a row means *pending* |
 | `orgInvitations` | Better Auth invitation model (table required by the plugin; invite flow unused) |
 | `orgSettings` | Org-scoped settings: agent-run kill switch, daily token budget |
 
-**Sessions** is the central entity. It carries repo info, Vercel project linkage, sandbox state (JSONB), hibernation timestamps, git stats, PR status, snapshot URL, and cached diffs.
+**Sessions** is the central entity. It carries repo info, Vercel project linkage, sandbox state (JSONB), hibernation timestamps, git stats, PR status, snapshot URL, cached diffs, and the security posture every chat in the session runs under.
+
+**Policy tables:** `approval` is the server-side authorization for a policy `ask` — the decision otherwise arrives inside the client-supplied message body, where it is an assertion. `policy_event` is insert-only: there is no update or delete path anywhere in the app. See [`docs/policy-and-postures.md`](../docs/policy-and-postures.md).
 
 **Schema changes:** Edit `apps/web/lib/db/schema.ts`, then run `bun run --cwd apps/web db:generate` and commit the generated `.sql` file. Never use `db:push`.
 
