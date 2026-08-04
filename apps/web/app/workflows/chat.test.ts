@@ -114,6 +114,7 @@ let testSessionRecord: {
   autoCreatePrOverride: boolean | null;
   repoOwner: string | null;
   repoName: string | null;
+  posture?: string;
 };
 let testChatRecord: {
   id: string;
@@ -154,6 +155,32 @@ let agentResponseHeaders: Record<string, string> | undefined;
 let agentResponseBody: unknown;
 let agentProviderMetadata: Record<string, unknown> | undefined;
 let agentInputMessages: unknown;
+const agentCallOptions: unknown[] = [];
+
+// Run budgets. The ceilings are faked (they read config and the database);
+// the arithmetic that consumes them is the real thing.
+let testStepBudget = 500;
+let testTokenBudget: unknown = { limit: "unlimited" };
+let testDailySnapshot: unknown = {
+  limit: { limit: "unlimited" },
+  usedToday: 0,
+};
+const runRecordStarts: unknown[] = [];
+const runProgressWrites: unknown[] = [];
+
+// The run's policy, threaded from the web app into the agent. Spied rather
+// than exercised: `chat-run-policy.test.ts` covers the assembly itself.
+const runPolicyResolutions: unknown[] = [];
+const runPolicyMaterializations: unknown[] = [];
+// The session posture the run resolves to. `auto` is the default because it is
+// what every session did before postures existed: the auto-commit assertions
+// below are the record of "unchanged from today", and they must run under it.
+let testRunPosture: "strict" | "auto" | "dangerous" = "auto";
+
+// Application-level side-effect approvals. The request is spied on; the
+// persistence it wraps is covered in `lib/policy/app-side-effect-approvals`.
+const appSideEffectRequests: Record<string, unknown>[] = [];
+let appSideEffectApproval: Record<string, unknown> | null = null;
 
 function buildAgentSteps() {
   return [
@@ -220,8 +247,15 @@ mock.module("./chat-post-finish", () => spies);
 mock.module("@/app/config", () => ({
   webAgent: {
     tools: {},
-    stream: async ({ messages }: { messages: unknown }) => {
+    stream: async ({
+      messages,
+      options,
+    }: {
+      messages: unknown;
+      options?: unknown;
+    }) => {
       agentInputMessages = messages;
+      agentCallOptions.push(options);
       return {
         toUIMessageStream: (opts: {
           sendStart?: boolean;
@@ -347,6 +381,50 @@ mock.module("@/lib/db/user-preferences", () => ({
   getUserPreferences: async () => testPreferences,
 }));
 
+mock.module("@/lib/config/agent-policy", () => ({
+  getRunStepBudget: () => testStepBudget,
+  getRunTokenBudget: () => testTokenBudget,
+}));
+
+mock.module("@/lib/budget/daily-budget", () => ({
+  readDailyBudgetSnapshot: async () => testDailySnapshot,
+}));
+
+mock.module("./chat-run-record", () => ({
+  startRunRecord: async (params: unknown) => {
+    runRecordStarts.push(params);
+  },
+  persistRunProgress: async (params: unknown) => {
+    runProgressWrites.push(params);
+  },
+}));
+
+mock.module("./chat-run-policy", () => ({
+  resolveRunPolicy: async (params: unknown) => {
+    runPolicyResolutions.push(params);
+    return { posture: testRunPosture, profile: "default" };
+  },
+  buildRunPolicyOptions: async (params: unknown) => {
+    runPolicyMaterializations.push(params);
+    return {
+      policy: { id: "default", deny: [], ask: [], allow: [] },
+      posture: testRunPosture,
+      policyEventRecorder: { record: () => undefined },
+      approvalGate: {
+        request: async () => undefined,
+        verify: async () => ({ authorized: true }),
+      },
+    };
+  },
+}));
+
+mock.module("./chat-app-side-effects", () => ({
+  requestAppSideEffectApprovalStep: async (params: Record<string, unknown>) => {
+    appSideEffectRequests.push(params);
+    return appSideEffectApproval;
+  },
+}));
+
 mock.module("./chat-sandbox-runtime", () => ({
   resolveChatSandboxRuntime: spies.resolveChatSandboxRuntime,
 }));
@@ -385,10 +463,44 @@ function makeOptions(overrides?: Record<string, unknown>) {
   } as Parameters<typeof runAgentWorkflow>[0];
 }
 
+function budgetRunRecord(): {
+  status: string;
+  haltReason?: string | null;
+  inputTokens?: number;
+  outputTokens?: number;
+  stepCount?: number;
+  stepTimings: unknown[];
+} {
+  const rwCalls = spies.recordWorkflowUsage.mock.calls as unknown[][];
+  const record = rwCalls.at(-1)?.[5];
+  if (!record) {
+    throw new Error("recordWorkflowUsage was not given a run record");
+  }
+  return record as ReturnType<typeof budgetRunRecord>;
+}
+
 // ── Tests ──────────────────────────────────────────────────────────
 
 beforeEach(() => {
   writtenChunks.length = 0;
+  agentCallOptions.length = 0;
+  runPolicyResolutions.length = 0;
+  runPolicyMaterializations.length = 0;
+  runRecordStarts.length = 0;
+  runProgressWrites.length = 0;
+  testRunPosture = "auto";
+  appSideEffectRequests.length = 0;
+  appSideEffectApproval = {
+    approvalId: "approval-1",
+    decision: "pending",
+    operation: "Commit and push this session's changes to acme/repo.",
+    rule: "app.side-effect.git-push",
+    posture: "strict",
+    toolName: "app.git-automation",
+  };
+  testStepBudget = 500;
+  testTokenBudget = { limit: "unlimited" };
+  testDailySnapshot = { limit: { limit: "unlimited" }, usedToday: 0 };
   runStatus = "running";
   agentStreamParts = [{ type: "text-delta", textDelta: "Hi" }];
   agentAssistantParts = undefined;
@@ -563,6 +675,36 @@ describe("runAgentWorkflow", () => {
         },
       ]),
     );
+  });
+
+  test("threads the session's posture and policy into the agent", async () => {
+    await runAgentWorkflow(makeOptions());
+
+    expect(runPolicyResolutions).toEqual([
+      { sessionId: "session-1", workflowRunId: "wrun_test-123" },
+    ]);
+    expect(runPolicyMaterializations).toEqual([
+      expect.objectContaining({
+        selection: { posture: "auto", profile: "default" },
+        sessionId: "session-1",
+        chatId: "chat-1",
+        workflowRunId: "wrun_test-123",
+      }),
+    ]);
+
+    const options = agentCallOptions.at(-1) as {
+      posture?: string;
+      policy?: { id?: string };
+      policyEventRecorder?: unknown;
+      approvalGate?: unknown;
+      sandbox?: unknown;
+    };
+    expect(options.posture).toBe("auto");
+    expect(options.policy?.id).toBe("default");
+    expect(options.policyEventRecorder).toBeDefined();
+    expect(options.approvalGate).toBeDefined();
+    // The sandbox the agent was already given must survive the merge.
+    expect(options.sandbox).toBeDefined();
   });
 
   test("persists assistant message after run", async () => {
@@ -748,6 +890,183 @@ describe("runAgentWorkflow", () => {
         finishReason: "tool-calls",
       }),
     ]);
+  });
+
+  test("opens the run record before the first step", async () => {
+    await runAgentWorkflow(makeOptions());
+
+    expect(runRecordStarts).toEqual([
+      expect.objectContaining({
+        workflowRunId: "wrun_test-123",
+        chatId: "chat-1",
+        sessionId: "session-1",
+        userId: "user-1",
+      }),
+    ]);
+  });
+
+  test("persists the running totals after every step", async () => {
+    agentFinishReason = "tool-calls";
+    agentRawFinishReason = "provider_tool_use";
+    agentTotalUsage = { inputTokens: 10, outputTokens: 5, totalTokens: 15 };
+
+    await runAgentWorkflow(makeOptions({ maxSteps: 3 }));
+
+    expect(runProgressWrites).toEqual([
+      expect.objectContaining({
+        inputTokens: 10,
+        outputTokens: 5,
+        stepCount: 1,
+      }),
+      expect.objectContaining({
+        inputTokens: 20,
+        outputTokens: 10,
+        stepCount: 2,
+      }),
+      expect.objectContaining({
+        inputTokens: 30,
+        outputTokens: 15,
+        stepCount: 3,
+      }),
+    ]);
+  });
+
+  test("halts in budget-exceeded when the token budget is breached", async () => {
+    agentFinishReason = "tool-calls";
+    agentRawFinishReason = "provider_tool_use";
+    agentTotalUsage = { inputTokens: 10, outputTokens: 5, totalTokens: 15 };
+    testTokenBudget = { limit: "limited", tokens: 10 };
+
+    await runAgentWorkflow(makeOptions({ maxSteps: 10 }));
+
+    const workflowRun = budgetRunRecord();
+    expect(workflowRun.status).toBe("budget-exceeded");
+    // Distinct from the generic failure the step ceiling produces.
+    expect(workflowRun.status).not.toBe("failed");
+    expect(workflowRun.haltReason).toContain("token budget");
+    expect(workflowRun.haltReason).toContain("15");
+    expect(workflowRun.stepTimings).toHaveLength(1);
+    expect(workflowRun.inputTokens).toBe(10);
+    expect(workflowRun.outputTokens).toBe(5);
+  });
+
+  test("halts in budget-exceeded when the step budget is reached", async () => {
+    agentFinishReason = "tool-calls";
+    agentRawFinishReason = "provider_tool_use";
+    testStepBudget = 2;
+
+    await runAgentWorkflow(makeOptions({ maxSteps: 10 }));
+
+    const workflowRun = budgetRunRecord();
+    expect(workflowRun.status).toBe("budget-exceeded");
+    expect(workflowRun.haltReason).toContain("step budget");
+    expect(workflowRun.stepTimings).toHaveLength(2);
+  });
+
+  test("an unset token budget leaves the run bounded by steps alone", async () => {
+    agentFinishReason = "tool-calls";
+    agentRawFinishReason = "provider_tool_use";
+    agentTotalUsage = {
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      totalTokens: 2_000_000,
+    };
+    testTokenBudget = { limit: "unlimited" };
+    testStepBudget = 3;
+
+    await runAgentWorkflow(makeOptions({ maxSteps: 10 }));
+
+    const workflowRun = budgetRunRecord();
+    expect(workflowRun.status).toBe("budget-exceeded");
+    expect(workflowRun.haltReason).toContain("step budget");
+    expect(workflowRun.stepTimings).toHaveLength(3);
+  });
+
+  test("halts when the organization crosses its daily budget mid-run", async () => {
+    agentFinishReason = "tool-calls";
+    agentRawFinishReason = "provider_tool_use";
+    agentTotalUsage = { inputTokens: 10, outputTokens: 5, totalTokens: 15 };
+    testDailySnapshot = {
+      limit: { limit: "limited", dailyTokens: 1000 },
+      usedToday: 990,
+    };
+
+    await runAgentWorkflow(makeOptions({ maxSteps: 10 }));
+
+    const workflowRun = budgetRunRecord();
+    expect(workflowRun.status).toBe("budget-exceeded");
+    expect(workflowRun.haltReason).toContain("daily token budget");
+    expect(workflowRun.haltReason).toContain("UTC");
+  });
+
+  test("a resumed run keeps the usage the message already accumulated", async () => {
+    agentFinishReason = "tool-calls";
+    agentRawFinishReason = "provider_tool_use";
+    agentTotalUsage = { inputTokens: 10, outputTokens: 5, totalTokens: 15 };
+    testTokenBudget = { limit: "limited", tokens: 100 };
+
+    await runAgentWorkflow(
+      makeOptions({
+        maxSteps: 10,
+        messages: [
+          {
+            id: "assistant-resumed",
+            role: "assistant",
+            parts: [{ type: "text", text: "Working" }],
+            metadata: {
+              totalMessageUsage: { inputTokens: 90, outputTokens: 0 },
+              stepFinishReasons: [{ finishReason: "tool-calls" }],
+            },
+          },
+        ],
+      }),
+    );
+
+    // 90 already spent plus 15 this step is over the 100 ceiling, so the run
+    // halts on its first step rather than restarting its budget at zero.
+    const workflowRun = budgetRunRecord();
+    expect(workflowRun.status).toBe("budget-exceeded");
+    expect(workflowRun.stepTimings).toHaveLength(1);
+    expect(workflowRun.inputTokens).toBe(100);
+    expect(runProgressWrites).toEqual([
+      expect.objectContaining({
+        inputTokens: 100,
+        outputTokens: 5,
+        // One step carried on the message plus the one this run took.
+        stepCount: 2,
+      }),
+    ]);
+  });
+
+  test("persists the assistant output produced before a budget halt", async () => {
+    agentFinishReason = "tool-calls";
+    agentRawFinishReason = "provider_tool_use";
+    agentAssistantParts = [{ type: "text", text: "Partial answer" }];
+    testStepBudget = 1;
+
+    await runAgentWorkflow(makeOptions({ maxSteps: 10 }));
+
+    const persistCalls = spies.persistAssistantMessage.mock
+      .calls as unknown[][];
+    const persisted = persistCalls.at(-1)?.[1] as {
+      parts: Array<Record<string, unknown>>;
+    };
+
+    expect(persisted.parts).toContainEqual(
+      expect.objectContaining({ type: "text", text: "Partial answer" }),
+    );
+    // The halt is part of the transcript, so it survives a reload.
+    expect(persisted.parts).toContainEqual(
+      expect.objectContaining({
+        type: "data-budget-halt",
+        data: expect.objectContaining({ budget: "run-steps" }),
+      }),
+    );
+    expect(
+      writtenChunks.some(
+        (chunk) => (chunk as { type?: string }).type === "data-budget-halt",
+      ),
+    ).toBe(true);
   });
 
   test("logs full step diagnostics when the agent finishes with reason other", async () => {
@@ -1521,6 +1840,249 @@ describe("runAgentWorkflow", () => {
     );
 
     expect(spies.runAutoCommitStep).not.toHaveBeenCalled();
+  });
+
+  // ── Application-level side effects under a posture ────────────────
+  //
+  // These two paths — auto-commit and auto-PR — are the only ones that reach
+  // GitHub outside tool dispatch, and each mints its own installation token.
+  // The claim under test is that neither runs under `strict` without an
+  // approval, and that nothing about them changes under `auto`.
+
+  test("strict withholds the auto-commit and records an approval instead", async () => {
+    testRunPosture = "strict";
+
+    await runAgentWorkflow(
+      makeOptions({
+        autoCommitEnabled: true,
+        repoOwner: "acme",
+        repoName: "repo",
+      }),
+    );
+
+    expect(spies.runAutoCommitStep).not.toHaveBeenCalled();
+    expect(appSideEffectRequests).toHaveLength(1);
+    expect(appSideEffectRequests[0]).toMatchObject({
+      sessionId: "session-1",
+      chatId: "chat-1",
+      workflowRunId: "wrun_test-123",
+      messageId: "gen-id-1",
+      operations: ["auto-commit"],
+      repoOwner: "acme",
+      repoName: "repo",
+      posture: "strict",
+    });
+  });
+
+  test("strict surfaces the pause on the run, naming tool, operation, rule and posture", async () => {
+    testRunPosture = "strict";
+
+    await runAgentWorkflow(
+      makeOptions({
+        autoCommitEnabled: true,
+        repoOwner: "acme",
+        repoName: "repo",
+      }),
+    );
+
+    expect(
+      writtenChunks.filter((chunk) => chunk.type === "data-approval-request"),
+    ).toEqual([
+      {
+        type: "data-approval-request",
+        id: "gen-id-1:approval",
+        data: {
+          approvalId: "approval-1",
+          tool: "app.git-automation",
+          operation: "Commit and push this session's changes to acme/repo.",
+          rule: "app.side-effect.git-push",
+          posture: "strict",
+          status: "pending",
+          detail: expect.stringContaining("strict"),
+        },
+      },
+    ]);
+  });
+
+  /**
+   * The pull request is a second, independent push path: it mints its own token
+   * and it runs even when the commit had nothing to do. Gating only the commit
+   * would leave it wide open.
+   */
+  test("strict withholds the pull request too, including when there is nothing to commit", async () => {
+    testRunPosture = "strict";
+    spies.hasAutoCommitChangesStep.mockImplementationOnce(() =>
+      Promise.resolve(false),
+    );
+
+    await runAgentWorkflow(
+      makeOptions({
+        autoCommitEnabled: true,
+        autoCreatePrEnabled: true,
+        repoOwner: "acme",
+        repoName: "repo",
+      }),
+    );
+
+    expect(spies.runAutoCommitStep).not.toHaveBeenCalled();
+    expect(spies.runAutoCreatePrStep).not.toHaveBeenCalled();
+    expect(appSideEffectRequests[0]).toMatchObject({
+      operations: ["auto-create-pr"],
+    });
+  });
+
+  test("strict gates commit and pull request under one approval", async () => {
+    testRunPosture = "strict";
+
+    await runAgentWorkflow(
+      makeOptions({
+        autoCommitEnabled: true,
+        autoCreatePrEnabled: true,
+        repoOwner: "acme",
+        repoName: "repo",
+      }),
+    );
+
+    expect(appSideEffectRequests).toHaveLength(1);
+    expect(appSideEffectRequests[0]).toMatchObject({
+      operations: ["auto-commit", "auto-create-pr"],
+    });
+    expect(
+      writtenChunks.filter(
+        (chunk) => chunk.type === "data-commit" || chunk.type === "data-pr",
+      ),
+    ).toEqual([]);
+  });
+
+  test("strict asks for nothing when there was nothing to do", async () => {
+    testRunPosture = "strict";
+    spies.hasAutoCommitChangesStep.mockImplementationOnce(() =>
+      Promise.resolve(false),
+    );
+
+    await runAgentWorkflow(
+      makeOptions({
+        autoCommitEnabled: true,
+        autoCreatePrEnabled: false,
+        repoOwner: "acme",
+        repoName: "repo",
+      }),
+    );
+
+    expect(appSideEffectRequests).toEqual([]);
+    expect(
+      writtenChunks.filter((chunk) => chunk.type === "data-approval-request"),
+    ).toEqual([]);
+  });
+
+  /** Fail closed: an approval that could not be written can never be granted. */
+  test("strict performs nothing when the approval could not be recorded", async () => {
+    testRunPosture = "strict";
+    appSideEffectApproval = null;
+
+    await runAgentWorkflow(
+      makeOptions({
+        autoCommitEnabled: true,
+        autoCreatePrEnabled: true,
+        repoOwner: "acme",
+        repoName: "repo",
+      }),
+    );
+
+    expect(spies.runAutoCommitStep).not.toHaveBeenCalled();
+    expect(spies.runAutoCreatePrStep).not.toHaveBeenCalled();
+    expect(
+      writtenChunks.filter((chunk) => chunk.type === "data-approval-request"),
+    ).toMatchObject([{ data: { status: "error" } }]);
+  });
+
+  test("strict persists the pending approval on the assistant message", async () => {
+    testRunPosture = "strict";
+
+    await runAgentWorkflow(
+      makeOptions({
+        autoCommitEnabled: true,
+        repoOwner: "acme",
+        repoName: "repo",
+      }),
+    );
+
+    const calls = spies.persistAssistantMessage.mock.calls as unknown[][];
+    const persisted = calls.at(-1)?.[1] as {
+      parts: Array<Record<string, unknown>>;
+    };
+    expect(
+      persisted.parts.find((part) => part.type === "data-approval-request"),
+    ).toBeDefined();
+  });
+
+  test("auto runs the commit and the pull request exactly as before", async () => {
+    testRunPosture = "auto";
+
+    await runAgentWorkflow(
+      makeOptions({
+        autoCommitEnabled: true,
+        autoCreatePrEnabled: true,
+        repoOwner: "acme",
+        repoName: "repo",
+      }),
+    );
+
+    expect(spies.runAutoCommitStep).toHaveBeenCalledTimes(1);
+    expect(spies.runAutoCreatePrStep).toHaveBeenCalledTimes(1);
+    expect(appSideEffectRequests).toEqual([]);
+    expect(
+      writtenChunks.filter((chunk) => chunk.type === "data-approval-request"),
+    ).toEqual([]);
+  });
+
+  test("dangerous collapses the ask into an allow, like every other ask", async () => {
+    testRunPosture = "dangerous";
+
+    await runAgentWorkflow(
+      makeOptions({
+        autoCommitEnabled: true,
+        autoCreatePrEnabled: true,
+        repoOwner: "acme",
+        repoName: "repo",
+      }),
+    );
+
+    expect(spies.runAutoCommitStep).toHaveBeenCalledTimes(1);
+    expect(spies.runAutoCreatePrStep).toHaveBeenCalledTimes(1);
+    expect(appSideEffectRequests).toEqual([]);
+  });
+
+  /**
+   * A posture change is not a kill switch. The run resolved its posture once, at
+   * the start, and a change made while it is executing applies to what comes
+   * after — it does not terminate the run or undo what already happened.
+   */
+  test("a posture change mid-run does not terminate the run", async () => {
+    testRunPosture = "auto";
+    let tightenedDuringRun = false;
+    spies.runAutoCommitStep.mockImplementationOnce(() => {
+      testRunPosture = "strict";
+      testSessionRecord = { ...testSessionRecord, posture: "strict" };
+      tightenedDuringRun = true;
+      return Promise.resolve({ committed: true, pushed: true });
+    });
+
+    await runAgentWorkflow(
+      makeOptions({
+        autoCommitEnabled: true,
+        autoCreatePrEnabled: true,
+        repoOwner: "acme",
+        repoName: "repo",
+      }),
+    );
+
+    expect(tightenedDuringRun).toBe(true);
+    // The pull request that was already in flight still ran, and the run
+    // finished normally rather than being cut short.
+    expect(spies.runAutoCreatePrStep).toHaveBeenCalledTimes(1);
+    expect(budgetRunRecord().status).toBe("completed");
+    expect(spies.sendFinish).toHaveBeenCalled();
   });
 
   test("still clears stream and sends finish even on step error", async () => {

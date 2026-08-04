@@ -6,6 +6,10 @@ import type React from "react";
 import { type ReactNode, useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { ApprovalButtons } from "./approval-buttons";
+import {
+  describeApprovalPause,
+  useApprovalPolicy,
+} from "./approval-policy-context";
 
 export type ToolLayoutProps = {
   name: string;
@@ -86,6 +90,9 @@ export function ToolLayout({
   const showApprovalButtons = Boolean(
     state.approvalRequested && !state.isActiveApproval && state.approvalId,
   );
+  // Says which posture caused the pause. Null outside a session view, where
+  // the prompt renders exactly as it did before.
+  const pauseNotice = describeApprovalPause(useApprovalPolicy());
   const errorMessage =
     state.error && !state.denied ? trimErrorPrefix(state.error) : undefined;
   const hasError = Boolean(errorMessage);
@@ -274,6 +281,11 @@ export function ToolLayout({
           onKeyDown={(e) => e.stopPropagation()}
           role="presentation"
         >
+          {pauseNotice ? (
+            <div className="mt-2 pl-5 text-xs text-muted-foreground">
+              {pauseNotice}
+            </div>
+          ) : null}
           <ApprovalButtons
             approvalId={state.approvalId!}
             onApprove={onApprove}

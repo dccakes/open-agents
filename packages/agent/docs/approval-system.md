@@ -1,72 +1,223 @@
-# Tool Approval System
+# Tool Approval and Policy Enforcement
 
-This document explains the current bash safety model used in `packages/agent`.
+How `packages/agent` decides whether a tool call may run, and where that decision
+is made.
 
-## Overview
+> This document previously described a prefix allowlist of "safe commands" and a
+> rule that gated any command whose `cwd` escaped the working directory. Neither
+> was ever implemented in `tools/bash.ts` — what existed was a five-entry regex
+> denylist, and `cwd` was not checked at all. The system described below is the
+> one that exists. For the product-level view (postures, approvals, budgets) see
+> [`docs/policy-and-postures.md`](../../../docs/policy-and-postures.md).
 
-The agent no longer has multiple runtime modes or configurable approval policies. Instead, bash safety is enforced directly by the bash tool with a simple default rule:
+## What decides
 
-- safe read-only commands can run without approval
-- dangerous or unknown commands require approval
-- commands that escape the sandbox working directory require approval
+`packages/agent/policy/` holds a pure evaluator. `evaluate(toolCall, policy,
+posture)` (`policy/command-policy.ts`) takes the policy-relevant projection of a
+tool call — the tool name plus a `command` (bash) or a `target` (a path or URL) —
+and returns a `PolicyDecision` with an `action` of `allow`, `ask`, or `deny`.
 
-This is the only behavior needed to prevent obviously dangerous operations such as `rm -rf`.
+It performs no I/O. That is what lets the same function run from `needsApproval`
+and from `execute`, and it is what the `< 5 ms p95` benchmark in
+`policy/policy-latency.test.ts` measures.
 
-## Bash Approval Flow
+For `bash`, the command is first segmented by `policy/command-parser.ts` — a
+hand-written, quote-aware scanner that splits on `&&`, `||`, `;`, `|`, `&`, and
+newlines, descends into `$(...)`, backticks, and `sh -c` / `bash -c` string
+arguments, strips leading `VAR=value` assignments, and treats heredoc bodies as
+data. Every segment is evaluated, and the most restrictive segment decision wins.
+Input the scanner cannot parse confidently yields the `unknown` outcome, which
+resolves to `ask` under `strict` and `auto`.
 
-```text
-Bash tool called
-    ↓
-Is cwd outside working directory? ── Yes ──→ Needs approval
-    ↓ No
-Does the command match a dangerous or unknown pattern? ── Yes ──→ Needs approval
-    ↓ No
-Auto-approve
+Each segment carries two texts. `text` is the segment as written; `commandText`
+is `text` with a leading **wrapper** invocation removed — `sudo`, `env`,
+`command`, `nohup`, `nice`, `time`, `timeout`, `xargs`, and the rest of
+`policy/command-wrappers.ts`, along with their own options and operands. **Rules
+match `commandText` and decisions report `text`**, so `sudo npm install` reaches
+the same decision as `npm install` while the audit record still shows the `sudo`,
+and `^`-anchored rules keep meaning "this command runs" rather than "these words
+appear".
+
+Precedence within a policy is **deny → ask → allow**, first match within a class.
+Posture is applied last and can only relax `ask` (never `deny`) — see
+[`docs/policy-and-postures.md`](../../../docs/policy-and-postures.md) for the
+rule classes, the shipped baseline, and the golden corpus.
+
+## Where it is enforced
+
+In the **tool factories** (`tools/policy-enforcement.ts`), not in a wrapper
+around any agent's dispatch. There are four `ToolLoopAgent` instances in this
+package and three of them build their own tools (`open-agent.ts`,
+`subagents/explorer.ts`, `subagents/executor.ts`, `subagents/design.ts`), so a
+loop-level wrapper would cover exactly one of them. Enforcing in the factory
+means every present and future constructor of a bash tool is policed by
+construction.
+
+Two hooks with two different jobs:
+
+| Hook | Helper | What it can do |
+| --- | --- | --- |
+| `needsApproval` | `requestPolicyApproval()` | Pause. It cannot refuse — the AI SDK gives it two outcomes, pause or proceed. |
+| `execute` | `enforcePolicyWithApproval()` | Refuse. It is the authoritative gate. |
+
+`execute` **re-evaluates the policy** rather than trusting that a pause happened.
+A rule that became a denial between the pause and the resume still refuses, and a
+replayed approved call is checked again from scratch.
+
+A refusal is a structured tool *result*, never a thrown error:
+
+```ts
+{
+  success: false,
+  refusedByPolicy: true,          // discriminator: policy, not tool failure
+  error: "The bash tool refused this call: ...",
+  policy: { tool, decision, rule, reason, posture },
+}
 ```
 
-## Safe Commands
+The model reads it as ordinary tool output and can route around it.
+`isPolicyRefusal()` narrows it.
 
-The bash tool auto-approves a small set of read-only command prefixes such as:
+### Per-tool wiring
 
-- `ls`
-- `find`
-- `grep`
-- `rg`
-- `git status`
-- `git diff`
-- `git log`
-- `pwd`
-- `echo`
+| Tool | `needsApproval` | `execute` |
+| --- | --- | --- |
+| `bash` | Policy `ask`, else the pre-policy answer when nothing is wired | Policy + approval record, then the `cwd` containment rule |
+| `write`, `edit` | Dotenv pause (predates policy), then policy `ask`; existing `realpath` workspace probe unchanged | Policy + approval record, then the existing workspace and dotenv checks |
+| `web_fetch` | `true` unconditionally (predates policy) | Policy + approval record, then the existing SSRF/private-host checks |
+| `read`, `grep`, `glob` | unchanged | unchanged — read-only tools are not policed |
 
-See `packages/agent/tools/bash.ts` for the full list.
+Policy is added *alongside* the dotenv, workspace-containment, and SSRF checks,
+not in place of them.
 
-## Dangerous Commands
+The bash `cwd` argument is handled by `tools/bash-working-directory.ts` and
+refused through `refuseWithRule()` under the id `bash.deny.cwd-outside-workspace`,
+so it produces the same refusal shape and the same audit record as a policy
+denial. It is a containment rule, not a command pattern, which is why it does not
+live in the rule lists.
 
-The bash tool requires approval for dangerous patterns including commands like:
+## How the policy reaches a tool
 
-- `rm`
-- `mv`
-- `cp`
-- `mkdir`
-- `touch`
-- `chmod`
-- `chown`
-- `sudo`
-- destructive git commands
-- package installation commands
-- shell redirects, pipes, and command chaining
+On `experimental_context`, the same channel `sandbox` and `model` already travel
+on. `AgentContext.policy` (`types.ts`) holds an `AgentPolicyContext`:
 
-Unknown commands also require approval by default.
+```ts
+interface AgentPolicyContext {
+  policy: CommandPolicy;
+  posture: Posture;
+  approvalGate?: ApprovalGate;      // host-injected; see below
+  interactive?: boolean;            // false inside a subagent
+  recorder?: PolicyEventRecorder;   // host-injected; no-op by default
+}
+```
+
+Agents accept the host's half of this in their call options
+(`policy/call-options.ts`: `policy`, `posture`, `policyEventRecorder`,
+`approvalGate`) and `resolvePolicyContext()` assembles the context in
+`prepareCall`. An agent always puts *a* policy on the context — the fallback is
+the shipped baseline under `auto`, which is exactly the behaviour that existed
+before postures did.
+
+Retrieval is `getPolicy(experimental_context)` in `tools/utils.ts`.
+
+### Fail-closed
+
+If no policy is on the context, `bash`, `write`, `edit`, and `web_fetch` refuse
+with a `missing-policy` refusal. `read`, `grep`, and `glob` proceed. An absent
+policy means a caller was not wired, which is exactly the failure this module
+exists to prevent; read-only tools are exempted so a wiring bug degrades to a
+crippled-but-safe agent rather than a dead one.
 
 ## Subagents
 
-Subagents follow the exact same bash safety policy as the main agent. They no longer bypass dangerous-command approval.
+Each subagent's `prepareCall` builds a **fresh** `experimental_context`, so
+policy does not propagate implicitly — every subagent has to be wired
+(`subagents/prepare-call.ts` does this centrally, and `subagents/registry.test.ts`
+asserts it over `SUBAGENT_REGISTRY`, so a fourth subagent added without the
+wiring fails CI).
 
-## Key Files
+`toSubagentPolicyContext()` (`subagents/policy-context.ts`) narrows the session's
+context and can only ever narrow it:
+
+- **Non-interactive.** A subagent runs inside `taskTool.execute`, whose stream
+  handler forwards only `tool-call` and `finish-step` parts. There is no channel
+  to a UI, so a pause would hang the parent tool call rather than prompt anyone.
+  An `ask` therefore resolves to an `approval-unavailable` refusal that names the
+  missing approver, and the parent — which does have one — may attempt the
+  operation itself.
+- **Profile.** `explorer` runs under `createReadOnlyPolicy()` derived from the
+  session's own policy. Its read-only contract is enforced by the profile, not by
+  its tool list: it has no `write`/`edit` tool, but its `bash` could otherwise
+  redirect, `sed -i`, or `npm install`. Its prompt says the restriction is
+  enforced so the model does not waste steps attempting denied writes.
+
+`executor` and `design` inherit the session's policy unchanged, minus
+interactivity.
+
+## Approvals
+
+The agent package can decide *whether* approval is needed. It can never decide
+whether one was *granted* — the record lives in a database this package cannot
+reach. `policy/approval-gate.ts` declares the seam:
+
+- `request(...)` runs from `needsApproval`, **before** the SDK pauses, so the
+  pause the user sees has a row behind it that can expire, be attributed, and be
+  spent once.
+- `verify(...)` runs from `execute`, **after** policy has been re-evaluated, and
+  is what authorizes the call. Its refusal becomes the tool's result.
+
+A gate is **not** optional for an `ask`. A gate that *fails* refuses
+(`unavailable`) and an absent gate refuses too (`no_gate`) — different
+situations, different codes, but both refusals. An absent gate used to authorize,
+on the grounds that the SDK's own pause was then the only gate; that made "an
+`ask` is backed by a server-side record" a property of whichever caller wired
+one, so a new entry point could supply `policy`, omit `approvalGate`, and drop
+back to the client-asserted flow with nothing failing. Only an `ask` reaches the
+gate, so a caller without one loses its gated commands, not its agent.
+
+Order in `enforcePolicyWithApproval()` matters: policy is re-evaluated first, so
+a rule that became a denial after the approval was granted still refuses; only
+then is the approval spent, and only when the decision is actually `ask`.
+
+## Audit
+
+`ask` and `deny` decisions are handed to the context's `PolicyEventRecorder`.
+Recording is fire-and-forget and best-effort: a recorder that is slow or broken
+must never change what a tool does. Everything derived from model-supplied text
+passes through `policy/redact.ts` first, which is eager by design — a denied
+command is exactly the kind of command most likely to contain a credential.
+
+The package ships `noopPolicyEventRecorder`; the host injects a real one.
+
+## The pre-policy denylist
+
+The `commandNeedsApproval()` shim that reproduced the pre-policy bash denylist
+is gone. Its regexes live in the baseline as the `bash.ask.legacy.*` rules, and
+its one remaining caller — `bashTool`'s `needsApproval` fallback for a context
+with no policy — only chose whether to pause before a refusal `execute` was
+going to return anyway. Call `evaluate()` with a policy and a posture.
+
+What the shim guaranteed is still pinned: `policy/absorbed-denylist.test.ts`
+asserts that no command the old denylist gated evaluates to `allow` under
+`auto`, and that its near misses still do.
+
+## Key files
 
 | File | Purpose |
 | --- | --- |
-| `packages/agent/tools/bash.ts` | Hardcoded bash safety policy |
-| `packages/agent/tools/utils.ts` | Sandbox context helpers |
-| `packages/agent/subagents/executor.ts` | Executor subagent context |
-| `packages/agent/subagents/explorer.ts` | Explorer subagent context |
+| `policy/types.ts` | Zod schemas for rules, postures, decisions; types via `z.infer` |
+| `policy/command-parser.ts` | Quote-aware bash segmenter |
+| `policy/command-wrappers.ts` | The wrapper table behind `CommandSegment.commandText` |
+| `policy/command-policy.ts` | `evaluate()` — precedence, segment merge, posture |
+| `policy/default-policy.ts` | The shipped baseline, including the absorbed legacy rules |
+| `policy/write-class-commands.ts` | The write/network families both derived profiles name |
+| `policy/read-only-policy.ts` | `createReadOnlyPolicy()` and the derived profile |
+| `policy/strict-policy.ts` | `createStrictPolicy()` and the profile `strict` sessions run |
+| `policy/execution-context.ts` | `AgentPolicyContext`, policy events, recorder seam |
+| `policy/approval-gate.ts` | `ApprovalGate` seam and its fail-closed wrappers |
+| `policy/call-options.ts` | The policy fields every agent accepts, and their assembly |
+| `policy/golden-corpus.ts` | Command → expected decision per posture |
+| `policy/compiled-policy.ts` | Per-policy rule bucketing `evaluate()` matches against |
+| `tools/policy-enforcement.ts` | The enforcement point both hooks call |
+| `tools/bash-working-directory.ts` | The bash `cwd` containment rule |
+| `subagents/policy-context.ts` | Narrowing the context for a subagent |

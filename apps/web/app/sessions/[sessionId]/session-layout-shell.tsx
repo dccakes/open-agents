@@ -22,6 +22,7 @@ import {
 import { SessionHeader } from "./chats/[chatId]/session-header";
 import { ChatTabs } from "./chats/[chatId]/chat-tabs";
 import { SessionLayoutContext } from "./session-layout-context";
+import { SessionPostureProvider } from "./session-posture-context";
 
 type SessionLayoutShellProps = {
   session: Session;
@@ -151,6 +152,7 @@ export function SessionLayoutShell({
   const layoutContext = useMemo(
     () => ({
       session: {
+        id: initialSession.id,
         title: initialSession.title,
         repoName: initialSession.repoName,
         repoOwner: initialSession.repoOwner,
@@ -182,11 +184,19 @@ export function SessionLayoutShell({
 
   return (
     <SessionLayoutContext.Provider value={layoutContext}>
-      <GitPanelProvider>
-        <SessionLayoutInner activeChatId={activeChatId}>
-          {children}
-        </SessionLayoutInner>
-      </GitPanelProvider>
+      {/* Seeded from the row this layout already loaded, so the posture is
+          right on first paint and the header and the transcript share one
+          copy of it. */}
+      <SessionPostureProvider
+        sessionId={sessionId}
+        initialPosture={initialSession.posture}
+      >
+        <GitPanelProvider>
+          <SessionLayoutInner activeChatId={activeChatId}>
+            {children}
+          </SessionLayoutInner>
+        </GitPanelProvider>
+      </SessionPostureProvider>
     </SessionLayoutContext.Provider>
   );
 }

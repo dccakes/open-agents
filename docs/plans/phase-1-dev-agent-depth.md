@@ -148,6 +148,53 @@ covers "who may manage shared org configuration."
 
 ## WS-1.1 — Command policy & security postures
 
+> **Status:** WS-1.1 is specified by `openspec/changes/command-policy-and-postures/`, which is the
+> authority for this workstream. It refines the design below after reading the code:
+>
+> - The repo already has AI SDK v6 tool approvals (`needsApproval` → `approval-requested` part →
+>   the workflow loop breaks at `chat.ts:89-94`), so the approval flow is an existing rail to
+>   harden, not one to build. `needsApproval` can pause but has no "reject" return, so `deny`
+>   must live in `execute` — two enforcement points, with `execute` authoritative.
+> - Approval today is **client-asserted**: the decision travels back inside the client-supplied
+>   `messages[].parts`. That is the strongest reason for the `approval` table — it makes the
+>   decision authorizable, expirable, single-use, and auditable.
+> - The workflow *ends* rather than parks on a pause, so resume already reprovisions a hibernated
+>   sandbox via the existing provisioning path. "Approvals survive sandbox death" is a test of
+>   existing machinery, not new machinery.
+> - There is a third subagent (`design`) beyond executor and explorer, and each builds a fresh
+>   `experimental_context` — policy does not propagate implicitly, so a registry conformance test
+>   guards against an unwired fourth.
+> - `usage_events` cannot back a live budget (written once, terminally, best-effort, no run key),
+>   so per-run budgets are enforced from the workflow's accumulated usage and persisted per step;
+>   `workflow_runs` gains an in-progress lifecycle.
+>
+> **Implemented.** Groups 0–6 have landed. What shipped: the policy module and its golden
+> corpus; enforcement in the shared tool factories covering all three subagents; `strict` as a
+> derived profile with `defaultAction: "ask"` (so it genuinely differs from `auto` rather than
+> only gating auto-commit); server-authoritative approvals with single-use compare-and-set,
+> expiry-on-read and an append-only `policy_event`; per-run token/step budgets and the org daily
+> budget; app-level gating of auto-commit and auto-PR; the chat approval prompt and posture
+> selector; and the docs, including a new root `SECURITY.md`.
+>
+> **Not done, and tracked in the change's `tasks.md` Status section:** manual end-to-end
+> verification against a live session (6.9 — everything is covered by automated tests, but the
+> approval loop was broken through five task groups and caught by review rather than CI, so this
+> is worth doing before the posture is offered to anyone); cron scheduling for the expiry sweeper
+> (the handler exists; the repo has no cron infrastructure); a `./policy` subpath export on the
+> agent package; consolidation of the `approval-*` module cluster.
+>
+> **Two follow-ups that change scope rather than finish it:**
+> 1. *Budgets should be denominated in cost, not tokens* — a cheaper model should buy more usage,
+>    not the same token count. `extractGatewayCost` already parses per-step USD; it is never
+>    accumulated or enforced on. Touches WS-1.0's `orgSettings.dailyTokenBudget`, so
+>    expand-contract.
+> 2. *The policy vocabulary is bash-shaped* — `PolicyRule.pattern` is one regex over one string,
+>    which cannot describe a structured connector call. **WS-1.2 hits this first** (see its note
+>    below). The narrowing primitive for composing policies already exists and generalizes.
+>
+> See its `design.md` for decisions, rejected alternatives, and open questions 5 and 6 for the two
+> follow-ups above.
+
 **Problem.** The agent's `bash` tool executes whatever the loop decides, in a sandbox with
 open egress and (in dev-task use) real repo credentials. There is no notion of "this
 command requires human approval." QM's model: named postures (Strict / Auto / Dangerous)
@@ -265,6 +312,19 @@ integrations); migrate onto the Phase 2 connector framework later.
     `grafana-dashboards` — search dashboards.
   - `sentry-issues` — search issues; `sentry-issue-detail` — fetch one issue + latest
     event stack trace.
+> **Prerequisite raised by WS-1.1.** The allowlist below is the first *fine-grained,
+> per-connector* policy rule this system needs, and WS-1.1's policy vocabulary cannot express it:
+> `PolicyRule.pattern` is a single regex matched against one string per tool, which describes a
+> bash command well and a structured connector call not at all. Building the allowlist as a
+> bespoke check inside the client factory would make it a second policy evaluator, invisible to
+> the golden corpus, to `policy_event`, and to posture — the same shape as the `web_fetch` and
+> `LEGACY_UNRECORDED_APPROVAL_TOOLS` exceptions WS-1.1 already had to carve out. Decide first
+> whether to extend the policy vocabulary to structured tool inputs (WS-1.1 `design.md` open
+> question 6). The narrowing machinery it needs already exists — `createReadOnlyPolicy` and
+> `strictPolicy` derive from a source policy by `capability` — so this is an extension, not a
+> rewrite. Doing it here also settles it before Phase 2 makes rules admin-authored and freezes
+> regex-over-one-string as a compatibility surface.
+
 - **Data allowlist, not all-of-PostHog.** Unrestricted HogQL is arbitrary read access to
   person properties (real-user PII) — exactly the "bolt ACLs on later" failure the
   roadmap warns against, one phase early. Admins define an allowlist of queryable

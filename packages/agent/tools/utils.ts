@@ -1,6 +1,8 @@
 import { connectSandbox, type Sandbox } from "@open-agents/sandbox";
 import type { LanguageModel, ModelMessage } from "ai";
 import * as path from "path";
+import type { AgentPolicyContext } from "../policy";
+import { isAgentPolicyContext } from "../policy";
 import type { AgentContext } from "../types";
 
 function isAgentContext(value: unknown): value is AgentContext {
@@ -146,6 +148,29 @@ export function getModel(
     );
   }
   return context.model;
+}
+
+/**
+ * Get the policy context from the execution context.
+ *
+ * Unlike `getSandbox` and `getModel` this never throws: a missing policy is a
+ * decision the caller has to make (side-effecting tools refuse, read-only tools
+ * proceed), and a refusal has to reach the model as a tool result rather than
+ * as an exception. It also deliberately does not require a sandbox or a model
+ * in context, so `needsApproval` can resolve a policy before anything else.
+ */
+export function getPolicy(
+  experimental_context: unknown,
+): AgentPolicyContext | undefined {
+  if (
+    typeof experimental_context !== "object" ||
+    experimental_context === null
+  ) {
+    return undefined;
+  }
+
+  const { policy } = experimental_context as { policy?: unknown };
+  return isAgentPolicyContext(policy) ? policy : undefined;
 }
 
 /**

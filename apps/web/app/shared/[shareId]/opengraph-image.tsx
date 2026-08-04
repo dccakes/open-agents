@@ -1,8 +1,9 @@
 import { ImageResponse } from "next/og";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { chatMessages, users, workflowRuns } from "@/lib/db/schema";
 import { getChatById } from "@/lib/db/sessions";
+import { isFinishedWorkflowRun } from "@/lib/db/workflow-runs";
 import {
   getSessionByIdCached,
   getShareByIdCached,
@@ -63,7 +64,9 @@ export default async function Image({
         totalMs: sql<number>`coalesce(sum(${workflowRuns.totalDurationMs}), 0)`,
       })
       .from(workflowRuns)
-      .where(eq(workflowRuns.chatId, chat.id)),
+      // A `workflow_runs` row no longer implies a finished run, so runs in
+      // flight (whose duration is null) are excluded explicitly.
+      .where(and(eq(workflowRuns.chatId, chat.id), isFinishedWorkflowRun())),
     db
       .select({
         count: sql<number>`count(*)`,
