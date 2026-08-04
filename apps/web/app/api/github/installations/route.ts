@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getInstallationsByUserId } from "@/lib/db/installations";
+import { getVisibleInstallations } from "@/lib/github/visible-installations";
 import { getInstallationManageUrl } from "@/lib/github/urls";
 import { getServerSession } from "@/lib/session/get-server-session";
 
@@ -11,7 +11,7 @@ export async function GET() {
   }
 
   try {
-    const installations = await getInstallationsByUserId(session.user.id);
+    const installations = await getVisibleInstallations(session.user.id);
 
     return NextResponse.json(
       installations.map((installation) => ({

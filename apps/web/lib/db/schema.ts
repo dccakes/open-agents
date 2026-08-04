@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import type { SandboxProviderType, SandboxState } from "@open-agents/sandbox";
 import type { ModelVariant } from "@/lib/model-variants";
 import type { DbTeardownMetadata } from "@/lib/sandbox/db-provisioner";
@@ -171,6 +172,11 @@ export const orgSettings = pgTable(
     agentRunsPaused: boolean("agent_runs_paused").notNull().default(false),
     // NULL means unlimited. Stored and gated here; enforcement is WS-1.1's.
     dailyTokenBudget: integer("daily_token_budget"),
+    // The Vercel team the organization's projects live under — the org's
+    // tie-in to Vercel, as distinct from the per-user Vercel OAuth identity
+    // that actually performs API calls. NULL means "not recorded yet".
+    vercelTeamId: text("vercel_team_id"),
+    vercelTeamSlug: text("vercel_team_slug"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -188,6 +194,56 @@ export type NewOrgInvitation = typeof orgInvitations.$inferInsert;
 export type OrgSettingsRow = typeof orgSettings.$inferSelect;
 export type NewOrgSettingsRow = typeof orgSettings.$inferInsert;
 
+// GitHub accounts the organization claims as its own.
+//
+// The promotion key is `accountId` — GitHub's immutable numeric account id —
+// not the login and not the installation id. Logins are rename-able, and an
+// uninstall/reinstall cycle issues a *new* installation id, so an allowlist
+// keyed by either would silently stop applying at exactly the moment nobody is
+// watching. `accountLogin` is carried for display only.
+//
+// `accountType` is constrained to `Organization` at the type level because a
+// personal GitHub account is never promotable: sharing one would hand the
+// whole organization access to a member's private repositories.
+export const orgGitHubAccounts = pgTable(
+  "org_github_accounts",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    accountId: integer("account_id").notNull(),
+    accountLogin: text("account_login").notNull(),
+    accountType: text("account_type", { enum: ["Organization"] })
+      .notNull()
+      .default("Organization"),
+    addedByUserId: text("added_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("org_github_accounts_org_account_idx").on(
+      table.organizationId,
+      table.accountId,
+    ),
+  ],
+);
+
+// GitHub App installations.
+//
+// Ownership is discriminated by `organizationId`: non-NULL means the
+// organization owns this installation and exactly one row represents it;
+// NULL means the row is personal to `userId`.
+//
+// `userId` stays NOT NULL in both modes, but its *meaning* changes with
+// ownership — on an org-owned row it is provenance ("who installed it"), not
+// authority. Nothing resolves an org-owned installation through it. The column
+// keeps its name rather than being renamed to `installed_by_user_id`: a rename
+// during the expand step risks drizzle-kit emitting drop-and-add instead of
+// `ALTER ... RENAME`, and the semantic point is carried by the resolver
+// signatures, which take no user id at all.
 export const githubInstallations = pgTable(
   "github_installations",
   {
@@ -195,7 +251,15 @@ export const githubInstallations = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Non-NULL ⇒ organization-owned. See the ownership note above.
+    organizationId: text("organization_id").references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     installationId: integer("installation_id").notNull(),
+    // GitHub's immutable numeric account id, matched against the allowlist.
+    // Nullable because rows written before this column existed have none; the
+    // backfill fills what it can resolve and leaves the rest personal.
+    accountId: integer("account_id"),
     accountLogin: text("account_login").notNull(),
     accountType: text("account_type", {
       enum: ["User", "Organization"],
@@ -216,15 +280,35 @@ export const githubInstallations = pgTable(
       table.userId,
       table.accountLogin,
     ),
+    // "Exactly one organization-owned row per installation", enforced by the
+    // database rather than by the promotion routine remembering. Partial, so
+    // the personal rows this does not govern are unaffected.
+    uniqueIndex("github_installations_org_installation_idx")
+      .on(table.organizationId, table.installationId)
+      .where(sql`${table.organizationId} IS NOT NULL`),
   ],
 );
 
+// Repository → Vercel project links.
+//
+// Same ownership discriminator as `github_installations`: non-NULL
+// `organizationId` means the organization owns the mapping and every member
+// resolves it; NULL means the row is one member's personal mapping.
+//
+// Promotion is done *in place* — one existing row gains an `organizationId`
+// and the duplicates are deleted — rather than by inserting a new org row.
+// Inserting would collide with the `(userId, repoOwner, repoName)` primary key
+// whenever the promoting user already had their own mapping for that repo.
 export const vercelProjectLinks = pgTable(
   "vercel_project_links",
   {
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Non-NULL ⇒ organization-owned; `userId` is then provenance only.
+    organizationId: text("organization_id").references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     repoOwner: text("repo_owner").notNull(),
     repoName: text("repo_name").notNull(),
     projectId: text("project_id").notNull(),
@@ -238,6 +322,45 @@ export const vercelProjectLinks = pgTable(
     primaryKey({
       columns: [table.userId, table.repoOwner, table.repoName],
     }),
+    // One organization-owned mapping per repository.
+    uniqueIndex("vercel_project_links_org_repo_idx")
+      .on(table.organizationId, table.repoOwner, table.repoName)
+      .where(sql`${table.organizationId} IS NOT NULL`),
+  ],
+);
+
+// Repositories whose members recorded *different* Vercel projects.
+//
+// A row here means "we deliberately did not pick a winner". The competing
+// candidates are not copied into this table — the per-user rows are retained
+// on conflict, so the candidates are queryable from `vercel_project_links`
+// itself and cannot drift out of sync with a snapshot.
+//
+// The reasoning behind not auto-resolving: a Vercel project link decides where
+// a deployment lands. "Most recently updated wins" is a defensible rule for a
+// preference and an indefensible one for a deploy target.
+export const vercelProjectLinkConflicts = pgTable(
+  "vercel_project_link_conflicts",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    repoOwner: text("repo_owner").notNull(),
+    repoName: text("repo_name").notNull(),
+    detectedAt: timestamp("detected_at").defaultNow().notNull(),
+    // NULL while unresolved. The contract step is gated on there being none.
+    resolvedAt: timestamp("resolved_at"),
+    resolvedByUserId: text("resolved_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => [
+    uniqueIndex("vercel_project_link_conflicts_org_repo_idx").on(
+      table.organizationId,
+      table.repoOwner,
+      table.repoName,
+    ),
   ],
 );
 
@@ -700,11 +823,24 @@ export const usageEvents = pgTable(
 export type UsageEvent = typeof usageEvents.$inferSelect;
 export type NewUsageEvent = typeof usageEvents.$inferInsert;
 
-// Linear workspace connection (one per deployment)
+// The Linear workspace connection.
+//
+// `organizationId` is what the connection is resolved by — previously it was
+// whichever row happened to be oldest, which is only correct while exactly one
+// row exists. `installedByUserId` is provenance: the connection survives that
+// user leaving, and the OAuth grant is taken with `actor=app`, so the stored
+// token is the application's rather than any person's.
+//
+// Backfilled at runtime by the seeder rather than by the migration, for the
+// same reason `org_settings`' row is: migrations are static SQL and cannot
+// know the seeded organization's id.
 export const linearWorkspaces = pgTable(
   "linear_workspaces",
   {
     id: text("id").primaryKey(),
+    organizationId: text("organization_id").references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     workspaceId: text("workspace_id").notNull(),
     workspaceName: text("workspace_name").notNull(),
     accessToken: text("access_token").notNull(),
@@ -716,8 +852,56 @@ export const linearWorkspaces = pgTable(
   },
   (table) => [
     uniqueIndex("linear_workspaces_workspace_id_idx").on(table.workspaceId),
+    // At most one active connection per organization.
+    uniqueIndex("linear_workspaces_organization_id_idx")
+      .on(table.organizationId)
+      .where(sql`${table.organizationId} IS NOT NULL`),
+  ],
+);
+
+// Linear identities mapped to QuackOps users by an administrator.
+//
+// The webhook carries no cookie, so an actor is otherwise matched by email
+// string. `accountLinking.allowDifferentEmails` is enabled, which makes a
+// Linear address differing from a sign-in address an ordinary state rather
+// than a misconfiguration — so it needs a deliberate resolution path. This is
+// that path. It is emphatically *not* a fallback identity: an actor with
+// neither a verified-email match nor a row here does not resolve at all.
+export const linearActorLinks = pgTable(
+  "linear_actor_links",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** The actor's Linear user id, as it appears on the webhook payload. */
+    linearUserId: text("linear_user_id").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdByUserId: text("created_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    // One Linear identity resolves to exactly one QuackOps user.
+    uniqueIndex("linear_actor_links_org_linear_user_idx").on(
+      table.organizationId,
+      table.linearUserId,
+    ),
+    index("linear_actor_links_user_id_idx").on(table.userId),
   ],
 );
 
 export type LinearWorkspace = typeof linearWorkspaces.$inferSelect;
 export type NewLinearWorkspace = typeof linearWorkspaces.$inferInsert;
+export type LinearActorLink = typeof linearActorLinks.$inferSelect;
+export type NewLinearActorLink = typeof linearActorLinks.$inferInsert;
+export type OrgGitHubAccount = typeof orgGitHubAccounts.$inferSelect;
+export type NewOrgGitHubAccount = typeof orgGitHubAccounts.$inferInsert;
+export type VercelProjectLinkConflict =
+  typeof vercelProjectLinkConflicts.$inferSelect;
+export type NewVercelProjectLinkConflict =
+  typeof vercelProjectLinkConflicts.$inferInsert;

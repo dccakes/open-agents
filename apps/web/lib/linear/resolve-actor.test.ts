@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-let userRows: Array<{ id: string }> = [{ id: "u1" }];
+let userRows: Array<{ id: string; emailVerified: boolean }> = [
+  { id: "u1", emailVerified: true },
+];
 let approved = true;
+let mappedLink: { userId: string } | undefined;
+let organizationId: string | null = "org-1";
 
 mock.module("@/lib/db/client", () => ({
   db: {
@@ -17,20 +21,31 @@ mock.module("@/lib/org/membership", () => ({
   isApprovedMember: async () => approved,
 }));
 
+mock.module("@/lib/org/seeded-organization", () => ({
+  getSeededOrganizationId: async () => organizationId,
+}));
+
+mock.module("@/lib/db/linear-actor-links", () => ({
+  getLinearActorLink: async () => mappedLink,
+}));
+
 const modulePromise = import("@/lib/linear/resolve-actor");
 
 beforeEach(() => {
-  userRows = [{ id: "u1" }];
+  userRows = [{ id: "u1", emailVerified: true }];
   approved = true;
+  mappedLink = undefined;
+  organizationId = "org-1";
 });
 
 describe("resolveApprovedLinearActor", () => {
-  test("resolves an approved member", async () => {
+  test("resolves an approved member by verified email", async () => {
     const { resolveApprovedLinearActor } = await modulePromise;
 
     expect(await resolveApprovedLinearActor("grace@nextdegree.org")).toEqual({
       ok: true,
       userId: "u1",
+      via: "verified-email",
     });
   });
 
@@ -64,6 +79,58 @@ describe("resolveApprovedLinearActor", () => {
     expect(await resolveApprovedLinearActor(undefined)).toEqual({
       ok: false,
       reason: "no-email",
+    });
+  });
+
+  // An unverified address is an unproven claim about who someone is, and the
+  // webhook carries nothing else to check it against.
+  test("refuses a match on an unverified address", async () => {
+    userRows = [{ id: "u1", emailVerified: false }];
+    const { resolveApprovedLinearActor } = await modulePromise;
+
+    expect(await resolveApprovedLinearActor("spoofed@nextdegree.org")).toEqual({
+      ok: false,
+      reason: "unverified-email",
+      userId: "u1",
+    });
+  });
+
+  test("resolves an explicitly mapped Linear identity whose address matches nobody", async () => {
+    userRows = [];
+    mappedLink = { userId: "u7" };
+    const { resolveApprovedLinearActor } = await modulePromise;
+
+    expect(
+      await resolveApprovedLinearActor("contractor@elsewhere.com", "lin_1"),
+    ).toEqual({ ok: true, userId: "u7", via: "mapping" });
+  });
+
+  test("the mapping wins over a conflicting email match", async () => {
+    mappedLink = { userId: "u7" };
+    const { resolveApprovedLinearActor } = await modulePromise;
+
+    expect(
+      await resolveApprovedLinearActor("grace@nextdegree.org", "lin_1"),
+    ).toEqual({ ok: true, userId: "u7", via: "mapping" });
+  });
+
+  test("a mapped user removed from the organization starts no run", async () => {
+    approved = false;
+    mappedLink = { userId: "u7" };
+    const { resolveApprovedLinearActor } = await modulePromise;
+
+    expect(
+      await resolveApprovedLinearActor("grace@nextdegree.org", "lin_1"),
+    ).toEqual({ ok: false, reason: "pending", userId: "u7" });
+  });
+
+  test("refuses an actor with a Linear id but no mapping and no email", async () => {
+    userRows = [];
+    const { resolveApprovedLinearActor } = await modulePromise;
+
+    expect(await resolveApprovedLinearActor(undefined, "lin_unknown")).toEqual({
+      ok: false,
+      reason: "not-connected",
     });
   });
 });

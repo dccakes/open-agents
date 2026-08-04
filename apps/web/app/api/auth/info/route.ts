@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { hasGitHubAccount as checkGitHubLinked } from "@/lib/github/users";
-import { getInstallationsByUserId } from "@/lib/db/installations";
+import { getVisibleInstallations } from "@/lib/github/visible-installations";
 import { isUserAdmin, userExists } from "@/lib/db/users";
 import { isManagedTemplateTrialUser } from "@/lib/managed-template-trial";
 import { getSessionWithMembershipFromReq } from "@/lib/session/server";
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
   const [exists, hasGitHubAccount, installations, isAdmin] = await Promise.all([
     userExists(session.user.id),
     checkGitHubLinked(session.user.id),
-    getInstallationsByUserId(session.user.id),
+    getVisibleInstallations(session.user.id),
     isUserAdmin(session.user.id),
   ]);
 

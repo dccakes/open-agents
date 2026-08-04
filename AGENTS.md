@@ -32,6 +32,18 @@ Do **not** enable session cookie caching while permission checks resolve from th
 
 `ADMIN_EMAILS` is `required-prod`, so a production deploy fails at build time unless it is set — set it in the Vercel project environment before deploying. Both it and `ALLOWED_EMAIL_DOMAINS` require a *verified* email to match, and an unset allowlist auto-approves nobody.
 
+### Integration ownership
+
+Shared integrations belong to the **organization**; OAuth identities stay **personal** and only authorize the human. Concretely: a resolver for a shared resource takes no `userId`. If you find yourself adding one, that is a scoping bug in waiting — it is exactly what made GitHub installations per-person.
+
+Ownership is discriminated by a nullable `organizationId` column: non-NULL means the organization owns the row, NULL means it is personal. On an org-owned row the `userId` is **provenance** (who set it up), never authority.
+
+- **GitHub.** `github_installations` rows become org-owned only when an admin claims the GitHub account in `/settings/admin/integrations`. The allowlist (`org_github_accounts`) is keyed by GitHub's immutable numeric `account.id` — not the login (rename-able) and not the installation id (a reinstall issues a new one). Resolve with `getOrgInstallationByAccountLogin()`; list with `getVisibleInstallations()`.
+- **Authorization did not move.** `verifyRepoAccess` step 1 checks the *caller's own* GitHub credentials and is the authorization; step 2 resolves the installation and is not. That order is why org ownership widens nothing, and `lib/github/access.test.ts` pins it. Do not reorder those steps or let step 2's result satisfy step 1.
+- **Never prune org-owned rows from one user's view.** `GET /user/installations` answers "what can this user see". Removal comes from the `installation.deleted` webhook or `reconcileOrgInstallations()` (authenticated as the App). `deleteInstallationsNotInList` is scoped to `organization_id IS NULL` for this reason.
+- **Linear.** The connection is resolved by organization. Actors resolve by *verified* email or an admin-recorded `linear_actor_links` mapping — never a fallback identity.
+- **Vercel.** Repo→project links are org-scoped, but the migration only promotes repos whose members already agree; disagreements land in `vercel_project_link_conflicts` for a person to settle. Vercel API calls still use the acting member's own OAuth token.
+
 ## Configuration
 
 **Never read `process.env` outside a config module.** `bun run ci` fails if you do (`scripts/check-env-boundary.ts`).

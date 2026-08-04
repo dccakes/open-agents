@@ -139,7 +139,10 @@ beforeEach(() => {
   postedComments = [];
   deferredTasks = [];
   selectRows.clear();
-  selectRows.set(users, [{ id: "user-1" }]);
+  // `emailVerified` is load-bearing, not incidental: the webhook carries no
+  // cookie, so an unverified address is an unproven claim about who the actor
+  // is and resolves to nobody.
+  selectRows.set(users, [{ id: "user-1", emailVerified: true }]);
   selectRows.set(sessions, []);
   selectRows.set(organizations, [{ id: "org-1" }]);
   selectRows.set(orgMembers, [

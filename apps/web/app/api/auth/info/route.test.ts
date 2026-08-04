@@ -42,8 +42,8 @@ mock.module("@/lib/github/users", () => ({
   deleteGitHubAccountLink: async () => undefined,
 }));
 
-mock.module("@/lib/db/installations", () => ({
-  getInstallationsByUserId: async () => installations,
+mock.module("@/lib/github/visible-installations", () => ({
+  getVisibleInstallations: async () => installations,
 }));
 
 const routeModulePromise = import("./route");

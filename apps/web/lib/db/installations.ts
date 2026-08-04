@@ -1,4 +1,13 @@
-import { and, asc, eq, notInArray, or } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  notInArray,
+  or,
+} from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { db } from "./client";
 import {
@@ -14,11 +23,66 @@ export interface UpsertInstallationInput {
   accountType: "User" | "Organization";
   repositorySelection: "all" | "selected";
   installationUrl?: string | null;
+  /** GitHub's immutable numeric account id, when the payload carried one. */
+  accountId?: number | null;
+}
+
+/**
+ * Metadata a refresh may overwrite. `accountId` is only ever written, never
+ * cleared: a payload that omits it must not erase what an earlier one told us,
+ * because it is the key the organization allowlist matches on.
+ */
+function refreshedColumns(data: UpsertInstallationInput, now: Date) {
+  return {
+    installationId: data.installationId,
+    accountLogin: data.accountLogin,
+    accountType: data.accountType,
+    repositorySelection: data.repositorySelection,
+    installationUrl: data.installationUrl ?? null,
+    ...(typeof data.accountId === "number"
+      ? { accountId: data.accountId }
+      : {}),
+    updatedAt: now,
+  };
 }
 
 export async function upsertInstallation(
   data: UpsertInstallationInput,
 ): Promise<GitHubInstallation> {
+  const now = new Date();
+
+  // An organization-owned record for this installation absorbs the refresh.
+  //
+  // Without this branch, a member syncing an installation the organization
+  // already owns would find no row of *their own*, insert a personal one, and
+  // re-fragment exactly what promotion collapsed — silently, on every sync.
+  const [orgOwned] = await db
+    .select({ id: githubInstallations.id })
+    .from(githubInstallations)
+    .where(
+      and(
+        eq(githubInstallations.installationId, data.installationId),
+        isNotNull(githubInstallations.organizationId),
+      ),
+    )
+    .limit(1);
+
+  if (orgOwned) {
+    const [updated] = await db
+      .update(githubInstallations)
+      // `userId` is deliberately absent: on an organization-owned record it is
+      // provenance — who installed it — not whoever synced most recently.
+      .set(refreshedColumns(data, now))
+      .where(eq(githubInstallations.id, orgOwned.id))
+      .returning();
+
+    if (!updated) {
+      throw new Error("Failed to update organization GitHub installation");
+    }
+
+    return updated;
+  }
+
   const existing = await db
     .select({ id: githubInstallations.id })
     .from(githubInstallations)
@@ -33,19 +97,10 @@ export async function upsertInstallation(
     )
     .limit(1);
 
-  const now = new Date();
-
   if (existing[0]) {
     const [updated] = await db
       .update(githubInstallations)
-      .set({
-        installationId: data.installationId,
-        accountLogin: data.accountLogin,
-        accountType: data.accountType,
-        repositorySelection: data.repositorySelection,
-        installationUrl: data.installationUrl ?? null,
-        updatedAt: now,
-      })
+      .set(refreshedColumns(data, now))
       .where(eq(githubInstallations.id, existing[0].id))
       .returning();
 
@@ -60,6 +115,7 @@ export async function upsertInstallation(
     id: nanoid(),
     userId: data.userId,
     installationId: data.installationId,
+    accountId: data.accountId ?? null,
     accountLogin: data.accountLogin,
     accountType: data.accountType,
     repositorySelection: data.repositorySelection,
@@ -108,6 +164,118 @@ export async function getInstallationByAccountLogin(
   return installation;
 }
 
+/**
+ * The organization's installation for a repository owner.
+ *
+ * Takes no caller id — that is the whole point. Every approved member resolves
+ * the same record, so access stops depending on which colleague happened to
+ * sync most recently. Authorization is not weakened by this: `verifyRepoAccess`
+ * has already proved the caller's own GitHub credentials reach the repository
+ * before it gets here.
+ */
+export async function getOrgInstallationByAccountLogin(
+  organizationId: string,
+  accountLogin: string,
+): Promise<GitHubInstallation | undefined> {
+  const [installation] = await db
+    .select()
+    .from(githubInstallations)
+    .where(
+      and(
+        eq(githubInstallations.organizationId, organizationId),
+        eq(githubInstallations.accountLogin, accountLogin),
+      ),
+    )
+    .limit(1);
+
+  return installation;
+}
+
+/** Every installation the organization owns, for listing surfaces. */
+export async function getOrgInstallations(
+  organizationId: string,
+): Promise<GitHubInstallation[]> {
+  return db
+    .select()
+    .from(githubInstallations)
+    .where(eq(githubInstallations.organizationId, organizationId))
+    .orderBy(asc(githubInstallations.accountLogin));
+}
+
+/** Installation records for a GitHub account id, across every owner. */
+export async function getInstallationsByAccountId(
+  accountId: number,
+): Promise<GitHubInstallation[]> {
+  return db
+    .select()
+    .from(githubInstallations)
+    .where(eq(githubInstallations.accountId, accountId));
+}
+
+/** Every organization-owned installation, regardless of organization. */
+export async function getAllOrgOwnedInstallations(): Promise<
+  GitHubInstallation[]
+> {
+  return db
+    .select()
+    .from(githubInstallations)
+    .where(isNotNull(githubInstallations.organizationId));
+}
+
+/** Installation records still missing the numeric account id, for backfill. */
+export async function getInstallationsMissingAccountId(): Promise<
+  GitHubInstallation[]
+> {
+  return db
+    .select()
+    .from(githubInstallations)
+    .where(isNull(githubInstallations.accountId));
+}
+
+export async function setInstallationAccountId(
+  id: string,
+  accountId: number,
+): Promise<void> {
+  await db
+    .update(githubInstallations)
+    .set({ accountId, updatedAt: new Date() })
+    .where(eq(githubInstallations.id, id));
+}
+
+/** Make a record the organization's. Idempotent by construction. */
+export async function claimInstallationForOrganization(params: {
+  id: string;
+  organizationId: string;
+}): Promise<void> {
+  await db
+    .update(githubInstallations)
+    .set({ organizationId: params.organizationId, updatedAt: new Date() })
+    .where(eq(githubInstallations.id, params.id));
+}
+
+/** Return a record to personal ownership by the user recorded on it. */
+export async function releaseInstallationFromOrganization(
+  id: string,
+): Promise<void> {
+  await db
+    .update(githubInstallations)
+    .set({ organizationId: null, updatedAt: new Date() })
+    .where(eq(githubInstallations.id, id));
+}
+
+export async function deleteInstallationsByIds(ids: string[]): Promise<number> {
+  if (ids.length === 0) {
+    return 0;
+  }
+
+  const deleted = await db
+    .delete(githubInstallations)
+    .where(inArray(githubInstallations.id, ids))
+    .returning({ id: githubInstallations.id });
+
+  return deleted.length;
+}
+
 export async function getInstallationByUserAndId(
   userId: string,
   installationId: number,
@@ -146,17 +314,41 @@ export async function deleteInstallationByInstallationId(
   return deleted.length;
 }
 
+/**
+ * Delete a user's *personal* installation records.
+ *
+ * Scoped to `organization_id IS NULL` so account removal or a failed sync
+ * cannot take the organization's installations with it. Organization-owned
+ * records are removed by GitHub's `installation.deleted` event or by
+ * reconciliation against the App's own list — never as a side effect of one
+ * person's state.
+ */
 export async function deleteInstallationsByUserId(
   userId: string,
 ): Promise<number> {
   const deleted = await db
     .delete(githubInstallations)
-    .where(eq(githubInstallations.userId, userId))
+    .where(
+      and(
+        eq(githubInstallations.userId, userId),
+        isNull(githubInstallations.organizationId),
+      ),
+    )
     .returning({ id: githubInstallations.id });
 
   return deleted.length;
 }
 
+/**
+ * Prune the personal records absent from a user's own view of GitHub.
+ *
+ * `GET /user/installations` answers "what can *this user* see", which stopped
+ * being a safe basis for deletion the moment one record began serving the
+ * whole organization: a member who leaves the GitHub organization, or whose
+ * OAuth grant lapses, would otherwise delete the organization's installation
+ * for everyone on their next sync. The `organization_id IS NULL` predicate is
+ * what makes that impossible.
+ */
 export async function deleteInstallationsNotInList(
   userId: string,
   installationIds: number[],
@@ -170,6 +362,7 @@ export async function deleteInstallationsNotInList(
     .where(
       and(
         eq(githubInstallations.userId, userId),
+        isNull(githubInstallations.organizationId),
         notInArray(githubInstallations.installationId, installationIds),
       ),
     )

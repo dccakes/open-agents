@@ -1,4 +1,8 @@
-import { getInstallationByAccountLogin } from "@/lib/db/installations";
+import {
+  getInstallationByAccountLogin,
+  getOrgInstallationByAccountLogin,
+} from "@/lib/db/installations";
+import { getSeededOrganizationId } from "@/lib/org/seeded-organization";
 import { withScopedInstallationOctokit } from "./app";
 import { getUserOctokit } from "./client";
 
@@ -57,10 +61,47 @@ function getGitHubHttpStatus(error: unknown): number | null {
 }
 
 /**
+ * Resolve the installation covering `accountLogin`.
+ *
+ * The organization's own installation is preferred, and a personal record is
+ * the fallback — the dual read that lets this land before every account has
+ * been claimed. The contract step removes the fallback.
+ *
+ * Note what this function does *not* take: a permission, a role, or any notion
+ * of what the caller may reach. It is a resource lookup. The authorization
+ * happened in step 1 of `verifyRepoAccess`, against the caller's own GitHub
+ * credentials, and nothing here may be read as a substitute for it.
+ */
+async function resolveInstallation(userId: string, accountLogin: string) {
+  const organizationId = await getSeededOrganizationId();
+
+  if (organizationId) {
+    const orgInstallation = await getOrgInstallationByAccountLogin(
+      organizationId,
+      accountLogin,
+    );
+    if (orgInstallation) {
+      return orgInstallation;
+    }
+  }
+
+  return await getInstallationByAccountLogin(userId, accountLogin);
+}
+
+/**
  * Verify that the user can access a repo AND the GitHub App installation
  * covers it. Returns the installationId on success.
  *
  * This enforces the intersection: user permissions ∩ installation scope.
+ *
+ * **The step order is load-bearing.** Step 1 checks the *caller's own* GitHub
+ * credentials and is the authorization; step 2 resolves the installation and
+ * is not. Because step 1 runs first and unconditionally, widening step 2 from
+ * a per-user record to the organization's leaves effective access exactly
+ * where it was: repositories this human can already see on GitHub, at the
+ * permission the action requires, intersected with what the installation
+ * covers. Reordering these, or making step 2's result able to satisfy step 1,
+ * would turn org ownership into a grant. `access.test.ts` pins this.
  */
 export async function verifyRepoAccess(params: {
   userId: string;
@@ -96,8 +137,8 @@ export async function verifyRepoAccess(params: {
     throw error;
   }
 
-  // 2. check installation exists for this owner
-  const installation = await getInstallationByAccountLogin(userId, owner);
+  // 2. check installation exists for this owner (organization's, else personal)
+  const installation = await resolveInstallation(userId, owner);
   if (!installation) {
     return { ok: false, reason: "no_installation" };
   }

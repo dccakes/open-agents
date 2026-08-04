@@ -35,6 +35,13 @@ export interface OrgSettingsValues {
   agentRunsPaused: boolean;
   /** NULL means unlimited. */
   dailyTokenBudget: number | null;
+  /**
+   * The Vercel team the organization's projects live under — the org's tie-in
+   * to Vercel, as distinct from the per-user Vercel OAuth identity that
+   * performs the API calls. NULL means "not recorded yet".
+   */
+  vercelTeamId: string | null;
+  vercelTeamSlug: string | null;
 }
 
 /**
@@ -45,6 +52,12 @@ export type DailyTokenBudget =
   | { limit: "unlimited" }
   | { limit: "limited"; dailyTokens: number };
 
+/**
+ * Deliberately excludes the Vercel team columns. They live on this row for
+ * storage convenience, but they are integration configuration and are gated on
+ * `integration.connect` through `lib/org/vercel-team.ts` — routing them
+ * through here would silently re-gate them on `orgSettings.update`.
+ */
 export const orgSettingsUpdateSchema = z
   .object({
     agentRunsPaused: z.boolean(),
@@ -58,6 +71,8 @@ const settingsColumns = {
   organizationId: orgSettings.organizationId,
   agentRunsPaused: orgSettings.agentRunsPaused,
   dailyTokenBudget: orgSettings.dailyTokenBudget,
+  vercelTeamId: orgSettings.vercelTeamId,
+  vercelTeamSlug: orgSettings.vercelTeamSlug,
 };
 
 async function requireSeededOrganizationId(): Promise<string> {
