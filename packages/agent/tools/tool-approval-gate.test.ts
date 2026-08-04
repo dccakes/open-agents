@@ -239,7 +239,14 @@ describe("execute-time verification", () => {
     expect(execCalls).toEqual(["ls -la"]);
   });
 
-  test("no gate wired means the SDK pause stays the only gate", async () => {
+  /**
+   * A missing gate used to authorize. That made "an `ask` is backed by a
+   * server-side record" a property of one call site rather than of the
+   * enforcement point: an entry point that supplied `policy` but forgot
+   * `approvalGate` degraded every `ask` back to the client-asserted flow with
+   * nothing failing. It now fails the same way a missing policy does.
+   */
+  test("an interactive ask with no gate wired refuses rather than proceeding", async () => {
     const result = await bashTool().execute?.(
       { command: "git push" },
       options(
@@ -248,8 +255,24 @@ describe("execute-time verification", () => {
       ),
     );
 
+    expect(isRefusal(result)).toBe(true);
+    if (isRefusal(result)) {
+      expect(result.policy.decision).toBe("approval-not-verified");
+      expect(result.error).toContain("wiring error");
+    }
+    expect(execCalls).toEqual([]);
+  });
+
+  test("a call the policy allows still runs with no gate wired", async () => {
+    // The refusal is scoped to `ask`: an unwired gate must not brick an agent
+    // whose commands are allowed outright.
+    const result = await bashTool().execute?.(
+      { command: "ls -la" },
+      options(contextWith(policyContext({ approvalGate: undefined }))),
+    );
+
     expect(isRefusal(result)).toBe(false);
-    expect(execCalls).toEqual(["git push"]);
+    expect(execCalls).toEqual(["ls -la"]);
   });
 
   test("legacy pauses that are not policy asks need no record", async () => {

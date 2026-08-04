@@ -41,14 +41,15 @@ import type { Approval } from "@/lib/db/schema";
  * Why an operation was refused. Distinct codes so the model can react.
  *
  * Derived from the agent's schema rather than restated, so the codes a tool can
- * receive and the codes this module can produce cannot drift apart. Only
- * `unavailable` is excluded: that one describes the gate failing to answer at
- * all, which is the agent-side wrapper's to report, not a state a row can be
- * in. The type import is erased at build time, as in `approval-gate.ts`.
+ * receive and the codes this module can produce cannot drift apart. Two are
+ * excluded: `unavailable` (the gate failing to answer) and `no_gate` (no gate
+ * wired at all). Both describe the seam rather than a state a row can be in, so
+ * they are the agent-side wrapper's to report. The type import is erased at
+ * build time, as in `approval-gate.ts`.
  */
 export type ApprovalRefusalCode = Exclude<
   ApprovalGateRefusalCode,
-  "unavailable"
+  "unavailable" | "no_gate"
 >;
 
 export type ApprovalVerification =

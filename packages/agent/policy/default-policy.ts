@@ -49,7 +49,18 @@ const PIPE_INTO_SHELL_PATTERN = new RegExp(
   String.raw`\|\s*(?:sudo\s+)?(?:\S*\/)?${SHELL_INTERPRETER}(?=\s|$)`,
 );
 
-const READ_ONLY_COMMAND = String.raw`(?:ls|pwd|cat|head|tail|wc|file|stat|du|df|tree|which|type|whoami|id|uname|hostname|date|echo|printf|basename|dirname|realpath|readlink|sort|uniq|cut|nl|diff|comm|grep|rg|ag|ack|fd|find|jq|yq|column|hexdump|xxd|strings|true|false)`;
+/**
+ * Commands that only look.
+ *
+ * This list carries more weight than it looks like it does. Under the baseline
+ * (`defaultAction: "allow"`) an allow rule can never change an outcome — but
+ * the derived profiles invert the default, so this is exactly the set that
+ * keeps `strict` usable and the explorer subagent functional. `sed` and `awk`
+ * are here because reading with them is everyday work; their in-place forms are
+ * write-class and are caught first, by an `ask` rule under `strict` and a `deny`
+ * rule under read-only (`write-class-commands.ts`).
+ */
+const READ_ONLY_COMMAND = String.raw`(?:ls|pwd|cd|cat|bat|less|more|head|tail|wc|file|stat|du|df|tree|which|type|whoami|id|uname|hostname|date|echo|printf|basename|dirname|realpath|readlink|sort|uniq|cut|nl|tr|sed|awk|diff|comm|grep|rg|ag|ack|fd|find|jq|yq|column|hexdump|xxd|strings|md5sum|shasum|sha1sum|sha256sum|true|false|sleep)`;
 
 // ------------------------------------------------------------------- deny --
 
@@ -267,6 +278,16 @@ const ALLOW_RULES: PolicyRule[] = [
     pattern: new RegExp(String.raw`^${READ_ONLY_COMMAND}(?=\s|$)`),
     capability: "read",
     reason: "Read-only inspection of the workspace.",
+  },
+  {
+    id: "bash.allow.version-probe",
+    action: "allow",
+    tool: "bash",
+    // Safe for any binary: deny and ask rules are matched first, so this can
+    // only decide a command no more restrictive rule already claimed.
+    pattern: /^\S+\s+(?:--version|--help)(?=\s|$)/,
+    capability: "read",
+    reason: "Asking a tool for its version or its usage text.",
   },
   {
     id: "bash.allow.git-read-only",

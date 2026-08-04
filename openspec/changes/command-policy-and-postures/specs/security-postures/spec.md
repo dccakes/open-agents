@@ -41,6 +41,18 @@ Under `strict`, every side-effecting operation SHALL require approval unless the
 - **WHEN** file reads, greps, and globs are issued in a `strict` session
 - **THEN** they execute without approval
 
+#### Scenario: A write-class command the baseline allows requires approval under strict
+- **WHEN** `git reset --hard`, `chmod -R 777 .`, `rm -r subdir`, `mv`, or `truncate` is issued in a `strict` session
+- **THEN** the run pauses for approval, even though the same command executes without interruption under `auto`
+
+#### Scenario: An unrecognised command requires approval under strict
+- **WHEN** a command matching no rule is issued in a `strict` session
+- **THEN** the run pauses for approval, rather than falling through to the baseline's `allow` default
+
+#### Scenario: File writes inside the workspace are not gated per file under strict
+- **WHEN** the agent writes or edits a workspace file in a `strict` session
+- **THEN** it proceeds without approval, subject to the workspace-containment and dotenv checks that apply in every posture
+
 ### Requirement: The dangerous posture collapses ask to allow but never bypasses deny
 Under `dangerous`, decisions of `ask` SHALL be treated as `allow`. Decisions of `deny` SHALL still refuse the operation. No posture SHALL be able to disable a `deny` rule.
 

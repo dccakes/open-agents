@@ -29,6 +29,15 @@ data. Every segment is evaluated, and the most restrictive segment decision wins
 Input the scanner cannot parse confidently yields the `unknown` outcome, which
 resolves to `ask` under `strict` and `auto`.
 
+Each segment carries two texts. `text` is the segment as written; `commandText`
+is `text` with a leading **wrapper** invocation removed — `sudo`, `env`,
+`command`, `nohup`, `nice`, `time`, `timeout`, `xargs`, and the rest of
+`policy/command-wrappers.ts`, along with their own options and operands. **Rules
+match `commandText` and decisions report `text`**, so `sudo npm install` reaches
+the same decision as `npm install` while the audit record still shows the `sudo`,
+and `^`-anchored rules keep meaning "this command runs" rather than "these words
+appear".
+
 Precedence within a policy is **deny → ask → allow**, first match within a class.
 Posture is applied last and can only relax `ask` (never `deny`) — see
 [`docs/policy-and-postures.md`](../../../docs/policy-and-postures.md) for the
@@ -157,10 +166,14 @@ reach. `policy/approval-gate.ts` declares the seam:
 - `verify(...)` runs from `execute`, **after** policy has been re-evaluated, and
   is what authorizes the call. Its refusal becomes the tool's result.
 
-A gate is optional. Without one, the SDK's own pause is the only gate — the
-pre-record behaviour, so a host that has not wired one keeps working. A gate that
-*fails* refuses (`unavailable`); an absent gate authorizes. Those are different
-situations and are treated differently on purpose.
+A gate is **not** optional for an `ask`. A gate that *fails* refuses
+(`unavailable`) and an absent gate refuses too (`no_gate`) — different
+situations, different codes, but both refusals. An absent gate used to authorize,
+on the grounds that the SDK's own pause was then the only gate; that made "an
+`ask` is backed by a server-side record" a property of whichever caller wired
+one, so a new entry point could supply `policy`, omit `approvalGate`, and drop
+back to the client-asserted flow with nothing failing. Only an `ask` reaches the
+gate, so a caller without one loses its gated commands, not its agent.
 
 Order in `enforcePolicyWithApproval()` matters: policy is re-evaluated first, so
 a rule that became a denial after the approval was granted still refuses; only
@@ -194,9 +207,12 @@ asserts that no command the old denylist gated evaluates to `allow` under
 | --- | --- |
 | `policy/types.ts` | Zod schemas for rules, postures, decisions; types via `z.infer` |
 | `policy/command-parser.ts` | Quote-aware bash segmenter |
+| `policy/command-wrappers.ts` | The wrapper table behind `CommandSegment.commandText` |
 | `policy/command-policy.ts` | `evaluate()` — precedence, segment merge, posture |
 | `policy/default-policy.ts` | The shipped baseline, including the absorbed legacy rules |
+| `policy/write-class-commands.ts` | The write/network families both derived profiles name |
 | `policy/read-only-policy.ts` | `createReadOnlyPolicy()` and the derived profile |
+| `policy/strict-policy.ts` | `createStrictPolicy()` and the profile `strict` sessions run |
 | `policy/execution-context.ts` | `AgentPolicyContext`, policy events, recorder seam |
 | `policy/approval-gate.ts` | `ApprovalGate` seam and its fail-closed wrappers |
 | `policy/call-options.ts` | The policy fields every agent accepts, and their assembly |

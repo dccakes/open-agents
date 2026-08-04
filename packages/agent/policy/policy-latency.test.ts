@@ -3,6 +3,7 @@ import { evaluate } from "./command-policy";
 import { defaultCommandPolicy } from "./default-policy";
 import { GOLDEN_CORPUS } from "./golden-corpus";
 import { readOnlyPolicy } from "./read-only-policy";
+import { strictPolicy } from "./strict-policy";
 import type { CommandPolicy, Posture } from "./types";
 
 /**
@@ -44,6 +45,15 @@ describe("policy evaluation latency", () => {
     // Reported so a regression shows the number, not just a failure.
     console.log(
       `evaluate() p95 ${p95.toFixed(3)} ms, max ${Math.max(...samples).toFixed(3)} ms over ${samples.length} commands`,
+    );
+    expect(p95).toBeLessThan(P95_BUDGET_MS);
+  });
+
+  test("p95 is under 5 ms with the strict profile, which a session really runs", () => {
+    const samples = measure(strictPolicy, "strict");
+    const p95 = percentile(samples, 0.95);
+    console.log(
+      `evaluate() p95 ${p95.toFixed(3)} ms with the strict profile, max ${Math.max(...samples).toFixed(3)} ms`,
     );
     expect(p95).toBeLessThan(P95_BUDGET_MS);
   });

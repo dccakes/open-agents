@@ -41,6 +41,14 @@ Bash commands SHALL be parsed into segments before matching. The parser SHALL tr
 - **WHEN** the command is `NODE_ENV=production npm publish`
 - **THEN** the segment's command is identified as `npm publish` and the decision is `ask`
 
+#### Scenario: A wrapper does not change which command is evaluated
+- **WHEN** the command is `sudo npm install`, `env FOO=1 npm publish`, or `timeout 60 git push`
+- **THEN** each reaches the same decision as the unwrapped command, and the decision reports the segment as written
+
+#### Scenario: A name appearing as an argument is not a command
+- **WHEN** the command is `cat scripts/npm-install-notes.md` or `echo "sudo npm install"`
+- **THEN** the decision is `allow`: the gated command's name appears only as text
+
 #### Scenario: Command substitution is evaluated
 - **WHEN** the command is `echo $(cat ~/.ssh/id_rsa)`
 - **THEN** the substituted segment is evaluated and the decision is not `allow`

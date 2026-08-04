@@ -27,16 +27,39 @@ import { recordPolicyEvent } from "@/lib/policy/policy-events";
 /**
  * Which rule set applies.
  *
- * `read-only` is the profile the explorer subagent runs under, in which every
- * write-class and network-class decision becomes a denial.
+ * - `default` — the shipped baseline.
+ * - `strict` — the baseline with `defaultAction: "ask"` and the write-class and
+ *   network-class families named, which is what gives the `strict` posture
+ *   teeth. A posture alone could not: the baseline allows by default, so
+ *   "every `ask` pauses" is something `auto` already does.
+ * - `read-only` — the profile the explorer subagent runs under, in which every
+ *   write-class and network-class decision becomes a denial.
+ *
+ * The names are what cross the workflow step boundary; the `CommandPolicy`
+ * objects behind them are resolved in `app/workflows/chat-run-policy.ts`.
  */
-export type PolicyProfileName = "default" | "read-only";
+export type PolicyProfileName = "default" | "read-only" | "strict";
+
+/**
+ * The profile a posture runs under when the caller did not name one.
+ *
+ * Applied to the *resolved* posture, so a `dangerous` request downgraded to
+ * `auto` for a non-interactive trigger does not pick up a strict profile it
+ * never asked for, and — more to the point — a `strict` session that a future
+ * trigger cannot downgrade keeps its teeth.
+ */
+function profileForPosture(posture: Posture): PolicyProfileName {
+  return posture === "strict" ? "strict" : "default";
+}
 
 export interface ResolveSessionPolicyInput {
   sessionId: string;
   /** Defaults to `interactive`, which is what a chat request is. */
   trigger?: RunTrigger;
-  /** Defaults to the shipped baseline. */
+  /**
+   * Overrides the profile the posture would select. A caller asking for a
+   * narrower profile (`read-only`) must win over the posture's.
+   */
   profile?: PolicyProfileName;
   /** Recorded on the downgrade event when there is one. */
   workflowRunId?: string | null;
@@ -106,6 +129,6 @@ export async function resolveSessionPolicy(
     requestedPosture: resolution.requested,
     postureDowngraded: resolution.downgraded,
     downgradeReason: resolution.reason,
-    profile: input.profile ?? "default",
+    profile: input.profile ?? profileForPosture(resolution.posture),
   };
 }

@@ -96,6 +96,18 @@ describe("buildRunPolicyOptions", () => {
     expect(typeof options.approvalGate?.verify).toBe("function");
   });
 
+  test("the strict profile resolves to the strict policy", async () => {
+    const options = await buildRunPolicyOptions({
+      selection: { posture: "strict", profile: "strict" },
+      sessionId: "session-1",
+      chatId: "chat-1",
+      workflowRunId: "run-1",
+    });
+
+    expect(options.policy?.id).toBe("default.strict");
+    expect(options.policy?.defaultAction).toBe("ask");
+  });
+
   test("the read-only profile resolves to the read-only policy", async () => {
     const options = await buildRunPolicyOptions({
       selection: { posture: "auto", profile: "read-only" },

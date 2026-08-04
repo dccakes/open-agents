@@ -310,13 +310,14 @@ export async function enforcePolicyWithApproval(
   }
 
   const { context, decision } = enforcement;
-  if (!context.approvalGate) {
-    return null;
-  }
-
   if (decision.action !== "ask") {
     return null;
   }
+
+  // No `context.approvalGate` check: an absent gate is a refusal, decided in
+  // `verifyApprovalRecord`. Returning `null` here would have made "an `ask` is
+  // backed by a server-side record" a property of the one call site that wires
+  // a gate rather than of this enforcement point.
 
   const verification = await verifyApprovalRecord(context.approvalGate, {
     toolName: call.toolName,

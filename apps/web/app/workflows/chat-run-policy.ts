@@ -34,7 +34,7 @@
  * `workflow-import-boundary.test.ts` now covers all three paths.
  */
 
-import type { OpenAgentCallOptions } from "@open-agents/agent";
+import type { CommandPolicy, OpenAgentCallOptions } from "@open-agents/agent";
 import type { Posture } from "@/lib/policy/posture";
 import type { PolicyProfileName } from "@/lib/policy/session-policy";
 
@@ -102,7 +102,7 @@ export async function buildRunPolicyOptions(params: {
   workflowRunId: string;
 }): Promise<RunPolicyOptions> {
   const [
-    { defaultCommandPolicy, readOnlyPolicy },
+    { defaultCommandPolicy, readOnlyPolicy, strictPolicy },
     { createPolicyEventRecorder },
     { createApprovalGate },
   ] = await Promise.all([
@@ -111,11 +111,14 @@ export async function buildRunPolicyOptions(params: {
     import("@/lib/policy/approval-gate"),
   ]);
 
+  const policies: Record<RunPolicySelection["profile"], CommandPolicy> = {
+    default: defaultCommandPolicy,
+    "read-only": readOnlyPolicy,
+    strict: strictPolicy,
+  };
+
   return {
-    policy:
-      params.selection.profile === "read-only"
-        ? readOnlyPolicy
-        : defaultCommandPolicy,
+    policy: policies[params.selection.profile] ?? defaultCommandPolicy,
     posture: params.selection.posture,
     policyEventRecorder: createPolicyEventRecorder({
       sessionId: params.sessionId,

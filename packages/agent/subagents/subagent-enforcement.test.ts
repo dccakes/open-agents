@@ -32,9 +32,18 @@ mock.module("@open-agents/sandbox", () => ({
 const { bashTool } = await import("../tools/bash");
 const { SUBAGENT_REGISTRY } = await import("./registry");
 
+/**
+ * The gate is part of the fixture because it is part of every real session: an
+ * interactive `ask` with no approval gate wired is a refusal, so a policy
+ * context without one could not stand in for a session's.
+ */
 const sessionPolicy: AgentPolicyContext = resolvePolicyContext({
   policy: defaultCommandPolicy,
   posture: "auto",
+  approvalGate: {
+    request: async () => undefined,
+    verify: async () => ({ authorized: true }),
+  },
 });
 
 function subagentContext(type: "explorer" | "executor" | "design") {

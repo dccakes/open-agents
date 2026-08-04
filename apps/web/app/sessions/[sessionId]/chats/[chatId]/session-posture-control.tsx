@@ -56,7 +56,7 @@ const DESCRIPTIONS: Record<Posture, PostureDescription> = {
   strict: {
     label: "Strict",
     description:
-      "Every side-effecting operation waits for approval, including the app's own commits and pull requests. Reads are unaffected.",
+      "Write-class commands, network access, and anything the policy does not recognise wait for approval, as do the app's own commits and pull requests. Reads, builds, tests, and edits to workspace files are unaffected.",
     tone: "strict",
   },
   auto: {

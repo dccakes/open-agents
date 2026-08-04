@@ -25,6 +25,7 @@ const policy: CommandPolicy = {
     rule({ id: "ask.first", pattern: /\bpush\b/, action: "ask" }),
     rule({ id: "ask.second", pattern: /\bpush\b/, action: "ask" }),
     rule({ id: "ask.both", pattern: /\bboth\b/, action: "ask" }),
+    rule({ id: "ask.anchored", pattern: /^npm\s+install\b/, action: "ask" }),
   ],
   allow: [
     rule({ id: "allow.ls", pattern: /^ls\b/, action: "allow" }),
@@ -110,6 +111,43 @@ describe("evaluate — segments", () => {
   test("a quoted separator does not create a segment", () => {
     const decision = evaluate(bash('echo "a && b"'), policy, "auto");
     expect(decision.action).toBe("allow");
+  });
+});
+
+describe("evaluate — wrapped commands", () => {
+  test("an anchored rule is not defeated by a wrapper", () => {
+    // A wrapper changes who runs the command, not what runs.
+    for (const command of [
+      "npm install",
+      "sudo npm install",
+      "env FOO=1 npm install",
+      "timeout 60 npm install",
+      "sudo -u deploy nice -n 10 npm install lodash",
+    ]) {
+      const decision = evaluate(bash(command), policy, "auto");
+      expect(decision.action).toBe("ask");
+      expect(decision.rule?.id).toBe("ask.anchored");
+    }
+  });
+
+  test("an anchored allow rule survives a wrapper too", () => {
+    expect(evaluate(bash("sudo ls"), policy, "auto").rule?.id).toBe("allow.ls");
+  });
+
+  test("the decision reports the segment as written, wrapper included", () => {
+    const decision = evaluate(bash("sudo npm install"), policy, "auto");
+    expect(decision.matchedText).toBe("sudo npm install");
+  });
+
+  test("an argument that merely contains a command name is not that command", () => {
+    // The reason rules stay `^`-anchored rather than being loosened: neither of
+    // these may become an `ask`.
+    for (const command of [
+      "ls notes-about-npm-install.md",
+      'echo "sudo npm install"',
+    ]) {
+      expect(evaluate(bash(command), policy, "auto").action).toBe("allow");
+    }
   });
 });
 

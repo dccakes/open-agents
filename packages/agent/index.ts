@@ -30,6 +30,7 @@ export type {
 export {
   approvalGateDecisionSchema,
   createReadOnlyPolicy,
+  createStrictPolicy,
   defaultCommandPolicy,
   evaluate,
   noopPolicyEventRecorder,
@@ -39,6 +40,7 @@ export {
   readOnlyPolicy,
   redactPolicyInput,
   resolvePolicyContext,
+  strictPolicy,
 } from "./policy";
 // Skills exports
 export { discoverSkills, parseSkillFrontmatter } from "./skills/discovery";

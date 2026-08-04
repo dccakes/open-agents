@@ -34,6 +34,7 @@ export {
 export type { CorpusEntry, CorpusTag } from "./golden-corpus";
 export { GOLDEN_CORPUS } from "./golden-corpus";
 export { createReadOnlyPolicy, readOnlyPolicy } from "./read-only-policy";
+export { createStrictPolicy, strictPolicy } from "./strict-policy";
 export { MAX_POLICY_INPUT_LENGTH, redactPolicyInput } from "./redact";
 export type {
   CommandPolicy,

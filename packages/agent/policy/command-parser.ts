@@ -20,13 +20,30 @@
  * not with a cleverer parser.
  */
 
+import {
+  commandBasename,
+  isEnvAssignment,
+  skipCommandWrappers,
+} from "./command-wrappers";
+
 /**
- * One command found in the source, in the only two terms the policy layer uses:
- * the text a rule is matched against, and how deeply nested it was.
+ * One command found in the source, in the terms the policy layer uses: the text
+ * a rule is matched against, the text a decision reports, and how deeply nested
+ * the command was.
  */
 export interface CommandSegment {
-  /** The segment, trimmed, with leading `VAR=value` assignments removed. */
+  /**
+   * The segment, trimmed, with leading `VAR=value` assignments removed. This is
+   * what a decision reports, so the audit record still shows the `sudo`.
+   */
   text: string;
+  /**
+   * `text` with any leading wrapper invocation removed, so that `^`-anchored
+   * rules see the command that actually runs — `sudo npm install` and
+   * `npm install` reach the same decision. Equal to `text` when there is no
+   * wrapper. See `command-wrappers.ts`.
+   */
+  commandText: string;
   /** Nesting depth: 0 for top level, +1 per substitution or `sh -c`. */
   depth: number;
 }
@@ -38,7 +55,6 @@ export type ParseResult =
 const MAX_INPUT_LENGTH = 20_000;
 const MAX_DEPTH = 8;
 
-const ENV_ASSIGNMENT_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const SHELL_COMMANDS = new Set(["sh", "bash", "zsh", "dash", "ksh", "ash"]);
 const SHELL_COMMAND_FLAG_PATTERN = /^-[A-Za-z]*c$/;
 const WHITESPACE_PATTERN = /\s/;
@@ -191,12 +207,6 @@ function findBacktickEnd(source: string, openIndex: number): number {
   return -1;
 }
 
-/** Basename of a command word, so `/bin/sh` is recognised as `sh`. */
-function commandBasename(command: string): string {
-  const slash = command.lastIndexOf("/");
-  return slash === -1 ? command : command.slice(slash + 1);
-}
-
 /** The script argument of a `sh -c` style invocation, if there is one. */
 function shellStringArgument(words: ShellWord[]): string | null {
   const first = words[0];
@@ -225,17 +235,17 @@ function pushSegment(raw: string, depth: number, state: ScanState): void {
 
   const words = splitWords(trimmed);
   let index = 0;
-  while (
-    index < words.length &&
-    ENV_ASSIGNMENT_PATTERN.test(words[index]?.value ?? "")
-  ) {
+  while (index < words.length && isEnvAssignment(words[index]?.value ?? "")) {
     index += 1;
   }
 
   const first = words[index];
   const text = first ? trimmed.slice(first.start).trim() : trimmed;
 
-  state.segments.push({ text, depth });
+  const command = words[skipCommandWrappers(words, index)];
+  const commandText = command ? trimmed.slice(command.start).trim() : text;
+
+  state.segments.push({ text, commandText, depth });
 
   const nestedScript = shellStringArgument(words.slice(index));
   if (nestedScript !== null && nestedScript !== "") {

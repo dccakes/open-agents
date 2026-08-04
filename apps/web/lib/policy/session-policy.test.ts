@@ -24,17 +24,60 @@ beforeEach(() => {
 
 describe("resolveSessionPolicy", () => {
   test("returns the session's posture and the baseline profile", async () => {
-    sessionRow = { id: "session-1", userId: "user-1", posture: "strict" };
     const { resolveSessionPolicy } = await modulePromise;
 
     const resolution = await resolveSessionPolicy({ sessionId: "session-1" });
 
     expect(resolution).toMatchObject({
       sessionId: "session-1",
-      posture: "strict",
+      posture: "auto",
       profile: "default",
       postureDowngraded: false,
     });
+  });
+
+  /**
+   * The posture selects the profile: `strict` is not a knob applied to the
+   * baseline — under a baseline whose default is `allow`, that made it
+   * indistinguishable from `auto` — it is a rule set of its own.
+   */
+  test("a strict session resolves to the strict profile", async () => {
+    sessionRow = { id: "session-1", userId: "user-1", posture: "strict" };
+    const { resolveSessionPolicy } = await modulePromise;
+
+    const resolution = await resolveSessionPolicy({ sessionId: "session-1" });
+
+    expect(resolution).toMatchObject({ posture: "strict", profile: "strict" });
+  });
+
+  test("a posture downgraded away from strict does not keep the strict profile", async () => {
+    sessionRow = { id: "session-1", userId: "user-1", posture: "dangerous" };
+    const { resolveSessionPolicy } = await modulePromise;
+
+    expect(
+      (
+        await resolveSessionPolicy({
+          sessionId: "session-1",
+          trigger: "webhook",
+        })
+      ).profile,
+    ).toBe("default");
+  });
+
+  test("an explicitly requested profile wins over the posture's", async () => {
+    // `read-only` is narrower than `strict`; a caller that asked for it must
+    // not be widened back by the session's posture.
+    sessionRow = { id: "session-1", userId: "user-1", posture: "strict" };
+    const { resolveSessionPolicy } = await modulePromise;
+
+    expect(
+      (
+        await resolveSessionPolicy({
+          sessionId: "session-1",
+          profile: "read-only",
+        })
+      ).profile,
+    ).toBe("read-only");
   });
 
   test("defaults to auto for a session that predates the column", async () => {

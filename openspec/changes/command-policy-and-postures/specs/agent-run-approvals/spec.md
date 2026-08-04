@@ -18,6 +18,10 @@ Before executing an operation whose decision was `ask`, the system SHALL verify 
 - **WHEN** a resumed request carries an approved tool state for which no approved record exists
 - **THEN** the operation is refused and nothing is executed
 
+#### Scenario: No approval mechanism wired at all
+- **WHEN** an entry point evaluates policy but supplies no approval gate, and a decision is `ask`
+- **THEN** the operation is refused and recorded, rather than falling back to the client-asserted approval flow
+
 #### Scenario: Approval record present
 - **WHEN** a resumed request carries an approved tool state backed by an approved record
 - **THEN** the operation executes

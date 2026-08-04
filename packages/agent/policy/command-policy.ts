@@ -43,11 +43,16 @@ function matchesText(rule: PolicyRule, text: string): boolean {
  * `rules` arrives pre-bucketed by scope and already in deny → ask → allow order
  * (see `compiled-policy.ts`), so an allow rule can never override a deny rule
  * for the same command and the scan is one pass over the rules that can apply.
+ *
+ * `reportText` is what the decision carries when a rule matches. It differs
+ * from `text` for a wrapped segment: patterns see `sudo npm install` as
+ * `npm install`, while the audit record keeps the `sudo`.
  */
 function firstMatch(
   rules: PolicyRule[],
   toolName: string,
   text: string,
+  reportText: string = text,
 ): Match | null {
   for (const rule of rules) {
     if (!appliesToTool(rule, toolName)) {
@@ -57,7 +62,7 @@ function firstMatch(
       return {
         rule,
         action: rule.action,
-        matchedText: text,
+        matchedText: reportText,
         reason: rule.reason,
       };
     }
@@ -149,9 +154,14 @@ function evaluateBash(
   }
 
   for (const segment of parsed.segments) {
+    // Matched against `commandText` — the segment with any leading wrapper
+    // (`sudo`, `env`, `timeout`, …) removed — so an `^`-anchored rule decides
+    // `sudo npm install` exactly as it decides `npm install`. Reported as
+    // `text`, so the record shows what was actually run.
     const segmentMatch = firstMatch(
       compiled.segment,
       BASH_TOOL_NAME,
+      segment.commandText,
       segment.text,
     );
     if (segmentMatch) {

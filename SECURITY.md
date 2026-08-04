@@ -26,7 +26,10 @@ Compound commands are segmented — quote-aware, descending into `$(...)`,
 backticks, and `sh -c` strings — and every segment is evaluated, with the most
 restrictive result winning. Precedence is deny → ask → allow, so an allow rule
 can never override a denial. Posture is applied last and can never relax a
-`deny`.
+`deny`. A posture also selects the *rule set*: `strict` runs a profile whose
+`defaultAction` is `ask`, so write-class commands, network egress, and anything
+unrecognised pause; `auto` and `dangerous` run the baseline, which allows by
+default.
 
 **Enforcement point.** In the tool factories, not in a wrapper around the agent
 loop, because three of the four `ToolLoopAgent`s build their own tools. Every
@@ -35,8 +38,11 @@ policy rather than trusting that an approval pause happened, so a rule that
 becomes a denial between pause and resume still refuses.
 
 **Fail-closed wiring.** A side-effecting tool that finds no policy on its
-execution context refuses. Read-only tools (`read`, `grep`, `glob`) proceed, so a
-wiring bug degrades to a crippled-but-safe agent rather than a dead one.
+execution context refuses, and an `ask` whose context carries no approval gate
+refuses too — a caller that forgot to wire one cannot silently fall back to
+trusting the client's claim that a call was approved. Read-only tools (`read`,
+`grep`, `glob`) proceed, and so do calls the policy allows outright, so a wiring
+bug degrades to a crippled-but-safe agent rather than a dead one.
 
 **Subagents.** Policy is threaded into `explorer`, `executor`, and `design`, and a
 registry conformance test fails CI if a fourth subagent is added without it.
@@ -88,12 +94,18 @@ Concretely, against the shipped baseline:
   program semantics. `node -e 'require("child_process").execSync("git push
   --force origin main")'` evaluates to **allow** today, while the same push typed
   directly denies.
-- **Anchored rules are defeated by a prefix.** Several `ask` rules anchor on the
-  start of a segment. `npm install` asks; `sudo npm install` is allowed.
-- **The baseline allows what it does not recognise.** `defaultAction` is `allow`.
-  `git reset --hard`, `chmod -R 777 /`, and any unrecognised binary run without a
-  prompt. The read-only profile inverts this (`defaultAction: deny`), but the
-  baseline the main agent runs under does not.
+- **A command invoked through a path is not recognised as that command.** Rules
+  anchor on the start of a segment, applied to the segment with any leading
+  wrapper stripped — so `sudo npm install`, `env FOO=1 npm publish`, and
+  `timeout 60 git push` reach the same decision as the bare command, but
+  `/usr/bin/npm install` does not. Loosening the anchor instead would gate
+  `echo "run npm install"`; stripping the directory would let a local script
+  named `cat` inherit an allow rule.
+- **The baseline allows what it does not recognise.** Under `auto` and
+  `dangerous`, `defaultAction` is `allow`: `git reset --hard`, `chmod -R 777 /`,
+  and any unrecognised binary run without a prompt. The `strict`
+  (`defaultAction: ask`) and read-only (`defaultAction: deny`) profiles invert
+  this; the baseline the main agent runs under by default does not.
 - **Deliberate lines that are narrower than they sound.** `git push --force`
   denies only for `main`/`master`; force-pushing any other branch is `ask`. The
   read-only profile's redirection rule is a regex over segment text, so it

@@ -16,9 +16,32 @@ by opening a second chat.
 
 | Posture | What it does |
 | --- | --- |
-| `strict` | Every `ask` decision pauses for a human. Additionally gates the two application-level side effects — auto-commit and auto-PR — behind the same approval mechanism. |
-| `auto` | The default, and exactly what the product did before postures existed. `ask` pauses; auto-commit and auto-PR proceed. |
-| `dangerous` | Collapses `ask` → `allow`. Requires the `posture: ["setDangerous"]` permission (`apps/web/lib/auth/permissions.ts`), granted to `admin` and `owner`. |
+| `strict` | Runs a **different rule set** — the strict profile, whose `defaultAction` is `ask`. Write-class commands, network egress, and anything the policy does not recognise pause for a human. Additionally gates the two application-level side effects — auto-commit and auto-PR — behind the same approval mechanism. |
+| `auto` | The default, and exactly what the product did before postures existed. Runs the baseline, whose `defaultAction` is `allow`: `ask` pauses, everything unmatched runs. Auto-commit and auto-PR proceed. |
+| `dangerous` | Runs the baseline and collapses `ask` → `allow`. Requires the `posture: ["setDangerous"]` permission (`apps/web/lib/auth/permissions.ts`), granted to `admin` and `owner`. |
+
+**A posture selects a profile; it is not only a knob applied after matching.**
+That distinction is the whole of `strict`. Posture alone can only relax `ask`
+(that is what `dangerous` does) — it cannot tighten anything, so under a
+baseline that allows by default, "every `ask` pauses" is a promise `auto`
+already keeps. Concretely, under `auto` these run without a prompt and under
+`strict` every one of them pauses:
+
+```
+git reset --hard HEAD~1      chmod -R 777 .        rm -r build
+mv src/old.ts src/new.ts     truncate -s 0 log     echo hi > notes.txt
+sed -i 's/a/b/' page.tsx     wget https://…        find . -exec grep … {} \;
+custom-command --verbose     git checkout -- .     git add -A
+```
+
+And these still run unprompted under `strict`, because an unusable posture is
+one nobody turns on:
+
+```
+ls -la    cat README.md    grep -rn foo lib    find . -name '*.ts'
+sed 's/a/b/' README.md      cd apps/web && bun run typecheck
+git status    git log    git diff    bun run ci    tsc --noEmit    bun --version
+```
 
 Three invariants hold in every posture:
 
@@ -35,9 +58,19 @@ Three invariants hold in every posture:
 
 What `strict` does **not** do: it does not gate every `write`/`edit` inside the
 workspace. A single coding task issues dozens of writes, and gating each would
-make the posture unusable. `strict`'s teeth are bash write-class commands,
-network egress, pushes, and the two app-level side effects. Sensitive paths
-(dotenv) are gated in every posture by the checks that predate policy.
+make the posture unusable, so the strict profile carries explicit `allow` rules
+for the `write` and `edit` tools. It carries one for `web_fetch` too — that tool
+pauses unconditionally in every posture through its own `needsApproval: true`,
+which is not a policy `ask` and therefore has no approval record; letting it fall
+to the strict default would have refused every fetch rather than pausing it.
+`strict`'s teeth are bash write-class commands, network egress, pushes, anything
+unrecognised, and the two app-level side effects. Sensitive paths (dotenv) are
+gated in every posture by the checks that predate policy.
+
+Inside a subagent an `ask` auto-denies (there is no one to ask), so under
+`strict` an `executor` can read, build, test, and write files, but hands `git
+add`, `mv`, and anything unrecognised back to the parent, which does have an
+approver. That is the price of `strict` meaning something.
 
 Hiding the `dangerous` option in the UI is not authorization; the posture route
 refuses it server-side regardless.
@@ -58,10 +91,12 @@ A `PolicyRule` carries an `id` (reported in decisions and audit records), an
 `capability`, and a human-readable `reason`.
 
 **`capability`** is one of `read`, `write`, `network`, `destructive`,
-`credential`, `other`. It is not decorative: `createReadOnlyPolicy()` derives the
-read-only profile by promoting every write-, network-, destructive-, and
-credential-capability rule to a denial, so a rule added to the baseline with the
-right capability is covered in the read-only profile without a second edit.
+`credential`, `other`. It is not decorative, and it is what makes the derived
+profiles maintainable: `createReadOnlyPolicy()` promotes every write-, network-,
+destructive-, and credential-capability rule to a denial, and
+`createStrictPolicy()` demotes every `allow` rule with one of those capabilities
+to an `ask`. A rule added to the baseline with the right capability is covered in
+both profiles without a second edit.
 
 **`scope`** is `segment` (default — matched against each parsed command segment)
 or `command` (matched against the whole raw string). `command` scope exists for
@@ -72,10 +107,25 @@ segment, and the classic fork bomb is written across several separators.
 
 1. **Parse.** For `bash`, `parseCommand()` segments the command. If it cannot
    produce a confident parse, the outcome is `unknown` and matching is skipped.
-2. **Match.** Within `deny`, then `ask`, then `allow`; first match within a class
-   wins. Deny-first means an allow rule can never be written that accidentally
-   overrides a hard denial — the failure mode that makes an allowlist-plus-denylist
-   system quietly unsafe.
+   Each segment carries two texts: `text` as written (minus leading `VAR=value`
+   assignments) and `commandText`, which is `text` with any leading **wrapper**
+   invocation removed — `sudo`, `env`, `command`, `nohup`, `nice`, `time`,
+   `timeout`, `xargs`, and friends, together with their own options and operands
+   (`policy/command-wrappers.ts`).
+2. **Match.** Rules are matched against `commandText`, so `sudo npm install`,
+   `env FOO=1 npm publish`, and `timeout 60 git push` reach the same decision as
+   the unwrapped command. Decisions *report* `text`, so the audit record still
+   shows the `sudo`. Within `deny`, then `ask`, then `allow`; first match within
+   a class wins. Deny-first means an allow rule can never be written that
+   accidentally overrides a hard denial — the failure mode that makes an
+   allowlist-plus-denylist system quietly unsafe.
+
+   Rules stay `^`-anchored rather than being loosened to match anywhere: an
+   anchor is what makes a rule mean "this command runs" instead of "these words
+   appear", and without it `echo "run npm install"` and
+   `cat notes-about-npm-install.md` would both prompt. The wrapper list is a
+   closed set matched by basename, so `sudoedit` and `envsubst` are ordinary
+   commands.
 3. **Merge.** Every segment is matched independently, plus one `command`-scope
    pass over the whole string. **The most restrictive result wins**: `deny` >
    `ask` > `allow`. So `ls && rm -rf /` denies, and `ls; sh -c 'rm -rf /'` denies.
@@ -93,7 +143,7 @@ corpus a meaningful regression test. Per-org rule editing is a later phase.
 | --- | --- |
 | `deny` | Recursive-forced deletion of a root, system, or home target; credential source piped into a network sink; force-push to `main`/`master` |
 | `ask` | Download piped into an interpreter; anything piped into a shell; `eval`; base64 decode into a pipeline; package publish; package install; `git push`; plus the absorbed legacy rules (curl, recursive-force delete, `find -delete`, `shred`/`mkfs`/`dd`, fork bomb, dotenv references including obfuscated ones, `$(...)`/backtick env reads, SSH and cloud credential paths) |
-| `allow` | Read-only inspection (`ls`, `cat`, `grep`, `find`, `jq`, …); read-only git (`status`, `log`, `diff`, `show`, …); build/test/lint invocations |
+| `allow` | Read-only inspection (`ls`, `cat`, `cd`, `grep`, `find`, `sed`, `awk`, `jq`, …); a `--version`/`--help` probe of any binary; read-only git (`status`, `log`, `diff`, `show`, …); build/test/lint invocations |
 
 **`defaultAction` is `allow`.** The baseline is a denylist plus an explicit
 allowlist for the commands that must never be gated; an unmatched command is
@@ -101,14 +151,37 @@ allowed, which preserves the behaviour the agent had before the policy existed.
 This is the single most important thing to understand about the baseline's
 coverage — see [`SECURITY.md`](../SECURITY.md).
 
+**Under the baseline the `allow` list cannot change an outcome** — the default is
+already `allow`, and deny → ask → allow ordering means an allow rule only ever
+confirms it. It exists for the derived profiles, which invert the default: it is
+what keeps `strict` usable and the explorer subagent functional. Judge an
+addition to it by that standard, not by what it does under `auto`, where it does
+nothing.
+
+### The strict profile
+
+`createStrictPolicy(source)` (`packages/agent/policy/strict-policy.ts`) derives
+the profile a `strict` session runs under. `defaultAction` is `ask`:
+
+- the write-class and network-class families are named as `ask` rules, so a
+  pause says *why* rather than "no rule matched". They are the same families the
+  read-only profile denies, defined once in `write-class-commands.ts`;
+- every source `deny` stays a `deny`, and every source `ask` keeps its own rule
+  id, so the audit trail is continuous with `auto`;
+- a source `allow` rule with a `write`, `network`, `destructive`, or `credential`
+  capability is demoted to `ask`;
+- `write`, `edit`, and `web_fetch` get explicit `allow` rules — see "What
+  `strict` does not do" above.
+
 ### The read-only profile
 
 `createReadOnlyPolicy(source)` derives a profile in which `defaultAction` is
 `deny`: only explicitly permitted read-only commands run, and anything
-unrecognised is denied. It adds rules the baseline has no reason to carry
-(redirection, `sed -i`, `mv`/`cp`/`rm`/`mkdir`/`touch`/`chmod`/`tee`/…,
-`find -exec`, write-class git subcommands, network binaries) and promotes the
-source policy's forbidden-capability rules to denials.
+unrecognised is denied. It denies the same write-class families the strict
+profile gates (redirection, `sed -i`, `mv`/`cp`/`rm`/`mkdir`/`touch`/`chmod`/
+`tee`/…, `find -exec`, write-class git subcommands, network binaries — one
+table, `write-class-commands.ts`) and promotes the source policy's
+forbidden-capability rules to denials.
 
 Because it denies by default and its rules are all `tool: "bash"`, a `write`,
 `edit`, or `web_fetch` call under this profile also falls through to `deny`.
@@ -146,7 +219,11 @@ A refusal is a structured tool result (`refusedByPolicy: true`), never a thrown
 error, so the model reads it as output and continues.
 
 **Fail-closed:** with no policy on the context, `bash`/`write`/`edit`/`web_fetch`
-refuse (`missing-policy`); `read`/`grep`/`glob` proceed.
+refuse (`missing-policy`); `read`/`grep`/`glob` proceed. With a policy but **no
+approval gate**, an `ask` refuses too (`approval-not-verified`, gate code
+`no_gate`) — see [Approvals](#approvals). A call the policy allows outright never
+reaches the gate, so a caller that forgot to wire one loses its gated commands,
+not its agent.
 
 ### How a session's policy gets there
 
@@ -194,6 +271,18 @@ attributes, and what `consumedAt` makes single-use.
 | Authorize the decider, record the decision | `POST /api/sessions/[sessionId]/approvals/[approvalId]` |
 | Refuse a forged claim in the request body | `lib/policy/approval-assertions.ts` via `app/api/chat/_lib/approval-admission.ts` |
 | Spend it at execute time | `ApprovalGate.verify` → `consumeToolCallApproval()` |
+
+**A missing gate is a refusal, not a pass.** `verifyApprovalRecord()` used to
+authorize when no gate was wired, on the grounds that the SDK's own pause was
+then the only gate — which is what the product did before approval records
+existed. But that made "an `ask` is backed by a server-side record" a property of
+the one call site that wires a gate rather than of the enforcement point: a new
+entry point could supply `policy`, forget `approvalGate`, and silently drop back
+to the client-asserted flow with nothing failing, while the *missing-policy* case
+next to it refused loudly. It now refuses with the code `no_gate`, and the
+refusal is written to `policy_event` like any other. `buildRunPolicyOptions()` is
+the only production assembler of a policy context and always wires a gate, so
+nothing shipped changes behaviour.
 
 Single use is enforced by the **UPDATE, not the read**: two concurrent requests
 can both pass a read of an unconsumed row, so the compare-and-set — `SET
@@ -306,19 +395,27 @@ refusing `dangerous` for a non-interactive trigger).
 ## Extending the golden corpus
 
 `packages/agent/policy/golden-corpus.ts` maps real command strings to the action
-the baseline must produce under each posture. It is the regression test for
-`default-policy.ts`, run by `bun run ci`. Rule lists drift; corpora catch the
-drift.
+the shipped policy must produce under each posture. It is the regression test for
+`default-policy.ts` and `strict-policy.ts`, run by `bun run ci`. Rule lists
+drift; corpora catch the drift.
+
+**Each posture is evaluated against the profile it really runs** — the `strict`
+column against the strict profile, the other two against the baseline, exactly as
+`resolveSessionPolicy()` wires them. This matters more than it sounds: while
+`strict` and `auto` produced identical decisions, all 87 entries agreed with
+themselves in both columns and the corpus could not have noticed that `strict`
+had no teeth. A test now requires that a good number of entries diverge.
 
 An entry:
 
 ```ts
 {
   command: "git push --force origin main",
-  rule: "bash.deny.force-push-default-branch",   // optional, pins the rule
+  rule: "bash.deny.force-push-default-branch",   // optional, pins the rule under auto
+  strictRule: "strict.ask.git-write",             // optional, pins it under strict
   note: "Force-push to the default branch",       // read this before changing an expectation
   tags: ["deny"],
-  expected: deny,                                 // one of the deny/ask/allow shorthands
+  expected: deny,                                 // deny/ask/allow/strictGates shorthand
 }
 ```
 
@@ -328,11 +425,14 @@ over-broad patterns.
 
 `golden-corpus.test.ts` enforces more than the per-entry expectations:
 
-- every rule id in the baseline must be decided by at least one entry
-  (`uncovered` must be empty) — so a new rule without corpus coverage fails CI;
+- every bash rule id in **each posture's profile** must be decided by at least
+  one entry under that posture (`uncovered` must be empty) — so a new rule
+  without corpus coverage fails CI, in the baseline and in the strict profile
+  alike;
+- at least ten entries must decide differently under `strict` than under `auto`;
 - every tag in `CorpusTag` must appear somewhere, which forces coverage of the
   parser edge cases (`chained`, `nested-shell`, `substitution`, `quoting`,
-  `heredoc`, `env-prefix`, `redirect`, `unknown`);
+  `heredoc`, `env-prefix`, `redirect`, `unknown`, `wrapper`) and of `strict`;
 - the posture invariants above, over every entry;
 - no `legacy`-tagged entry is `allow` under `auto`.
 
@@ -359,11 +459,15 @@ in [`SECURITY.md`](../SECURITY.md).
   over-matches.** `echo "a > b"` denies, and so does `grep -n '>' file` — the
   quoting is preserved in the text the pattern sees. It fails closed, which is
   the right direction for a read-only profile, but it is not precise.
-- **The baseline's `defaultAction` is `allow`.** `git reset --hard`, `chmod -R
-  777 /`, and any unrecognised binary run without a prompt.
-- **`^`-anchored rules are defeated by a prefix.** `npm install` asks;
-  `sudo npm install` is allowed, because the install rule anchors on the start of
-  the segment. `sudo rm -rf /` still denies — that rule does not anchor.
+- **The baseline's `defaultAction` is `allow`.** Under `auto` and `dangerous`,
+  `git reset --hard`, `chmod -R 777 /`, and any unrecognised binary run without a
+  prompt. Under `strict` they ask — that is the whole difference between the
+  postures, and it is a property of the *profile*, not of the posture flag.
+- **A command invoked through a path is not recognised as that command.**
+  `/usr/bin/npm install` falls to the default; `npm install` and
+  `/usr/bin/env npm install` both ask. Stripping the directory would also let a
+  local script named `cat` or `ls` inherit an allow rule, which is the worse
+  trade. Wrappers *are* matched by basename, which is why the `env` form works.
 - **Any interpreter defeats the parse.** `node -e '…execSync("git push --force
   origin main")'` evaluates to `allow`. The parser reads shell structure, not
   program semantics.

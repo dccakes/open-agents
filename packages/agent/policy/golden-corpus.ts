@@ -2,12 +2,19 @@ import type { PolicyAction, Posture } from "./types";
 
 /**
  * The golden corpus: real command strings mapped to the decision the shipped
- * baseline must produce under each posture.
+ * policy must produce under each posture.
  *
- * This file is the regression test for `default-policy.ts`. Rule lists drift;
- * corpora catch the drift. Any edit to the baseline that starts allowing, say,
- * a piped network download fails `golden-corpus.test.ts`, which runs under
- * `bun run ci`.
+ * This file is the regression test for `default-policy.ts` and
+ * `strict-policy.ts`. Rule lists drift; corpora catch the drift. Any edit that
+ * starts allowing, say, a piped network download fails `golden-corpus.test.ts`,
+ * which runs under `bun run ci`.
+ *
+ * **A posture is a profile, not just a knob.** The `strict` column is evaluated
+ * against the strict profile and the other two against the baseline, exactly as
+ * `resolveSessionPolicy()` wires them. That is why the columns can differ, and
+ * the test requires that a good number of them do: while `strict` and `auto`
+ * were indistinguishable, every entry here agreed with itself and the corpus
+ * could not have noticed.
  *
  * Adding a rule? Add the commands it is meant to catch here, and at least one
  * neighbouring command it must NOT catch.
@@ -24,8 +31,10 @@ export type CorpusTag =
   | "nested-shell"
   | "quoting"
   | "redirect"
+  | "strict"
   | "substitution"
-  | "unknown";
+  | "unknown"
+  | "wrapper";
 
 export interface CorpusEntry {
   command: string;
@@ -34,11 +43,13 @@ export interface CorpusEntry {
   tags: CorpusTag[];
   expected: Record<Posture, PolicyAction>;
   /**
-   * The rule that must produce the decision, when the entry exists to pin a
-   * specific rule. Deleting that rule then fails the corpus even if another,
-   * broader rule happens to reach the same action.
+   * The rule that must produce the decision under `auto`, when the entry exists
+   * to pin a specific rule. Deleting that rule then fails the corpus even if
+   * another, broader rule happens to reach the same action.
    */
   rule?: string;
+  /** The same, for the rule that must decide the entry under the strict profile. */
+  strictRule?: string;
 }
 
 const deny: Record<Posture, PolicyAction> = {
@@ -55,6 +66,17 @@ const ask: Record<Posture, PolicyAction> = {
 
 const allow: Record<Posture, PolicyAction> = {
   strict: "allow",
+  auto: "allow",
+  dangerous: "allow",
+};
+
+/**
+ * Allowed by the baseline, gated by the strict profile. This is where `strict`
+ * earns its name: write-class commands, network egress, and anything the policy
+ * does not recognise. `dangerous` runs the baseline, so it allows.
+ */
+const strictGates: Record<Posture, PolicyAction> = {
+  strict: "ask",
   auto: "allow",
   dangerous: "allow",
 };
@@ -441,6 +463,180 @@ export const GOLDEN_CORPUS: CorpusEntry[] = [
     expected: ask,
   },
 
+  // ------------------------------------------------- wrapped invocations ---
+  // A wrapper changes who runs a command, not what runs. Before the parser
+  // recorded a wrapper-stripped `commandText`, every `^`-anchored ask rule was
+  // defeated by one of these — `npm install` asked and `sudo npm install` was
+  // allowed — which mattered because under a default-allow baseline the ask
+  // class is the whole of the gating.
+  {
+    command: "sudo npm install",
+    rule: "bash.ask.package-install",
+    note: "A sudo prefix must not bypass an anchored ask rule",
+    tags: ["ask", "wrapper"],
+    expected: ask,
+  },
+  {
+    command: "env FOO=1 npm publish",
+    rule: "bash.ask.package-publish",
+    note: "An env wrapper and the assignments it carries must not bypass an anchored ask rule",
+    tags: ["ask", "wrapper", "env-prefix"],
+    expected: ask,
+  },
+  {
+    command: "timeout 60 git push",
+    rule: "bash.ask.git-push",
+    note: "A timeout wrapper and its duration operand must not bypass an anchored ask rule",
+    tags: ["ask", "wrapper"],
+    expected: ask,
+  },
+  {
+    command: "sudo -u deploy nice -n 10 pip install requests",
+    note: "Stacked wrappers, each with its own options, still resolve to the command",
+    tags: ["ask", "wrapper"],
+    expected: ask,
+  },
+  {
+    command: "cat files.txt | xargs rm -rf",
+    note: "xargs runs what it is given, so the command it runs is what is evaluated",
+    tags: ["ask", "wrapper", "legacy"],
+    expected: ask,
+  },
+  {
+    command: "cat scripts/npm-install-notes.md",
+    note: "Near miss: a path that merely contains a gated command's name is not that command",
+    tags: ["allow", "wrapper"],
+    expected: allow,
+  },
+  {
+    command: 'echo "sudo npm install"',
+    note: "Near miss: a quoted mention of a wrapped command is text, not a command",
+    tags: ["allow", "wrapper", "quoting"],
+    expected: allow,
+  },
+  {
+    command: "sudoedit /etc/hosts",
+    note: "Near miss: a command whose name merely starts with a wrapper's name is not that wrapper",
+    tags: ["wrapper", "strict"],
+    expected: strictGates,
+  },
+
+  // -------------------------------------------------- strict divergence ---
+  // Everything here is `allow` under the baseline. These are the teeth the
+  // documentation claimed `strict` had while `applyPosture` treated `strict`
+  // and `auto` identically.
+  {
+    command: "git reset --hard HEAD~1",
+    strictRule: "strict.ask.git-write",
+    note: "Discarding work is write-class: gated under strict, unprompted under auto",
+    tags: ["strict"],
+    expected: strictGates,
+  },
+  {
+    command: "git checkout -- apps/web",
+    note: "Restoring over local changes is write-class",
+    tags: ["strict"],
+    expected: strictGates,
+  },
+  {
+    command: "chmod -R 777 .",
+    strictRule: "strict.ask.file-mutation",
+    note: "Recursive permission changes are write-class",
+    tags: ["strict"],
+    expected: strictGates,
+  },
+  {
+    command: "rm -r build",
+    note: "A recursive delete without -f escapes the legacy rule, so strict is what gates it",
+    tags: ["strict"],
+    expected: strictGates,
+  },
+  {
+    command: "mv src/old.ts src/new.ts",
+    note: "Moving a file is write-class",
+    tags: ["strict"],
+    expected: strictGates,
+  },
+  {
+    command: "truncate -s 0 debug.log",
+    note: "Truncating a file is write-class",
+    tags: ["strict"],
+    expected: strictGates,
+  },
+  {
+    command: "echo hello > notes.txt",
+    strictRule: "strict.ask.redirection",
+    note: "Redirection writes a file, which the segment text is the only evidence of",
+    tags: ["strict", "redirect"],
+    expected: strictGates,
+  },
+  {
+    command: "sed -i 's/a/b/' apps/web/app/page.tsx",
+    strictRule: "strict.ask.in-place-edit",
+    note: "In-place editing rewrites a file",
+    tags: ["strict"],
+    expected: strictGates,
+  },
+  {
+    command: "wget https://example.com/archive.tgz",
+    strictRule: "strict.ask.network",
+    note: "Network egress is gated under strict; only curl is gated under auto, by the legacy rule",
+    tags: ["strict"],
+    expected: strictGates,
+  },
+  {
+    command: "find . -name '*.ts' -exec grep -l TODO {} \\;",
+    strictRule: "strict.ask.find-side-effects",
+    note: "find -exec runs a command per match; the legacy rule only covers -exec rm",
+    tags: ["strict", "quoting"],
+    expected: strictGates,
+  },
+  {
+    command: "custom-command --verbose",
+    note: "An unrecognised but parseable command falls to the profile default: allow under the baseline, ask under strict",
+    tags: ["strict"],
+    expected: strictGates,
+  },
+  {
+    command: "sudo mv src/old.ts src/new.ts",
+    note: "A wrapper does not defeat a strict rule either",
+    tags: ["strict", "wrapper"],
+    expected: strictGates,
+  },
+  // Near misses: strict must not gate everyday read-only or build work, or
+  // nobody turns it on.
+  {
+    command: "sed 's/a/b/' README.md",
+    note: "Near miss: sed without -i only reads, so it stays allowed under strict",
+    tags: ["allow", "strict"],
+    expected: allow,
+  },
+  {
+    command: "find . -name '*.ts'",
+    note: "Near miss: find without a side-effecting action stays allowed under strict",
+    tags: ["allow", "strict", "quoting"],
+    expected: allow,
+  },
+  {
+    command: "cat wget-notes.md",
+    note: "Near miss: an argument containing a network binary's name is not network egress",
+    tags: ["allow", "strict"],
+    expected: allow,
+  },
+  {
+    command: "cd apps/web && bun run typecheck",
+    note: "Near miss: changing directory and running a project script stays allowed under strict",
+    tags: ["allow", "strict", "chained"],
+    expected: allow,
+  },
+  {
+    command: "bun --version",
+    rule: "bash.allow.version-probe",
+    note: "Near miss: asking a tool for its version stays allowed under strict",
+    tags: ["allow", "strict"],
+    expected: allow,
+  },
+
   // --------------------------------------------------------------- allow ---
   {
     command: "ls -la",
@@ -575,13 +771,14 @@ export const GOLDEN_CORPUS: CorpusEntry[] = [
   },
   {
     command: ["cat <<'EOF' > notes.md", "rm -rf /", "EOF", "ls"].join("\n"),
-    note: "A heredoc body is data, not a command",
-    tags: ["allow", "heredoc"],
-    expected: allow,
+    note: "A heredoc body is data, not a command — the rm inside it is never evaluated. Strict still gates the redirection that writes notes.md",
+    tags: ["heredoc", "redirect", "strict"],
+    expected: strictGates,
   },
   {
     command: "custom-command --help",
-    note: "An unrecognised but parseable command falls to the policy default",
+    rule: "bash.allow.version-probe",
+    note: "Usage text is read-only whatever the binary is; deny and ask rules are matched first",
     tags: ["allow"],
     expected: allow,
   },

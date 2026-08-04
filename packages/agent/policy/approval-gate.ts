@@ -14,10 +14,14 @@ import { z } from "zod";
  * - `verify` runs from `execute`, after policy has been re-evaluated, and is
  *   what actually authorizes the call. Its refusal becomes the tool's result.
  *
- * A gate is optional. Without one the SDK's own approval pause remains the only
- * gate, which is exactly the behaviour that existed before approval records
- * did — so a host that has not wired one keeps working rather than deadlocking.
- * The host that owns sessions always wires one.
+ * A gate is *not* optional for an interactive `ask`. Without one there is no
+ * record to expire, to attribute, or to spend, and the approval decision is
+ * back to being an assertion in a client-supplied request body — so an absent
+ * gate refuses, exactly as an absent policy does, rather than silently
+ * degrading. See design.md decision 18.
+ *
+ * The refusal is scoped to `ask`: a call the policy allows outright never
+ * reaches the gate, so a host that runs only allowed commands is unaffected.
  */
 
 /** Why the record did not authorize the call. */
@@ -34,6 +38,11 @@ export const approvalGateRefusalCodeSchema = z.enum([
   "already_consumed",
   /** The gate itself could not answer — treated as a refusal, never a grant. */
   "unavailable",
+  /**
+   * No gate was wired at all: a caller assembled a policy context without one,
+   * so nothing on the server could ever have authorized this call.
+   */
+  "no_gate",
 ]);
 export type ApprovalGateRefusalCode = z.infer<
   typeof approvalGateRefusalCodeSchema
@@ -76,12 +85,16 @@ export interface ApprovalGate {
 const UNAVAILABLE_MESSAGE =
   "The approval record for this operation could not be read, so the call was refused rather than executed unverified.";
 
+const NO_GATE_MESSAGE =
+  "This operation requires approval, but the agent was assembled without an approval gate, so no approval on the server can authorize it. This is a wiring error in the caller, not something to work around.";
+
 /**
  * Ask the host to record the approval request.
  *
  * Never throws. A failure here is not a reason to skip the pause — it is a
  * reason for `verify` to find no record and refuse, which is the fail-closed
- * direction.
+ * direction. The same goes for an absent gate: the pause still happens, and
+ * `verify` refuses afterwards with `no_gate`.
  */
 export async function requestApprovalRecord(
   gate: ApprovalGate | undefined,
@@ -105,16 +118,24 @@ export async function requestApprovalRecord(
 /**
  * Whether the record authorizes this call.
  *
- * An absent gate authorizes; a gate that fails does not. Those are different
- * situations: the first is a host that never opted in, the second is a host
- * that opted in and cannot answer.
+ * Neither an absent gate nor a failing one authorizes. They are different
+ * situations — the first is a caller that never wired one, the second is one
+ * that did and cannot answer — and they carry different codes, but both are
+ * refusals: an `ask` that nothing on the server can answer is not an `allow`.
  */
 export async function verifyApprovalRecord(
   gate: ApprovalGate | undefined,
   request: ApprovalGateRequest,
 ): Promise<ApprovalGateDecision> {
   if (!gate) {
-    return { authorized: true };
+    console.error(
+      `[policy] ${request.toolName} required approval but no approval gate is wired; refusing the call.`,
+    );
+    return {
+      authorized: false,
+      code: "no_gate",
+      message: NO_GATE_MESSAGE,
+    };
   }
 
   try {
