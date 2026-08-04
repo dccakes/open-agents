@@ -4,10 +4,10 @@
  * Server actions behind the session posture selector.
  *
  * Mirrors `lib/org/settings-actions.ts`: the action is a thin wrapper, and the
- * authorization lives in `session-posture.ts`. `canSetDangerous` on the result
- * exists only so the UI can hide an option it cannot use — hiding a control is
- * not authorization, and the server refuses `dangerous` from a caller without
- * the permission whether or not the option was ever rendered.
+ * authorization lives in `session-posture.ts`. `availablePostures` on the
+ * result exists only so the UI can hide an option it cannot use — hiding a
+ * control is not authorization, and the server refuses `dangerous` from a
+ * caller without the permission whether or not the option was ever rendered.
  */
 
 import { isAuthorizationError } from "@/lib/auth/authorization-error";

@@ -1,6 +1,7 @@
 "use client";
 
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
+import type { Posture } from "@/lib/policy/posture";
 
 /**
  * Why a tool call is sitting in front of an approve/deny prompt.
@@ -10,18 +11,14 @@ import { createContext, useContext, useMemo, type ReactNode } from "react";
  * value none of them care about. A view that does not provide it — a shared
  * transcript, a preview — gets `null` and the prompt renders exactly as it did
  * before, which is what keeps this additive.
+ *
+ * The value is the posture itself rather than an object wrapping it: one
+ * session-wide string, so a wrapper would only add an identity to memoize.
  */
 
-export interface ApprovalPolicyContextValue {
-  /** The session posture in force, or null when it is not known here. */
-  posture: string | null;
-}
+const ApprovalPolicyContext = createContext<Posture | null>(null);
 
-const ApprovalPolicyContext = createContext<ApprovalPolicyContextValue>({
-  posture: null,
-});
-
-export function useApprovalPolicy(): ApprovalPolicyContextValue {
+export function useApprovalPolicy(): Posture | null {
   return useContext(ApprovalPolicyContext);
 }
 
@@ -29,20 +26,18 @@ export function ApprovalPolicyProvider({
   posture,
   children,
 }: {
-  posture: string | null;
+  posture: Posture | null;
   children: ReactNode;
 }) {
-  const value = useMemo(() => ({ posture }), [posture]);
-
   return (
-    <ApprovalPolicyContext.Provider value={value}>
+    <ApprovalPolicyContext.Provider value={posture}>
       {children}
     </ApprovalPolicyContext.Provider>
   );
 }
 
 /** The line shown above an approve/deny prompt. Null when nothing is known. */
-export function describeApprovalPause(posture: string | null): string | null {
+export function describeApprovalPause(posture: Posture | null): string | null {
   if (!posture) {
     return null;
   }

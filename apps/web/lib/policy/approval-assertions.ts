@@ -26,6 +26,14 @@ export interface AssertedApproval {
   toolCallId: string;
   /** Derived from the `tool-<name>` part type, when it has one. */
   toolName: string | null;
+  /**
+   * The part's `state`, verbatim, when it has one.
+   *
+   * Carried here so callers can tell a decision that is about to be acted on
+   * (`approval-responded`) from one that was already executed in an earlier run
+   * (`output-available`) without parsing the part a second time.
+   */
+  state: string | null;
   approved: boolean;
 }
 
@@ -68,6 +76,7 @@ function readAssertion(part: unknown): AssertedApproval | null {
   return {
     toolCallId,
     toolName: readToolName(part.type),
+    state: typeof part.state === "string" ? part.state : null,
     approved: approval.approved,
   };
 }
@@ -111,8 +120,15 @@ export function extractApprovalAssertions(
 
 export interface VerifyAssertedApprovalsInput {
   sessionId: string;
-  /** The untrusted `messages` array from the request body. */
-  messages: unknown;
+  /**
+   * Claims already read out of the request body by
+   * `extractApprovalAssertions`.
+   *
+   * Parsed rather than raw, so exactly one parser walks the untrusted body: a
+   * caller that narrows the claims it acts on (admission control does) and this
+   * check can no longer disagree about what the body said.
+   */
+  assertions: readonly AssertedApproval[];
   now?: Date;
 }
 
@@ -125,9 +141,7 @@ export interface VerifyAssertedApprovalsInput {
 export async function verifyAssertedApprovals(
   input: VerifyAssertedApprovalsInput,
 ): Promise<AssertionRefusal[]> {
-  const claimed = extractApprovalAssertions(input.messages).filter(
-    (assertion) => assertion.approved,
-  );
+  const claimed = input.assertions.filter((assertion) => assertion.approved);
 
   const refusals: AssertionRefusal[] = [];
 

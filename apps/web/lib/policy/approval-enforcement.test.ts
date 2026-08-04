@@ -186,6 +186,36 @@ describe("verifyToolCallApproval", () => {
     expect(result.authorized === false && result.code).toBe("already_consumed");
   });
 
+  /**
+   * A row can be both denied and past its expiry. Reporting it one way from
+   * `verifyToolCallApproval` and another from `consumeToolCallApproval` would
+   * mean the refusal a user saw at admission did not match the one the tool
+   * reported, for the same row at the same instant.
+   */
+  test("agrees with the consume path about a denied-and-expired row", async () => {
+    storedRow = approvedRow({
+      decision: "denied",
+      expiresAt: new Date(NOW.getTime() - 1),
+    });
+    const { verifyToolCallApproval, consumeToolCallApproval } =
+      await modulePromise;
+
+    const verified = await verifyToolCallApproval({
+      sessionId: "session-1",
+      toolCallId: "call-1",
+      now: NOW,
+    });
+    const consumed = await consumeToolCallApproval({
+      sessionId: "session-1",
+      toolCallId: "call-1",
+      now: NOW,
+    });
+
+    expect(verified.authorized === false && verified.code).toBe("expired");
+    expect(consumed.authorized === false && consumed.code).toBe("expired");
+    expect(updateSets).toEqual([]);
+  });
+
   test("does not consume the approval it verifies", async () => {
     const { verifyToolCallApproval } = await modulePromise;
 

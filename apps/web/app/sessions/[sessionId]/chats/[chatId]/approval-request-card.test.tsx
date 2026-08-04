@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { describeApprovalRequest } from "./approval-request-card";
+import { renderToStaticMarkup } from "react-dom/server";
+import {
+  ApprovalRequestCard,
+  describeApprovalRequest,
+} from "./approval-request-card";
+import type {
+  AppSideEffectApprovalControls,
+  AppSideEffectApprovalState,
+} from "./hooks/use-app-side-effect-approval";
 
 /**
  * What the approval prompt has to say. The requirement is about the text: the
@@ -89,5 +97,73 @@ describe("describeApprovalRequest", () => {
 
     expect(described.tone).toBe("error");
     expect(described.awaitingDecision).toBe(false);
+  });
+});
+
+/**
+ * Once an answer given in this view has been acted on, the card reports the
+ * outcome from the same status-to-copy map a reloaded transcript uses — the
+ * hook carries a status, not a title, so the wording exists in one place.
+ */
+describe("ApprovalRequestCard once the answer has been acted on", () => {
+  function controls(
+    state: AppSideEffectApprovalState,
+  ): AppSideEffectApprovalControls {
+    return {
+      stateFor: () => state,
+      approve: () => undefined,
+      deny: () => undefined,
+    };
+  }
+
+  test("reports a performed operation with the executed copy and tone", () => {
+    const html = renderToStaticMarkup(
+      <ApprovalRequestCard
+        data={pending}
+        approvals={controls({
+          phase: "resolved",
+          status: "executed",
+          detail: "Committed and pushed.",
+        })}
+      />,
+    );
+
+    expect(html).toContain(
+      describeApprovalRequest({
+        ...pending,
+        status: "executed",
+      }).title,
+    );
+    expect(html).toContain("Committed and pushed.");
+    expect(html).toContain("border-emerald-500/30");
+    // The decision has been made; it must not be offered again.
+    expect(html).not.toContain("rebuilt");
+  });
+
+  test("reports a policy skip with the skipped copy", () => {
+    const html = renderToStaticMarkup(
+      <ApprovalRequestCard
+        data={pending}
+        approvals={controls({ phase: "resolved", status: "skipped" })}
+      />,
+    );
+
+    expect(html).toContain(
+      describeApprovalRequest({
+        ...pending,
+        status: "skipped",
+      }).title,
+    );
+  });
+
+  test("still offers the decision while the answer is in flight", () => {
+    const html = renderToStaticMarkup(
+      <ApprovalRequestCard
+        data={pending}
+        approvals={controls({ phase: "deciding" })}
+      />,
+    );
+
+    expect(html).toContain("Recording");
   });
 });

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import type { WebAgentApprovalStatus } from "@/app/types";
 
 /**
  * Answering an application-level side-effect approval from the chat.
@@ -27,8 +28,12 @@ export type AppSideEffectApprovalPhase =
 
 export interface AppSideEffectApprovalState {
   phase: AppSideEffectApprovalPhase;
-  /** Replaces the card's title once the answer has been acted on. */
-  title?: string;
+  /**
+   * What the request became once the answer was acted on, which the card
+   * renders through the same status-to-copy map a persisted part uses. The
+   * status and not the title, so the wording lives in exactly one place.
+   */
+  status?: WebAgentApprovalStatus;
   /** Replaces the card's detail with what actually happened. */
   detail?: string;
   error?: string;
@@ -117,7 +122,7 @@ export function useAppSideEffectApproval(params: {
 
         update(approvalId, {
           phase: "resolved",
-          title: ran ? "Approved and performed" : "Skipped by policy",
+          status: ran ? "executed" : "skipped",
           detail: body.result?.detail,
         });
 

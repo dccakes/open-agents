@@ -23,7 +23,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { Posture } from "@/lib/policy/posture";
-import { useSessionPosture } from "./hooks/use-session-posture";
+import { useSessionPosture } from "@/app/sessions/[sessionId]/session-posture-context";
 
 /**
  * The session's security posture, in the header where it stays visible.
@@ -92,14 +92,9 @@ function PostureIcon({ posture }: { posture: Posture }) {
   return <ShieldHalf className="h-4 w-4 text-muted-foreground" />;
 }
 
-export function SessionPostureControl({ sessionId }: { sessionId: string }) {
-  const posture = useSessionPosture(sessionId);
+export function SessionPostureControl() {
+  const posture = useSessionPosture();
   const current = posture.posture;
-
-  if (posture.loading || !current) {
-    return null;
-  }
-
   const described = describePosture(current);
   const dangerous = shouldShowDangerousBadge(current);
 
@@ -163,6 +158,13 @@ export function SessionPostureControl({ sessionId }: { sessionId: string }) {
             </DropdownMenuItem>
           );
         })}
+        {posture.availablePostures.length === 0 && !posture.error ? (
+          // The current posture is seeded from the session row; which options
+          // this viewer may pick needs a permission check to come back.
+          <div className="px-2 py-1.5 text-xs text-muted-foreground">
+            Checking which postures you can select…
+          </div>
+        ) : null}
         <DropdownMenuSeparator />
         <div className="px-2 py-1.5 text-xs text-muted-foreground">
           {POSTURE_CHANGE_NOTICE}

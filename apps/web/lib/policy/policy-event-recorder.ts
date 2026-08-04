@@ -28,6 +28,12 @@ export interface PolicyEventRecorderScope {
 /**
  * The agent's summary fields, kept together so the stored row explains *why*
  * the decision came out the way it did and not only what it was.
+ *
+ * Every string here comes off a `PolicyEvent`, and the agent package redacts
+ * those at its own boundary (`packages/agent/policy/redact.ts`) before the event
+ * is ever handed to a recorder — that boundary has to hold for any host, so it
+ * is the one that stays. Hence `inputAlreadyRedacted` below: this payload is not
+ * scrubbed a second time on the way into the column.
  */
 function toInputSummary(event: PolicyEvent): Record<string, unknown> {
   return {
@@ -53,6 +59,7 @@ export function createPolicyEventRecorder(
           workflowRunId: scope.workflowRunId ?? null,
           toolName: event.toolName,
           input: toInputSummary(event),
+          inputAlreadyRedacted: true,
           decision: event.action as PolicyEventDecision,
           matchedRule: event.ruleId,
           posture: event.posture,

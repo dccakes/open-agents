@@ -25,6 +25,7 @@ import {
   DEFAULT_POSTURE,
   isPosture,
   type Posture,
+  POSTURES,
   postureSchema,
 } from "@/lib/policy/posture";
 import { requireSessionActor } from "@/lib/policy/session-access";
@@ -43,9 +44,7 @@ export type SessionPostureUpdate = z.infer<typeof sessionPostureUpdateSchema>;
 export interface SessionPostureView {
   sessionId: string;
   posture: Posture;
-  /** Whether the viewer may select `dangerous`. UI affordance only. */
-  canSetDangerous: boolean;
-  /** The postures to offer this viewer. */
+  /** The postures to offer this viewer. UI affordance only. */
   availablePostures: Posture[];
 }
 
@@ -53,6 +52,11 @@ function normalizePosture(stored: unknown): Posture {
   return isPosture(stored) ? stored : DEFAULT_POSTURE;
 }
 
+/**
+ * Derived from `POSTURES` rather than listed again, so a fourth posture is
+ * offered the moment it is declared instead of compiling fine and silently
+ * never appearing.
+ */
 function buildView(
   sessionId: string,
   posture: Posture,
@@ -61,10 +65,9 @@ function buildView(
   return {
     sessionId,
     posture,
-    canSetDangerous,
-    availablePostures: canSetDangerous
-      ? ["strict", "auto", "dangerous"]
-      : ["strict", "auto"],
+    availablePostures: POSTURES.filter(
+      (option) => option !== "dangerous" || canSetDangerous,
+    ),
   };
 }
 
@@ -77,11 +80,12 @@ export async function readSessionPosture(
   sessionId: string,
   options?: PermissionCheckOptions,
 ): Promise<SessionPostureView> {
-  const actor = await requireSessionActor(sessionId, options);
-  const canSetDangerous = await hasPermission(
-    SET_DANGEROUS_PERMISSION,
-    options,
-  );
+  // Independent checks, so they run together. `updateSessionPosture` must not
+  // do this — see the ordering note there.
+  const [actor, canSetDangerous] = await Promise.all([
+    requireSessionActor(sessionId, options),
+    hasPermission(SET_DANGEROUS_PERMISSION, options),
+  ]);
 
   return buildView(
     sessionId,

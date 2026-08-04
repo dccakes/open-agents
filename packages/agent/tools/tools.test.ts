@@ -65,7 +65,7 @@ mock.module("@open-agents/sandbox", () => ({
 }));
 
 const { askUserQuestionTool } = await import("./ask-user-question");
-const { bashTool, commandNeedsApproval } = await import("./bash");
+const { bashTool } = await import("./bash");
 const { MAX_BODY_LENGTH, isAllowedWebUrl, webFetchTool } =
   await import("./fetch");
 const { globTool } = await import("./glob");
@@ -404,71 +404,8 @@ describe("tools execute behavior", () => {
     });
   });
 
-  test("commandNeedsApproval flags curl, rm -rf, and dotenv commands", () => {
-    expect(commandNeedsApproval("ls -la")).toBe(false);
-    expect(commandNeedsApproval("git status --short")).toBe(false);
-    expect(commandNeedsApproval("npm install")).toBe(false);
-    expect(commandNeedsApproval("bun install")).toBe(false);
-    expect(commandNeedsApproval("custom-command --help")).toBe(false);
-    expect(commandNeedsApproval("git reset --hard HEAD~1")).toBe(false);
-    expect(commandNeedsApproval("curl -s https://example.com")).toBe(true);
-    expect(commandNeedsApproval("bash -c 'curl https://example.com'")).toBe(
-      true,
-    );
-    expect(commandNeedsApproval("rm -fr tmp")).toBe(true);
-    expect(commandNeedsApproval("rm -r -f tmp")).toBe(true);
-    expect(commandNeedsApproval("find . -delete")).toBe(true);
-    expect(commandNeedsApproval("rm -rf tmp")).toBe(true);
-    expect(commandNeedsApproval("cat .env.local")).toBe(true);
-    expect(commandNeedsApproval("cat .e''nv.local")).toBe(true);
-    expect(commandNeedsApproval("cat .e$(printf nv).local")).toBe(true);
-    expect(commandNeedsApproval("grep API_KEY apps/web/.env.example")).toBe(
-      true,
-    );
-  });
-
-  test("bashTool needsApproval blocks dangerous and dotenv commands by default", async () => {
-    const baseContext = {
-      sandbox: { workingDirectory: "/repo" },
-      model: "test-model",
-    };
-
-    const safeCommand = await getNeedsApprovalResult(
-      bashTool().needsApproval,
-      { command: "ls -la" },
-      {
-        ...baseContext,
-      },
-    );
-    expect(safeCommand).toBe(false);
-
-    const dangerousCommand = await getNeedsApprovalResult(
-      bashTool().needsApproval,
-      { command: "rm -rf tmp" },
-      {
-        ...baseContext,
-      },
-    );
-    expect(dangerousCommand).toBe(true);
-
-    const dotenvCommand = await getNeedsApprovalResult(
-      bashTool().needsApproval,
-      { command: "cat .env.local" },
-      {
-        ...baseContext,
-      },
-    );
-    expect(dotenvCommand).toBe(true);
-
-    const allowedBuildCommand = await getNeedsApprovalResult(
-      bashTool().needsApproval,
-      { command: "bun run ci" },
-      {
-        ...baseContext,
-      },
-    );
-    expect(allowedBuildCommand).toBe(false);
-  });
+  // Approval gating for bash lives in `tool-policy.test.ts`, which exercises it
+  // against a real policy context rather than the tool's unpoliced fallback.
 
   afterEach(() => {
     sandboxRegistry.clear();

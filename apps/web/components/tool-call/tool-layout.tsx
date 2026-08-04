@@ -92,7 +92,7 @@ export function ToolLayout({
   );
   // Says which posture caused the pause. Null outside a session view, where
   // the prompt renders exactly as it did before.
-  const pauseNotice = describeApprovalPause(useApprovalPolicy().posture);
+  const pauseNotice = describeApprovalPause(useApprovalPolicy());
   const errorMessage =
     state.error && !state.denied ? trimErrorPrefix(state.error) : undefined;
   const hasError = Boolean(errorMessage);

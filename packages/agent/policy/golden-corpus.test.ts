@@ -6,7 +6,6 @@ import {
   GOLDEN_CORPUS,
   type CorpusEntry,
 } from "./golden-corpus";
-import { commandNeedsApproval } from "./legacy-approval";
 import { postureSchema } from "./types";
 
 const POSTURES = postureSchema.options;
@@ -112,53 +111,16 @@ describe("posture invariants over the corpus", () => {
 });
 
 describe("the absorbed bash denylist is not weakened", () => {
-  // The exact assertions from packages/agent/tools/tools.test.ts:403-424,
-  // folded in so that no command gated before this change becomes ungated.
-  const previouslyGated = [
-    "curl -s https://example.com",
-    "bash -c 'curl https://example.com'",
-    "rm -fr tmp",
-    "rm -r -f tmp",
-    "find . -delete",
-    "rm -rf tmp",
-    "cat .env.local",
-    "cat .e''nv.local",
-    "cat .e$(printf nv).local",
-    "grep API_KEY apps/web/.env.example",
-  ];
+  // The command-level invariant lives in `absorbed-denylist.test.ts`; here it
+  // is checked over the corpus, whose `legacy`-tagged entries are exactly the
+  // families the pre-policy denylist covered.
+  test("no legacy-tagged corpus command is allowed under auto", () => {
+    const legacy = GOLDEN_CORPUS.filter((entry) =>
+      entry.tags.includes("legacy"),
+    );
+    expect(legacy.length).toBeGreaterThan(0);
 
-  const previouslyUngated = [
-    "ls -la",
-    "git status --short",
-    "custom-command --help",
-    "git reset --hard HEAD~1",
-  ];
-
-  test("commandNeedsApproval still reports the same commands", () => {
-    for (const command of previouslyGated) {
-      expect(commandNeedsApproval(command)).toBe(true);
-    }
-    for (const command of previouslyUngated) {
-      expect(commandNeedsApproval(command)).toBe(false);
-    }
-  });
-
-  test("nothing commandNeedsApproval gates is allowed under auto", () => {
-    for (const command of previouslyGated) {
-      const decision = evaluate(
-        { toolName: "bash", command },
-        defaultCommandPolicy,
-        "auto",
-      );
-      expect(decision.action).not.toBe("allow");
-    }
-  });
-
-  test("no corpus command gated by the legacy check is allowed under auto", () => {
-    for (const entry of GOLDEN_CORPUS) {
-      if (!commandNeedsApproval(entry.command)) {
-        continue;
-      }
+    for (const entry of legacy) {
       expect(decisionFor(entry, "auto").action).not.toBe("allow");
     }
   });

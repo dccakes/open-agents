@@ -103,11 +103,14 @@ export function ApprovalRequestCard({
   data,
   approvals,
 }: ApprovalRequestCardProps) {
-  const described = describeApprovalRequest(data);
   const local = approvals.stateFor(data.approvalId);
+  // An answer given in this view outranks the status the part was persisted
+  // with — the message is only rewritten once the operation has been executed.
+  const described = describeApprovalRequest(
+    local.status ? { ...data, status: local.status } : data,
+  );
   const busy = local.phase === "deciding" || local.phase === "executing";
   const detail = local.detail ?? described.detail;
-  const title = local.title ?? described.title;
 
   return (
     <div
@@ -115,7 +118,7 @@ export function ApprovalRequestCard({
     >
       <ToneIcon tone={described.tone} />
       <div className="min-w-0 flex-1 space-y-1">
-        <div className="font-medium text-foreground">{title}</div>
+        <div className="font-medium text-foreground">{described.title}</div>
         <div className="text-muted-foreground">{described.operation}</div>
         <div className="text-muted-foreground/80">
           <span className="font-mono">{described.tool}</span>
@@ -125,7 +128,7 @@ export function ApprovalRequestCard({
           <span className="font-mono">{described.posture}</span>
         </div>
         {detail ? <div className="text-muted-foreground">{detail}</div> : null}
-        {described.awaitingDecision && local.phase !== "resolved" ? (
+        {described.awaitingDecision ? (
           <>
             <div className="text-muted-foreground/80">
               {described.resumeNote}

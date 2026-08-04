@@ -38,6 +38,13 @@ export interface PolicyEventInput {
   toolName?: string | null;
   /** Redacted here, so no caller can forget to. */
   input: unknown;
+  /**
+   * Set only when every string in `input` was already scrubbed upstream — in
+   * practice, only by `policy-event-recorder.ts`, whose payload is built
+   * entirely out of a `PolicyEvent` the agent package already redacted at its
+   * own boundary. Leaving it unset redacts here, which is the safe default.
+   */
+  inputAlreadyRedacted?: boolean;
   decision: PolicyEventDecision;
   /** The id of the rule that matched, or null for a policy default. */
   matchedRule?: string | null;
@@ -50,7 +57,9 @@ function toRow(input: PolicyEventInput): NewPolicyEvent {
     sessionId: input.sessionId,
     workflowRunId: input.workflowRunId ?? null,
     toolName: input.toolName ?? null,
-    inputSummary: redactInputSummary(input.input),
+    inputSummary: redactInputSummary(input.input, {
+      stringsAlreadyRedacted: input.inputAlreadyRedacted === true,
+    }),
     decision: input.decision,
     matchedRule: input.matchedRule ?? null,
     posture: input.posture,

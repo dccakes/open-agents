@@ -197,7 +197,7 @@ export function SessionHeader() {
         <div className="flex items-center gap-1">
           {/* The session's security posture, and the persistent marking a
               `dangerous` session carries. */}
-          <SessionPostureControl sessionId={session.id} />
+          <SessionPostureControl />
 
           {/* Portal target for dev server / code editor buttons (rendered from per-chat content) */}
           <div ref={headerActionsRef} className="flex items-center" />

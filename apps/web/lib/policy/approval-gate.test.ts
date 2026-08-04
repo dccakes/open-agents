@@ -121,19 +121,20 @@ describe("verifying", () => {
     });
   });
 
-  test("a read failure refuses instead of authorizing", async () => {
+  /**
+   * A read failure must never become a grant — but turning it into an
+   * `unavailable` refusal is `verifyApprovalRecord`'s job on the agent side,
+   * and that wrapper is the only path a constructed gate is reached through.
+   * Catching here too would be a second copy of the same policy, free to drift.
+   * What this gate owes is not to swallow the failure.
+   */
+  test("a read failure propagates, for the agent-side wrapper to refuse on", async () => {
     consumeBehaviour = () => {
       throw new Error("database unavailable");
     };
 
-    const decision = await gate().verify({
-      toolName: "bash",
-      toolCallId: "call-1",
-    });
-
-    expect(decision.authorized).toBe(false);
-    if (!decision.authorized) {
-      expect(decision.code).toBe("unavailable");
-    }
+    expect(
+      gate().verify({ toolName: "bash", toolCallId: "call-1" }),
+    ).rejects.toThrow("database unavailable");
   });
 });

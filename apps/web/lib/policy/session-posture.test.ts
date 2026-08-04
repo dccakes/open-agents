@@ -86,7 +86,6 @@ describe("readSessionPosture", () => {
 
     const view = await readSessionPosture("session-1");
 
-    expect(view.canSetDangerous).toBe(false);
     expect(view.availablePostures).toEqual(["strict", "auto"]);
   });
 
@@ -95,7 +94,6 @@ describe("readSessionPosture", () => {
 
     const view = await readSessionPosture("session-1");
 
-    expect(view.canSetDangerous).toBe(true);
     expect(view.availablePostures).toEqual(["strict", "auto", "dangerous"]);
   });
 

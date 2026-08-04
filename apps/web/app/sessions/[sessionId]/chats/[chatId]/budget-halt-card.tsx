@@ -25,7 +25,12 @@ export interface BudgetHaltDescription {
   boundaryNote?: string;
 }
 
-/** The copy, separated from the markup so it is testable without a DOM. */
+/**
+ * The copy, separated from the markup so it is testable without a DOM.
+ *
+ * The card owns every sentence, including the day boundary: the run sends the
+ * figures and nothing else, so there is one place the wording can change.
+ */
 export function describeBudgetHalt(
   data: WebAgentBudgetHaltData,
 ): BudgetHaltDescription {
@@ -35,7 +40,7 @@ export function describeBudgetHalt(
     title: BUDGET_TITLES[data.budget],
     detail: `${data.used.toLocaleString()} of ${data.limit.toLocaleString()} ${unit} used.`,
     ...(data.budget === "org-daily-tokens"
-      ? { boundaryNote: data.dayBoundary ?? UTC_DAY_BOUNDARY_NOTICE }
+      ? { boundaryNote: UTC_DAY_BOUNDARY_NOTICE }
       : {}),
   };
 }

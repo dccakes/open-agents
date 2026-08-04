@@ -1,78 +1,37 @@
 import { describe, expect, test } from "bun:test";
 import {
+  MAX_REDACTED_TEXT_LENGTH,
+  redactSecrets,
+} from "@open-agents/shared/lib/redact-secrets";
+import {
   MAX_SUMMARY_STRING_LENGTH,
   REDACTED,
   redactInputSummary,
   redactText,
 } from "@/lib/policy/redaction";
 
+/**
+ * The pattern coverage this file used to duplicate now lives in
+ * `packages/shared/lib/redact-secrets.test.ts`, which asserts the union of what
+ * this suite and `packages/agent/policy/redact.test.ts` asserted separately.
+ * What is left here is what is actually local: that `redactText` is the shared
+ * scrubber, and the structural walk into a `jsonb` record.
+ */
+
 describe("redactText", () => {
-  test("leaves an ordinary command alone", () => {
-    expect(redactText("git status --short")).toBe("git status --short");
+  test("is the shared scrubber, not a second implementation", () => {
+    expect(redactText).toBe(redactSecrets);
+    expect(MAX_SUMMARY_STRING_LENGTH).toBe(MAX_REDACTED_TEXT_LENGTH);
+    expect(REDACTED).toBe("[redacted]");
   });
 
-  test("redacts a GitHub token", () => {
+  test("redacts a credential a summary would otherwise carry into a row", () => {
     const redacted = redactText(
       "git push https://ghp_abcdefghijklmnopqrstuvwxyz0123456789@github.com/x/y",
     );
 
     expect(redacted).not.toContain("ghp_abcdefghijklmnopqrstuvwxyz0123456789");
     expect(redacted).toContain(REDACTED);
-  });
-
-  test("redacts a fine-grained GitHub PAT", () => {
-    const redacted = redactText(
-      "export T=github_pat_11ABCDEFG0abcdefghij_KLMNOPQRSTUVWXYZ0123456789abcdefghijKLMNOP",
-    );
-
-    expect(redacted).not.toContain("github_pat_11ABCDEFG0");
-    expect(redacted).toContain(REDACTED);
-  });
-
-  test("redacts an OpenAI-style key and a Slack token", () => {
-    expect(
-      redactText(
-        "curl -H 'Authorization: Bearer sk-abcdefghij0123456789ABCDEF'",
-      ),
-    ).toContain(REDACTED);
-    expect(
-      redactText("xoxb-1234567890-1234567890123-abcdefghijklmnopqrstuvwx"),
-    ).toContain(REDACTED);
-  });
-
-  test("redacts an AWS access key id and a JWT", () => {
-    expect(redactText("AKIAIOSFODNN7EXAMPLE")).toContain(REDACTED);
-    expect(
-      redactText(
-        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk",
-      ),
-    ).toContain(REDACTED);
-  });
-
-  test("redacts an inline assignment of a secret-shaped name", () => {
-    const redacted = redactText(
-      "MY_API_TOKEN=hunter2-super-secret ./deploy.sh",
-    );
-
-    expect(redacted).not.toContain("hunter2-super-secret");
-    expect(redacted).toContain("MY_API_TOKEN=");
-    expect(redacted).toContain("./deploy.sh");
-  });
-
-  test("redacts a private key block", () => {
-    const redacted = redactText(
-      "-----BEGIN RSA PRIVATE KEY-----\nMIIEow==\n-----END RSA PRIVATE KEY-----",
-    );
-
-    expect(redacted).not.toContain("MIIEow==");
-    expect(redacted).toContain(REDACTED);
-  });
-
-  test("truncates a very long value so the summary stays a summary", () => {
-    const redacted = redactText("a".repeat(MAX_SUMMARY_STRING_LENGTH * 3));
-
-    expect(redacted.length).toBeLessThanOrEqual(MAX_SUMMARY_STRING_LENGTH + 32);
-    expect(redacted).toContain("truncated");
   });
 });
 
@@ -114,6 +73,15 @@ describe("redactInputSummary", () => {
     expect(redactInputSummary(circular)).toMatchObject({ name: "loop" });
   });
 
+  test("collapses nesting past the depth bound", () => {
+    let deep: Record<string, unknown> = { leaf: "bottom" };
+    for (let i = 0; i < 10; i++) {
+      deep = { next: deep };
+    }
+
+    expect(JSON.stringify(redactInputSummary(deep))).toContain("[truncated]");
+  });
+
   test("produces something JSON can serialize", () => {
     const summary = redactInputSummary({
       when: new Date("2026-01-01T00:00:00Z"),
@@ -125,5 +93,43 @@ describe("redactInputSummary", () => {
     expect(() => JSON.stringify(summary)).not.toThrow();
     expect(summary.count).toBe(3);
     expect(summary.ok).toBe(true);
+  });
+});
+
+describe("redactInputSummary — stringsAlreadyRedacted", () => {
+  test("a string that has already been redacted is not re-processed", () => {
+    const alreadyRedacted = redactSecrets(
+      'curl -H "Authorization: Bearer abcdef123456" https://example.com',
+    );
+
+    expect(
+      redactInputSummary(
+        { summary: alreadyRedacted },
+        { stringsAlreadyRedacted: true },
+      ),
+    ).toEqual({ summary: alreadyRedacted });
+  });
+
+  test("skips only the string scrub, never the structural work", () => {
+    const circular: Record<string, unknown> = { name: "loop" };
+    circular.self = circular;
+
+    expect(
+      redactInputSummary(
+        { token: "plain", when: new Date("2026-01-01T00:00:00Z"), circular },
+        { stringsAlreadyRedacted: true },
+      ),
+    ).toMatchObject({
+      token: REDACTED,
+      when: "2026-01-01T00:00:00.000Z",
+    });
+  });
+
+  test("defaults to scrubbing, so a caller that forgets still fails closed", () => {
+    expect(
+      redactInputSummary({
+        summary: "echo ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+      }),
+    ).toEqual({ summary: `echo ${REDACTED}` });
   });
 });

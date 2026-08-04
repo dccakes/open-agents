@@ -16,7 +16,6 @@ mock.module("@/lib/policy/session-posture", () => ({
     return await Promise.resolve({
       sessionId,
       posture: storedPosture,
-      canSetDangerous,
       availablePostures: canSetDangerous
         ? ["strict", "auto", "dangerous"]
         : ["strict", "auto"],
@@ -32,7 +31,6 @@ mock.module("@/lib/policy/session-posture", () => ({
     return await Promise.resolve({
       sessionId,
       posture,
-      canSetDangerous,
       availablePostures: ["strict", "auto", "dangerous"],
     });
   },

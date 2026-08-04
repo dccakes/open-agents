@@ -73,14 +73,15 @@ export type WebAgentBudgetKind =
   | "run-steps"
   | "org-daily-tokens";
 
+/**
+ * Only the figures. The card composes its own title, detail and day-boundary
+ * note from them, so a prose `message` sent alongside would be a third copy of
+ * a sentence the run record already carries as its halt reason.
+ */
 export type WebAgentBudgetHaltData = {
   budget: WebAgentBudgetKind;
   limit: number;
   used: number;
-  /** Names the budget and the totals at the moment of the halt. */
-  message: string;
-  /** Present for the daily budget, which needs its UTC boundary stated. */
-  dayBoundary?: string;
 };
 
 /**

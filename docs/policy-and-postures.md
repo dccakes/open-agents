@@ -334,7 +334,11 @@ over-broad patterns.
   parser edge cases (`chained`, `nested-shell`, `substitution`, `quoting`,
   `heredoc`, `env-prefix`, `redirect`, `unknown`);
 - the posture invariants above, over every entry;
-- nothing the pre-policy `commandNeedsApproval()` gated is `allow` under `auto`.
+- no `legacy`-tagged entry is `allow` under `auto`.
+
+`absorbed-denylist.test.ts` pins the same invariant at the command level:
+nothing the pre-policy bash denylist gated is `allow` under `auto`, and its near
+misses still are.
 
 Latency is asserted separately in `policy-latency.test.ts`: `evaluate()` p95 under
 5 ms over the corpus. The bound is on evaluation — parse plus match, no I/O — not

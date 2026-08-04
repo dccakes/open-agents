@@ -86,16 +86,78 @@ const DENY_RULES: PolicyRule[] = [
 
 // -------------------------------------------------------------------- ask --
 
-/**
- * The patterns `commandNeedsApproval()` enforced before this change
- * (`packages/agent/tools/bash.ts:32-47`), absorbed verbatim so that no command
- * that required approval before requires less approval now.
- *
- * Kept as their own exported list because `commandNeedsApproval` is still
- * exported for compatibility and must reproduce exactly this behaviour — no
- * more, no less.
- */
-export const LEGACY_APPROVAL_RULES: PolicyRule[] = [
+const ASK_RULES: PolicyRule[] = [
+  {
+    id: "bash.ask.download-into-shell",
+    action: "ask",
+    tool: "bash",
+    pattern: DOWNLOAD_INTO_SHELL_PATTERN,
+    scope: "command",
+    capability: "network",
+    reason:
+      "Piping a network download straight into an interpreter executes code nobody has read.",
+  },
+  {
+    id: "bash.ask.pipe-into-shell",
+    action: "ask",
+    tool: "bash",
+    pattern: PIPE_INTO_SHELL_PATTERN,
+    scope: "command",
+    capability: "other",
+    reason:
+      "Piping generated or decoded output into a shell executes code the policy cannot inspect.",
+  },
+  {
+    id: "bash.ask.dynamic-evaluation",
+    action: "ask",
+    tool: "bash",
+    pattern: /^eval\b/,
+    capability: "other",
+    reason:
+      "eval builds its command at runtime, so static analysis cannot see what will run.",
+  },
+  {
+    id: "bash.ask.base64-pipeline",
+    action: "ask",
+    tool: "bash",
+    pattern: /\bbase64\b[^|]*(?:\s-d\b|\s--decode\b|\s-D\b)[^|]*\|/,
+    scope: "command",
+    capability: "other",
+    reason:
+      "Decoding base64 into another command hides the command from the policy.",
+  },
+  {
+    id: "bash.ask.package-publish",
+    action: "ask",
+    tool: "bash",
+    pattern:
+      /^(?:npm|pnpm|yarn|bun|deno)\s+publish\b|^(?:cargo|poetry|gem|twine|mvn)\s+(?:publish|push|upload|deploy)\b/,
+    capability: "network",
+    reason: "Publishing a package is a public, irreversible release.",
+  },
+  {
+    id: "bash.ask.package-install",
+    action: "ask",
+    tool: "bash",
+    pattern:
+      /^(?:npm|pnpm|yarn|bun)\s+(?:i|install|ci|add)\b|^(?:pip3?|pipx)\s+install\b|^(?:cargo\s+(?:install|add)|go\s+(?:get|install)|gem\s+install|brew\s+install|apk\s+add|apt(?:-get)?\s+install)\b/,
+    capability: "network",
+    reason:
+      "Installing a package downloads and runs third-party lifecycle scripts.",
+  },
+  {
+    id: "bash.ask.git-push",
+    action: "ask",
+    tool: "bash",
+    pattern: /^git\b[^|;&\n]*\bpush\b/,
+    capability: "network",
+    reason: "Pushing publishes commits outside the sandbox.",
+  },
+
+  // The patterns the pre-policy bash denylist enforced
+  // (`packages/agent/tools/bash.ts:32-47` before the policy module existed),
+  // absorbed verbatim so no command that required approval then requires less
+  // approval now. `golden-corpus.test.ts` pins that invariant.
   {
     id: "bash.ask.legacy.curl",
     action: "ask",
@@ -193,76 +255,6 @@ export const LEGACY_APPROVAL_RULES: PolicyRule[] = [
     reason:
       "This references SSH keys, cloud credentials, or the process environment.",
   },
-];
-
-const ASK_RULES: PolicyRule[] = [
-  {
-    id: "bash.ask.download-into-shell",
-    action: "ask",
-    tool: "bash",
-    pattern: DOWNLOAD_INTO_SHELL_PATTERN,
-    scope: "command",
-    capability: "network",
-    reason:
-      "Piping a network download straight into an interpreter executes code nobody has read.",
-  },
-  {
-    id: "bash.ask.pipe-into-shell",
-    action: "ask",
-    tool: "bash",
-    pattern: PIPE_INTO_SHELL_PATTERN,
-    scope: "command",
-    capability: "other",
-    reason:
-      "Piping generated or decoded output into a shell executes code the policy cannot inspect.",
-  },
-  {
-    id: "bash.ask.dynamic-evaluation",
-    action: "ask",
-    tool: "bash",
-    pattern: /^eval\b/,
-    capability: "other",
-    reason:
-      "eval builds its command at runtime, so static analysis cannot see what will run.",
-  },
-  {
-    id: "bash.ask.base64-pipeline",
-    action: "ask",
-    tool: "bash",
-    pattern: /\bbase64\b[^|]*(?:\s-d\b|\s--decode\b|\s-D\b)[^|]*\|/,
-    scope: "command",
-    capability: "other",
-    reason:
-      "Decoding base64 into another command hides the command from the policy.",
-  },
-  {
-    id: "bash.ask.package-publish",
-    action: "ask",
-    tool: "bash",
-    pattern:
-      /^(?:npm|pnpm|yarn|bun|deno)\s+publish\b|^(?:cargo|poetry|gem|twine|mvn)\s+(?:publish|push|upload|deploy)\b/,
-    capability: "network",
-    reason: "Publishing a package is a public, irreversible release.",
-  },
-  {
-    id: "bash.ask.package-install",
-    action: "ask",
-    tool: "bash",
-    pattern:
-      /^(?:npm|pnpm|yarn|bun)\s+(?:i|install|ci|add)\b|^(?:pip3?|pipx)\s+install\b|^(?:cargo\s+(?:install|add)|go\s+(?:get|install)|gem\s+install|brew\s+install|apk\s+add|apt(?:-get)?\s+install)\b/,
-    capability: "network",
-    reason:
-      "Installing a package downloads and runs third-party lifecycle scripts.",
-  },
-  {
-    id: "bash.ask.git-push",
-    action: "ask",
-    tool: "bash",
-    pattern: /^git\b[^|;&\n]*\bpush\b/,
-    capability: "network",
-    reason: "Pushing publishes commits outside the sandbox.",
-  },
-  ...LEGACY_APPROVAL_RULES,
 ];
 
 // ------------------------------------------------------------------ allow --

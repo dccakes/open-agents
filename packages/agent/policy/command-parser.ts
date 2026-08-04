@@ -20,19 +20,15 @@
  * not with a cleverer parser.
  */
 
-/** Where a segment was found. */
-export type SegmentOrigin = "top-level" | "substitution" | "shell-string";
-
+/**
+ * One command found in the source, in the only two terms the policy layer uses:
+ * the text a rule is matched against, and how deeply nested it was.
+ */
 export interface CommandSegment {
-  /** The segment exactly as written, trimmed. */
-  raw: string;
-  /** The segment with leading `VAR=value` assignments removed. */
+  /** The segment, trimmed, with leading `VAR=value` assignments removed. */
   text: string;
-  /** The leading word of {@link text}, or `""` when there is none. */
-  command: string;
   /** Nesting depth: 0 for top level, +1 per substitution or `sh -c`. */
   depth: number;
-  origin: SegmentOrigin;
 }
 
 export type ParseResult =
@@ -221,12 +217,7 @@ function shellStringArgument(words: ShellWord[]): string | null {
   return null;
 }
 
-function pushSegment(
-  raw: string,
-  depth: number,
-  origin: SegmentOrigin,
-  state: ScanState,
-): void {
+function pushSegment(raw: string, depth: number, state: ScanState): void {
   const trimmed = raw.trim();
   if (trimmed === "") {
     return;
@@ -243,22 +234,16 @@ function pushSegment(
 
   const first = words[index];
   const text = first ? trimmed.slice(first.start).trim() : trimmed;
-  const command = first?.value ?? "";
 
-  state.segments.push({ raw: trimmed, text, command, depth, origin });
+  state.segments.push({ text, depth });
 
   const nestedScript = shellStringArgument(words.slice(index));
   if (nestedScript !== null && nestedScript !== "") {
-    scan(nestedScript, depth + 1, "shell-string", state);
+    scan(nestedScript, depth + 1, state);
   }
 }
 
-function scan(
-  source: string,
-  depth: number,
-  origin: SegmentOrigin,
-  state: ScanState,
-): void {
+function scan(source: string, depth: number, state: ScanState): void {
   if (state.failure) {
     return;
   }
@@ -275,9 +260,9 @@ function scan(
   let heredocs: HeredocMarker[] = [];
 
   const flush = (): void => {
-    pushSegment(buffer, depth, origin, state);
+    pushSegment(buffer, depth, state);
     for (const nested of pendingSubstitutions) {
-      scan(nested, depth + 1, "substitution", state);
+      scan(nested, depth + 1, state);
     }
     pendingSubstitutions = [];
     buffer = "";
@@ -501,7 +486,7 @@ export function parseCommand(command: string): ParseResult {
   const state: ScanState = { segments: [], failure: null };
 
   try {
-    scan(command, 0, "top-level", state);
+    scan(command, 0, state);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return { ok: false, reason: `command could not be parsed: ${message}` };

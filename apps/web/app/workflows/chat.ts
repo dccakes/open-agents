@@ -40,6 +40,14 @@ import {
   sendFinish,
 } from "./chat-post-finish";
 import { dedupeMessageReasoning } from "@/lib/chat/dedupe-message-reasoning";
+// The part ids the resume path writes back through. Same helpers on both
+// sides, so an update lands on the part the run created. The module imports
+// nothing at runtime, which is what keeps it safe in the workflow bundle.
+import {
+  approvalPartId as buildApprovalPartId,
+  commitPartId as buildCommitPartId,
+  prPartId as buildPrPartId,
+} from "@/lib/chat/app-side-effect-parts";
 import { getChatById, getSessionById } from "@/lib/db/sessions";
 import { getUserPreferences } from "@/lib/db/user-preferences";
 import {
@@ -820,9 +828,9 @@ export async function runAgentWorkflow(options: Options) {
       !wasAborted &&
       finalFinishReason !== undefined &&
       finalFinishReason !== "tool-calls";
-    const commitPartId = `${assistantId}:commit`;
-    const prPartId = `${assistantId}:pr`;
-    const approvalPartId = `${assistantId}:approval`;
+    const commitPartId = buildCommitPartId(assistantId);
+    const prPartId = buildPrPartId(assistantId);
+    const approvalPartId = buildApprovalPartId(assistantId);
     const repoOwner = runtime.repoOwner;
     const repoName = runtime.repoName;
     let didUpdateGitData = false;

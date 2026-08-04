@@ -29,7 +29,6 @@ export type {
 } from "./policy";
 export {
   approvalGateDecisionSchema,
-  commandNeedsApproval,
   createReadOnlyPolicy,
   defaultCommandPolicy,
   evaluate,

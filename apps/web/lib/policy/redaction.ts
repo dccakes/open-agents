@@ -8,16 +8,41 @@
  * run and are read by humans, so the credential must not reach the column in
  * the first place.
  *
- * This is pattern-based and therefore incomplete by construction; it is a
- * reduction in exposure, not a guarantee. Anything not matched is still bounded
- * in length so a summary cannot become an unbounded copy of the input.
+ * Two concerns live here, and only one of them is local:
+ *
+ * - **String scrubbing** is *not* local. It is
+ *   `@open-agents/shared/lib/redact-secrets`, shared with the agent package's
+ *   `policy/redact.ts`. There used to be a second, independent pattern set in
+ *   this file, and because neither set was a superset of the other, each path
+ *   leaked the credential classes the other caught. Add a pattern there.
+ * - **The structural walk** below is local: turning an arbitrary `unknown` into
+ *   a bounded, cycle-free, JSON-serializable record for a `jsonb` column, with
+ *   secret-*named* keys dropped whatever their value looks like. Nothing in the
+ *   agent package needs that.
+ *
+ * **Where the guarantee lives.** For values the agent produced, the scrub
+ * already happened at the agent package's boundary (`policy/redact.ts`) — that
+ * boundary has to hold for any host, not just this one. Callers handing over
+ * such a value pass `stringsAlreadyRedacted` so it is not scrubbed a second
+ * time. For every other caller — anything assembling a summary out of raw
+ * request data — the scrub happens *here*, on the way into the column, which is
+ * the last point at which no caller can forget it. That is the default.
  */
 
+import {
+  MAX_REDACTED_TEXT_LENGTH,
+  REDACTED as SHARED_REDACTED,
+  redactSecrets,
+} from "@open-agents/shared/lib/redact-secrets";
+
 /** What a redacted value is replaced with. */
-export const REDACTED = "[redacted]";
+export const REDACTED = SHARED_REDACTED;
 
 /** Longest string kept verbatim in a summary. */
-export const MAX_SUMMARY_STRING_LENGTH = 2000;
+export const MAX_SUMMARY_STRING_LENGTH = MAX_REDACTED_TEXT_LENGTH;
+
+/** Redact credential-shaped substrings, then bound the length. */
+export const redactText = redactSecrets;
 
 /** Deepest nesting walked before the rest is collapsed. */
 const MAX_DEPTH = 6;
@@ -26,71 +51,20 @@ const MAX_DEPTH = 6;
 const SECRET_KEY_PATTERN =
   /(?:secret|token|password|passwd|credential|api[-_]?key|access[-_]?key|private[-_]?key|authorization|auth[-_]?header|session[-_]?id|cookie)/i;
 
-/**
- * Values that are credential-shaped wherever they appear.
- *
- * Ordered longest-prefix first so a more specific vendor pattern wins over the
- * generic one it is a substring of.
- */
-const SECRET_VALUE_PATTERNS: RegExp[] = [
-  // PEM private key blocks, header through footer.
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
-  // GitHub fine-grained PATs and classic tokens.
-  /\bgithub_pat_[A-Za-z0-9_]{20,}/g,
-  /\bgh[pousr]_[A-Za-z0-9]{16,}/g,
-  // OpenAI / Anthropic style prefixed keys.
-  /\bsk-(?:ant-)?[A-Za-z0-9_-]{16,}/g,
-  // Slack bot / user / app tokens.
-  /\bxox[abposr]-[A-Za-z0-9-]{10,}/g,
-  // AWS access key ids.
-  /\b(?:AKIA|ASIA|AIDA|AROA)[A-Z0-9]{12,}/g,
-  // JSON Web Tokens.
-  /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g,
-  // Vercel, Neon, and similar prefixed keys.
-  /\b(?:vercel|neon|dtn)_[A-Za-z0-9_]{16,}/gi,
-];
-
-/**
- * `NAME=value` where the name is credential-shaped. The name is kept so the
- * summary still says *what* was set; only the value is dropped.
- */
-const SECRET_ASSIGNMENT_PATTERN =
-  /\b([A-Za-z_][\w-]*(?:SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|API[-_]?KEY|ACCESS[-_]?KEY|PRIVATE[-_]?KEY)[\w-]*)\s*=\s*("[^"]*"|'[^']*'|\S+)/gi;
-
-/** `Authorization: Bearer <value>` and friends, in a header or a flag. */
-const BEARER_PATTERN = /\b(Bearer|Basic|Token)\s+[A-Za-z0-9._~+/=-]{8,}/gi;
-
-/** A credential embedded in a URL's userinfo. */
-const URL_USERINFO_PATTERN = /\/\/[^/\s:@]+:[^/\s@]+@/g;
-
-function truncate(value: string): string {
-  if (value.length <= MAX_SUMMARY_STRING_LENGTH) {
-    return value;
-  }
-
-  const dropped = value.length - MAX_SUMMARY_STRING_LENGTH;
-  return `${value.slice(0, MAX_SUMMARY_STRING_LENGTH)}… (${dropped} chars truncated)`;
-}
-
-/** Redact credential-shaped substrings, then bound the length. */
-export function redactText(value: string): string {
-  let result = value;
-
-  for (const pattern of SECRET_VALUE_PATTERNS) {
-    result = result.replace(pattern, REDACTED);
-  }
-
-  result = result.replace(
-    SECRET_ASSIGNMENT_PATTERN,
-    (_match, name: string) => `${name}=${REDACTED}`,
-  );
-  result = result.replace(
-    BEARER_PATTERN,
-    (_match, scheme: string) => `${scheme} ${REDACTED}`,
-  );
-  result = result.replace(URL_USERINFO_PATTERN, `//${REDACTED}@`);
-
-  return truncate(result);
+export interface RedactInputSummaryOptions {
+  /**
+   * The caller already ran `redactSecrets` over every string in this value, so
+   * do not scrub them again — see the boundary note at the top of this file.
+   *
+   * Only the string scrub is skipped. Depth, cycle, non-JSON-value and
+   * secret-named-key handling always run, because those are properties of the
+   * column and not of the caller. A caller that sets this owns both the scrub
+   * and the length bound for the strings it passes.
+   *
+   * Defaults to `false`: forgetting it costs a redundant (idempotent) pass,
+   * whereas setting it wrongly would write a credential to the column.
+   */
+  stringsAlreadyRedacted?: boolean;
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -106,9 +80,10 @@ function redactValue(
   value: unknown,
   depth: number,
   seen: WeakSet<object>,
+  scrubStrings: boolean,
 ): unknown {
   if (typeof value === "string") {
-    return redactText(value);
+    return scrubStrings ? redactSecrets(value) : value;
   }
 
   if (
@@ -146,14 +121,16 @@ function redactValue(
     seen.add(value);
 
     if (Array.isArray(value)) {
-      return value.map((entry) => redactValue(entry, depth + 1, seen));
+      return value.map((entry) =>
+        redactValue(entry, depth + 1, seen, scrubStrings),
+      );
     }
 
     const output: Record<string, unknown> = {};
     for (const [key, entry] of Object.entries(value)) {
       output[key] = SECRET_KEY_PATTERN.test(key)
         ? REDACTED
-        : redactValue(entry, depth + 1, seen);
+        : redactValue(entry, depth + 1, seen, scrubStrings);
     }
     return output;
   }
@@ -167,13 +144,17 @@ function redactValue(
  * A non-object input is wrapped as `{ value }` rather than dropped, so a caller
  * that hands over a bare command string still gets a usable summary.
  */
-export function redactInputSummary(input: unknown): Record<string, unknown> {
+export function redactInputSummary(
+  input: unknown,
+  options: RedactInputSummaryOptions = {},
+): Record<string, unknown> {
   const seen = new WeakSet<object>();
+  const scrubStrings = options.stringsAlreadyRedacted !== true;
 
   if (isPlainRecord(input)) {
-    const result = redactValue(input, 0, seen);
+    const result = redactValue(input, 0, seen, scrubStrings);
     return isPlainRecord(result) ? result : { value: result };
   }
 
-  return { value: redactValue(input, 1, seen) };
+  return { value: redactValue(input, 1, seen, scrubStrings) };
 }

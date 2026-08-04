@@ -4,7 +4,7 @@ import type { AskUserQuestionInput } from "@open-agents/agent";
 import { BudgetHaltCard } from "./budget-halt-card";
 import { ApprovalRequestCard } from "./approval-request-card";
 import { useAppSideEffectApproval } from "./hooks/use-app-side-effect-approval";
-import { useSessionPosture } from "./hooks/use-session-posture";
+import { useSessionPosture } from "@/app/sessions/[sessionId]/session-posture-context";
 import { ApprovalPolicyProvider } from "@/components/tool-call/approval-policy-context";
 import { formatTokens } from "@open-agents/shared";
 import {
@@ -1262,8 +1262,8 @@ export function SessionChatContent({
       void checkBranchAndPr().catch(() => undefined);
     },
   );
-  // The posture in force, so a paused tool call can say what paused it.
-  const sessionPosture = useSessionPosture(session.id);
+  // The posture in force, shared with the header control.
+  const sessionPosture = useSessionPosture();
   // Mounted here rather than inside the card: an answer in flight must survive
   // the transcript re-rendering underneath it.
   const appSideEffectApprovals = useAppSideEffectApproval({
@@ -3070,7 +3070,8 @@ export function SessionChatContent({
   ) : null;
 
   return (
-    <>
+    // One mount for the whole transcript; ToolLayout reads it at any depth.
+    <ApprovalPolicyProvider posture={sessionPosture.posture}>
       {/* Git panel portaled to layout-level for full page height */}
       {gitPanelOpen &&
         panelPortalRef.current &&
@@ -3583,27 +3584,23 @@ export function SessionChatContent({
                                       key={`${m.id}-${group.renderKey}`}
                                       className="max-w-full pl-[22px]"
                                     >
-                                      <ApprovalPolicyProvider
-                                        posture={sessionPosture.posture}
-                                      >
-                                        <ToolCall
-                                          part={p as WebAgentUIToolPart}
-                                          isStreaming={isMessageStreaming}
-                                          onApprove={(id) =>
-                                            addToolApprovalResponse({
-                                              id,
-                                              approved: true,
-                                            })
-                                          }
-                                          onDeny={(id, reason) =>
-                                            addToolApprovalResponse({
-                                              id,
-                                              approved: false,
-                                              reason,
-                                            })
-                                          }
-                                        />
-                                      </ApprovalPolicyProvider>
+                                      <ToolCall
+                                        part={p as WebAgentUIToolPart}
+                                        isStreaming={isMessageStreaming}
+                                        onApprove={(id) =>
+                                          addToolApprovalResponse({
+                                            id,
+                                            approved: true,
+                                          })
+                                        }
+                                        onDeny={(id, reason) =>
+                                          addToolApprovalResponse({
+                                            id,
+                                            approved: false,
+                                            reason,
+                                          })
+                                        }
+                                      />
                                     </div>
                                   );
                                 }
@@ -4445,6 +4442,6 @@ export function SessionChatContent({
           }, 100);
         }}
       />
-    </>
+    </ApprovalPolicyProvider>
   );
 }

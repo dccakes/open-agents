@@ -176,15 +176,17 @@ command is exactly the kind of command most likely to contain a credential.
 
 The package ships `noopPolicyEventRecorder`; the host injects a real one.
 
-## Compatibility
+## The pre-policy denylist
 
-`commandNeedsApproval()` is still exported from `tools/index.ts` and
-`tools/bash.ts`, but it is now a thin wrapper over `evaluate()` against
-`legacyApprovalPolicy` (`policy/legacy-approval.ts`) — the absorbed pre-policy
-regexes, kept as their own rule list so the wrapper reproduces exactly the old
-answer. It cannot express `deny`, has no posture, and knows nothing about the
-baseline's rules for pushes, publishes, and installs. New code should call
-`evaluate()`.
+The `commandNeedsApproval()` shim that reproduced the pre-policy bash denylist
+is gone. Its regexes live in the baseline as the `bash.ask.legacy.*` rules, and
+its one remaining caller — `bashTool`'s `needsApproval` fallback for a context
+with no policy — only chose whether to pause before a refusal `execute` was
+going to return anyway. Call `evaluate()` with a policy and a posture.
+
+What the shim guaranteed is still pinned: `policy/absorbed-denylist.test.ts`
+asserts that no command the old denylist gated evaluates to `allow` under
+`auto`, and that its near misses still do.
 
 ## Key files
 
@@ -199,7 +201,7 @@ baseline's rules for pushes, publishes, and installs. New code should call
 | `policy/approval-gate.ts` | `ApprovalGate` seam and its fail-closed wrappers |
 | `policy/call-options.ts` | The policy fields every agent accepts, and their assembly |
 | `policy/golden-corpus.ts` | Command → expected decision per posture |
-| `policy/legacy-approval.ts` | `commandNeedsApproval()` compatibility wrapper |
+| `policy/compiled-policy.ts` | Per-policy rule bucketing `evaluate()` matches against |
 | `tools/policy-enforcement.ts` | The enforcement point both hooks call |
 | `tools/bash-working-directory.ts` | The bash `cwd` containment rule |
 | `subagents/policy-context.ts` | Narrowing the context for a subagent |

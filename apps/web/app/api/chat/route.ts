@@ -160,10 +160,15 @@ export async function POST(req: Request) {
   }
 
   // Every approval claim in this body is an assertion by whoever sent it.
-  // Checked before anything is persisted or started, so a forged claim never
-  // becomes a persisted tool result.
+  // Recorded and checked before anything is persisted or started, so a forged
+  // claim never becomes a persisted tool result. `userId` is the authenticated
+  // caller and `requireOwnedSessionChat` above has already established that
+  // this session is theirs — that is the authorization the decision is
+  // attributed to, and it is not re-derived from the body.
   const approvalAdmission = await checkApprovalAdmission({
     sessionId,
+    actorUserId: userId,
+    posture: sessionRecord.posture,
     messages,
   });
   if (!approvalAdmission.ok) {

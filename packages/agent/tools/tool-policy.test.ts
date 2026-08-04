@@ -145,6 +145,17 @@ describe("bash policy enforcement", () => {
     expect(execCalls).toHaveLength(0);
   });
 
+  test("does not pause when no policy is wired, since execute refuses anyway", async () => {
+    // Pausing here would ask a human to authorise a call that is refused
+    // either way, which is the same reason the policed path does not pause a
+    // non-interactive `ask`.
+    for (const command of ["ls -la", "rm -rf tmp", "cat .env.local"]) {
+      expect(
+        await needsApproval(bashTool(), { command }, contextWith(undefined)),
+      ).toBe(false);
+    }
+  });
+
   test("refuses a detached denied command before starting a background process", async () => {
     const result = await bashTool().execute?.(
       { command: "rm -rf /", detached: true },

@@ -1,8 +1,4 @@
-export type {
-  CommandSegment,
-  ParseResult,
-  SegmentOrigin,
-} from "./command-parser";
+export type { CommandSegment, ParseResult } from "./command-parser";
 export { parseCommand } from "./command-parser";
 export type {
   ApprovalGate,
@@ -19,7 +15,7 @@ export {
 export type { PolicyCallOptions } from "./call-options";
 export { policyCallOptionsSchema, resolvePolicyContext } from "./call-options";
 export { evaluate } from "./command-policy";
-export { defaultCommandPolicy, LEGACY_APPROVAL_RULES } from "./default-policy";
+export { defaultCommandPolicy } from "./default-policy";
 export type {
   AgentPolicyContext,
   PolicyEvent,
@@ -37,7 +33,6 @@ export {
 } from "./execution-context";
 export type { CorpusEntry, CorpusTag } from "./golden-corpus";
 export { GOLDEN_CORPUS } from "./golden-corpus";
-export { commandNeedsApproval, legacyApprovalPolicy } from "./legacy-approval";
 export { createReadOnlyPolicy, readOnlyPolicy } from "./read-only-policy";
 export { MAX_POLICY_INPUT_LENGTH, redactPolicyInput } from "./redact";
 export type {

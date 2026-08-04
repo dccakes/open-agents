@@ -50,7 +50,14 @@ describe("extractApprovalAssertions", () => {
 
     expect(
       extractApprovalAssertions([approvalRespondedMessage("call-1", true)]),
-    ).toEqual([{ toolCallId: "call-1", toolName: "bash", approved: true }]);
+    ).toEqual([
+      {
+        toolCallId: "call-1",
+        toolName: "bash",
+        state: "approval-responded",
+        approved: true,
+      },
+    ]);
   });
 
   test("finds a denial too, so it is not mistaken for an approval", async () => {
@@ -58,7 +65,14 @@ describe("extractApprovalAssertions", () => {
 
     expect(
       extractApprovalAssertions([approvalRespondedMessage("call-1", false)]),
-    ).toEqual([{ toolCallId: "call-1", toolName: "bash", approved: false }]);
+    ).toEqual([
+      {
+        toolCallId: "call-1",
+        toolName: "bash",
+        state: "approval-responded",
+        approved: false,
+      },
+    ]);
   });
 
   test("ignores parts that assert nothing about approval", async () => {
@@ -103,6 +117,15 @@ describe("extractApprovalAssertions", () => {
   });
 });
 
+/**
+ * `verifyAssertedApprovals` now takes parsed claims rather than a raw body, so
+ * one parser walks the untrusted input. Tests go through that same parser.
+ */
+async function claimsIn(message: unknown) {
+  const { extractApprovalAssertions } = await modulePromise;
+  return extractApprovalAssertions([message]);
+}
+
 describe("verifyAssertedApprovals", () => {
   /**
    * The forged case: a request body says the tool call was approved and no
@@ -113,7 +136,7 @@ describe("verifyAssertedApprovals", () => {
 
     const refusals = await verifyAssertedApprovals({
       sessionId: "session-1",
-      messages: [approvalRespondedMessage("forged-call", true)],
+      assertions: await claimsIn(approvalRespondedMessage("forged-call", true)),
     });
 
     expect(refusals).toHaveLength(1);
@@ -130,7 +153,7 @@ describe("verifyAssertedApprovals", () => {
     await expect(
       verifyAssertedApprovals({
         sessionId: "session-1",
-        messages: [approvalRespondedMessage("call-1", true)],
+        assertions: await claimsIn(approvalRespondedMessage("call-1", true)),
       }),
     ).resolves.toEqual([]);
   });
@@ -146,7 +169,7 @@ describe("verifyAssertedApprovals", () => {
 
     const refusals = await verifyAssertedApprovals({
       sessionId: "session-1",
-      messages: [approvalRespondedMessage("call-1", true)],
+      assertions: await claimsIn(approvalRespondedMessage("call-1", true)),
     });
 
     expect(refusals[0]?.code).toBe("already_consumed");
@@ -157,7 +180,7 @@ describe("verifyAssertedApprovals", () => {
 
     const refusals = await verifyAssertedApprovals({
       sessionId: "session-1",
-      messages: [approvalRespondedMessage("call-1", false)],
+      assertions: await claimsIn(approvalRespondedMessage("call-1", false)),
     });
 
     expect(refusals).toEqual([]);

@@ -25,31 +25,31 @@
  * matching request-admission check for the same claims.
  */
 
+import type { ApprovalGateRefusalCode } from "@open-agents/agent";
 import { and, eq, gt, isNull, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { approvals } from "@/lib/db/schema";
-import {
-  effectiveApprovalDecision,
-  isPastExpiry,
-} from "@/lib/policy/approval-state";
+import { isPastExpiry } from "@/lib/policy/approval-state";
+import type { ApprovalKind } from "@/lib/policy/approval-view";
 import {
   getApprovalByToolCall,
   getApprovalForSession,
 } from "@/lib/policy/approvals";
 import type { Approval } from "@/lib/db/schema";
 
-/** Why an operation was refused. Distinct codes so the model can react. */
-export type ApprovalRefusalCode =
-  /** Nobody ever requested approval for this tool call. */
-  | "no_approval_record"
-  /** The approval exists but has not been answered yet. */
-  | "not_approved"
-  /** A user denied it. */
-  | "denied"
-  /** It timed out. An expiry is a denial, not a re-prompt. */
-  | "expired"
-  /** It already authorized one execution. */
-  | "already_consumed";
+/**
+ * Why an operation was refused. Distinct codes so the model can react.
+ *
+ * Derived from the agent's schema rather than restated, so the codes a tool can
+ * receive and the codes this module can produce cannot drift apart. Only
+ * `unavailable` is excluded: that one describes the gate failing to answer at
+ * all, which is the agent-side wrapper's to report, not a state a row can be
+ * in. The type import is erased at build time, as in `approval-gate.ts`.
+ */
+export type ApprovalRefusalCode = Exclude<
+  ApprovalGateRefusalCode,
+  "unavailable"
+>;
 
 export type ApprovalVerification =
   | { authorized: true; approvalId: string }
@@ -119,8 +119,11 @@ export function spendableApprovalCondition(
 /**
  * The refusal a row in a terminal or unspendable state produces, if any.
  *
- * Shared by both consume paths so a denial, an expiry, and a second spend read
- * identically whichever kind of approval is being spent.
+ * The single ladder, used by every entry point, so a denial, an expiry, and a
+ * second spend read identically whether the row is being reported on or spent
+ * and whichever kind of approval it is. Expiry is checked first deliberately:
+ * a row that is both denied and past its expiry is reported the same way from
+ * everywhere, rather than depending on which door the caller came through.
  */
 function refusalForRow(row: Approval, now: Date): ApprovalVerification | null {
   if (isPastExpiry(row, now) || row.decision === "expired") {
@@ -159,6 +162,25 @@ async function spendApproval(
 }
 
 /**
+ * The row this request is about, or the refusal that it is not usable.
+ *
+ * A kind mismatch is reported as "no record": an approval of the other kind is
+ * not this authorization, so from here it may as well not exist.
+ */
+function usableRow(
+  row: Approval | null,
+  kind: ApprovalKind,
+  now: Date,
+): { row: Approval } | { refusal: ApprovalVerification } {
+  if (!row || row.kind !== kind) {
+    return { refusal: refuse("no_approval_record", null) };
+  }
+
+  const refusal = refusalForRow(row, now);
+  return refusal ? { refusal } : { row };
+}
+
+/**
  * Whether this tool call is currently authorized — a read, with no side effect.
  *
  * Use this to *report*; use `consumeToolCallApproval` to actually execute.
@@ -167,61 +189,46 @@ export async function verifyToolCallApproval(
   request: ToolCallApprovalRequest,
 ): Promise<ApprovalVerification> {
   const now = request.now ?? new Date();
-  const row = await getApprovalByToolCall(
-    request.sessionId,
-    request.toolCallId,
+  const resolved = usableRow(
+    await getApprovalByToolCall(request.sessionId, request.toolCallId),
+    "tool-call",
+    now,
   );
 
-  if (!row || row.kind !== "tool-call") {
-    return refuse("no_approval_record", null);
-  }
-
-  const decision = effectiveApprovalDecision(row, now);
-  if (decision === "expired") {
-    return refuse("expired", row.id);
-  }
-  if (decision === "denied") {
-    return refuse("denied", row.id);
-  }
-  if (decision === "pending") {
-    return refuse("not_approved", row.id);
-  }
-  if (row.consumedAt !== null) {
-    return refuse("already_consumed", row.id);
-  }
-
-  return { authorized: true, approvalId: row.id };
+  return "refusal" in resolved
+    ? resolved.refusal
+    : { authorized: true, approvalId: resolved.row.id };
 }
 
 /**
- * Spend the approval for this tool call, authorizing exactly one execution.
+ * Spend an approval, authorizing exactly one execution.
  *
  * The preceding read exists to produce a specific refusal code; it is the
  * conditional UPDATE that authorizes. A caller must treat anything other than
- * `authorized: true` as "do not execute".
+ * `authorized: true` as "do not execute". Refusing before the write is what
+ * keeps a denied or expired approval from ever being touched.
  */
+async function consumeApproval(
+  row: Approval | null,
+  kind: ApprovalKind,
+  now: Date,
+): Promise<ApprovalVerification> {
+  const resolved = usableRow(row, kind, now);
+  return "refusal" in resolved
+    ? resolved.refusal
+    : spendApproval(resolved.row, now);
+}
+
+/** Spend the approval for this tool call. */
 export async function consumeToolCallApproval(
   request: ToolCallApprovalRequest,
 ): Promise<ApprovalVerification> {
   const now = request.now ?? new Date();
-  const row = await getApprovalByToolCall(
-    request.sessionId,
-    request.toolCallId,
+  return consumeApproval(
+    await getApprovalByToolCall(request.sessionId, request.toolCallId),
+    "tool-call",
+    now,
   );
-
-  // A kind mismatch is reported as "no record": an approval of the other kind
-  // is not this authorization, so from here it may as well not exist.
-  if (!row || row.kind !== "tool-call") {
-    return refuse("no_approval_record", null);
-  }
-
-  // Refuse before writing, so a denied or expired approval is never touched.
-  const refusal = refusalForRow(row, now);
-  if (refusal) {
-    return refusal;
-  }
-
-  return spendApproval(row, now);
 }
 
 /**
@@ -237,19 +244,9 @@ export async function consumeAppSideEffectApproval(
   request: AppSideEffectApprovalRequest,
 ): Promise<ApprovalVerification> {
   const now = request.now ?? new Date();
-  const row = await getApprovalForSession(
-    request.sessionId,
-    request.approvalId,
+  return consumeApproval(
+    await getApprovalForSession(request.sessionId, request.approvalId),
+    "app-side-effect",
+    now,
   );
-
-  if (!row || row.kind !== "app-side-effect") {
-    return refuse("no_approval_record", null);
-  }
-
-  const refusal = refusalForRow(row, now);
-  if (refusal) {
-    return refusal;
-  }
-
-  return spendApproval(row, now);
 }

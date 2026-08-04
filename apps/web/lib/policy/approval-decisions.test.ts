@@ -13,6 +13,7 @@ let actorId: string | null = "user-1";
 let updateSets: Row[] = [];
 let updateMatchesNothing = false;
 let policyEventCalls: PolicyEventInput[] = [];
+let sessionActorCalls = 0;
 
 function pendingRow(overrides: Row = {}): Row {
   return {
@@ -36,6 +37,7 @@ function pendingRow(overrides: Row = {}): Row {
 
 mock.module("@/lib/policy/session-access", () => ({
   requireSessionActor: () => {
+    sessionActorCalls += 1;
     if (!actorId) {
       return Promise.reject(new AuthorizationError("forbidden"));
     }
@@ -50,6 +52,7 @@ mock.module("@/lib/policy/session-access", () => ({
 
 mock.module("@/lib/policy/approvals", () => ({
   getApprovalForSession: () => Promise.resolve(storedRow as Approval | null),
+  getApprovalByToolCall: () => Promise.resolve(storedRow as Approval | null),
 }));
 
 mock.module("@/lib/policy/policy-events", () => ({
@@ -86,6 +89,7 @@ beforeEach(() => {
   updateSets = [];
   updateMatchesNothing = false;
   policyEventCalls = [];
+  sessionActorCalls = 0;
 });
 
 describe("decideApproval authorization", () => {
@@ -265,5 +269,164 @@ describe("decideApproval audit", () => {
     });
 
     expect(policyEventCalls[0]?.decision).toBe("ask");
+  });
+});
+
+/**
+ * The other way a decision reaches the server: inside the next chat request,
+ * for an approval the user answered in the UI. Recording it is what makes an
+ * answered `ask` runnable at all — without it the row stays `pending` and the
+ * resume is refused forever.
+ */
+/** Declared outside the loop below, so the closure captures nothing mutable. */
+async function expectTerminalRowUntouched(overrides: Row) {
+  storedRow = pendingRow(overrides);
+  const { recordAssertedApprovalDecision } = await modulePromise;
+
+  await recordAssertedApprovalDecision({
+    sessionId: "session-1",
+    toolCallId: "call-1",
+    decision: "approved",
+    actorUserId: "user-9",
+    posture: "auto",
+    now: NOW,
+  });
+
+  expect(updateSets).toEqual([]);
+  expect(policyEventCalls).toEqual([]);
+}
+
+describe("recordAssertedApprovalDecision", () => {
+  test("moves a pending tool-call row to the decision, attributed to the actor", async () => {
+    const { recordAssertedApprovalDecision } = await modulePromise;
+
+    await recordAssertedApprovalDecision({
+      sessionId: "session-1",
+      toolCallId: "call-1",
+      decision: "approved",
+      actorUserId: "user-9",
+      posture: "auto",
+      now: NOW,
+    });
+
+    expect(updateSets[0]).toMatchObject({
+      decision: "approved",
+      decidedBy: "user-9",
+      decidedAt: NOW,
+    });
+  });
+
+  /**
+   * The caller has already established the actor may act on the session. Doing
+   * it again here would be a second, looser derivation of the same fact.
+   */
+  test("does not re-derive authorization; it uses the actor it is given", async () => {
+    const { recordAssertedApprovalDecision } = await modulePromise;
+
+    await recordAssertedApprovalDecision({
+      sessionId: "session-1",
+      toolCallId: "call-1",
+      decision: "approved",
+      actorUserId: "user-9",
+      posture: "auto",
+      now: NOW,
+    });
+
+    expect(sessionActorCalls).toBe(0);
+  });
+
+  test("records a denial, so the tool refuses instead of waiting", async () => {
+    const { recordAssertedApprovalDecision } = await modulePromise;
+
+    await recordAssertedApprovalDecision({
+      sessionId: "session-1",
+      toolCallId: "call-1",
+      decision: "denied",
+      actorUserId: "user-9",
+      posture: "strict",
+      now: NOW,
+    });
+
+    expect(updateSets[0]).toMatchObject({ decision: "denied" });
+    expect(policyEventCalls[0]).toMatchObject({
+      decision: "deny",
+      posture: "strict",
+    });
+  });
+
+  /** It can only ever answer a row a policy `ask` already created. */
+  test("writes nothing when no approval row exists for the tool call", async () => {
+    storedRow = null;
+    const { recordAssertedApprovalDecision } = await modulePromise;
+
+    await recordAssertedApprovalDecision({
+      sessionId: "session-1",
+      toolCallId: "forged-call",
+      decision: "approved",
+      actorUserId: "user-9",
+      posture: "auto",
+      now: NOW,
+    });
+
+    expect(updateSets).toEqual([]);
+    expect(policyEventCalls).toEqual([]);
+  });
+
+  test("writes nothing for an approval of the other kind", async () => {
+    storedRow = pendingRow({ kind: "app-side-effect", toolCallId: null });
+    const { recordAssertedApprovalDecision } = await modulePromise;
+
+    await recordAssertedApprovalDecision({
+      sessionId: "session-1",
+      toolCallId: "call-1",
+      decision: "approved",
+      actorUserId: "user-9",
+      posture: "auto",
+      now: NOW,
+    });
+
+    expect(updateSets).toEqual([]);
+  });
+
+  for (const [label, overrides] of [
+    ["denied", { decision: "denied", decidedBy: "user-2" }],
+    ["already approved", { decision: "approved", decidedBy: "user-2" }],
+    ["expired", { expiresAt: new Date(NOW.getTime() - 1) }],
+  ] as const) {
+    test(`leaves an ${label} approval exactly as it was`, () =>
+      expectTerminalRowUntouched(overrides));
+  }
+
+  test("ignores a decision value that is neither approve nor deny", async () => {
+    const { recordAssertedApprovalDecision } = await modulePromise;
+
+    await recordAssertedApprovalDecision({
+      sessionId: "session-1",
+      toolCallId: "call-1",
+      decision: "pending" as unknown as "approved",
+      actorUserId: "user-9",
+      posture: "auto",
+      now: NOW,
+    });
+
+    expect(updateSets).toEqual([]);
+  });
+
+  test("declines quietly when the conditional write loses a race", async () => {
+    updateMatchesNothing = true;
+    const { recordAssertedApprovalDecision } = await modulePromise;
+
+    await expect(
+      recordAssertedApprovalDecision({
+        sessionId: "session-1",
+        toolCallId: "call-1",
+        decision: "approved",
+        actorUserId: "user-9",
+        posture: "auto",
+        now: NOW,
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(policyEventCalls).toEqual([]);
   });
 });

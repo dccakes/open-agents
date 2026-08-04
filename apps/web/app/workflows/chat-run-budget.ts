@@ -23,7 +23,6 @@ import type {
   DailyBudgetSnapshot,
   RunUsage,
 } from "@/lib/budget/run-budget";
-import { UTC_DAY_BOUNDARY_NOTICE } from "@/lib/budget/utc-day";
 import {
   getRunStepBudget,
   getRunTokenBudget,
@@ -99,15 +98,17 @@ export function accumulateRunUsage(
   };
 }
 
-/** The breach as the chat renders it. */
+/**
+ * The breach as the chat renders it — the figures only.
+ *
+ * `breach.message` stays on the run row as its halt reason; it is not sent to
+ * the client, because the card writes its own copy from these three fields and
+ * owns the day-boundary note itself.
+ */
 export function toBudgetHaltData(breach: BudgetBreach): WebAgentBudgetHaltData {
   return {
     budget: breach.budget,
     limit: breach.limit,
     used: breach.used,
-    message: breach.message,
-    ...(breach.budget === "org-daily-tokens"
-      ? { dayBoundary: UTC_DAY_BOUNDARY_NOTICE }
-      : {}),
   };
 }

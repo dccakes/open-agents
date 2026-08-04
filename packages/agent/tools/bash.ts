@@ -1,6 +1,5 @@
 import { tool } from "ai";
 import { z } from "zod";
-import { commandNeedsApproval } from "../policy";
 import { resolveBashWorkingDirectory } from "./bash-working-directory";
 import {
   enforcePolicyWithApproval,
@@ -9,13 +8,6 @@ import {
   requestPolicyApproval,
 } from "./policy-enforcement";
 import { getSandbox } from "./utils";
-
-/**
- * `commandNeedsApproval` now lives in the policy module — it is a thin wrapper
- * over `evaluate()` against the absorbed legacy rules. It stays exported from
- * here so existing importers of `./bash` keep working.
- */
-export { commandNeedsApproval } from "../policy";
 
 const TIMEOUT_MS = 120_000;
 
@@ -59,15 +51,16 @@ function refusalResult(refusal: PolicyRefusal) {
 export const bashTool = (options?: ToolOptions) =>
   tool({
     needsApproval: async (args, { experimental_context, toolCallId }) => {
-      // `null` means nothing was wired: fall back to the pre-policy answer so a
-      // partially-wired caller is never *less* gated than before. `execute`
-      // refuses that call outright regardless.
+      // `null` means no policy was wired. Do not pause: `execute` refuses that
+      // call outright, and pausing would only ask a human to authorise a
+      // command that is going to be refused either way. This is the same choice
+      // the policed path makes when there is nobody to ask.
       const requiresApproval =
         (await requestPolicyApproval(
           experimental_context,
           policyCall(args.command),
           toolCallId,
-        )) ?? commandNeedsApproval(args.command);
+        )) ?? false;
 
       if (!requiresApproval) {
         return false;

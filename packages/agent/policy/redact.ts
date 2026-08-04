@@ -1,79 +1,32 @@
 /**
- * Redaction for policy records.
+ * Redaction for policy records — the agent package's outbound boundary.
  *
  * A denied command is written to an append-only audit log, and denied commands
  * are exactly the commands most likely to contain a credential. Everything that
- * leaves the agent for that log goes through here first.
+ * leaves the agent package for that log goes through here first: the summaries
+ * on a `PolicyEvent` (see `execution-context.ts`) and the summary on an
+ * `ApprovalGateRequest` (see `tools/policy-enforcement.ts`).
  *
- * This is deliberately eager: it prefers redacting something harmless over
- * leaking something that is not. The summary exists to identify what was
- * refused, not to reproduce it.
+ * **This is where the guarantee lives for anything the agent emits.** The
+ * package ships a no-op recorder and an optional gate, so the host on the other
+ * side is not necessarily this repo's web app; a `PolicyEvent` must already be
+ * redacted when it crosses the boundary, whoever catches it. A host that
+ * redacts again is welcome to — `redactSecrets` is idempotent — but it is not
+ * required to, and `apps/web` no longer does for values that came from here.
+ *
+ * The patterns themselves live in `@open-agents/shared/lib/redact-secrets`,
+ * shared with `apps/web/lib/policy/redaction.ts`. They used to be a second,
+ * separate set here, which meant each side missed credential classes the other
+ * caught. Add a pattern there, not here.
  */
 
-const REDACTED = "[redacted]";
+import {
+  MAX_REDACTED_TEXT_LENGTH,
+  redactSecrets,
+} from "@open-agents/shared/lib/redact-secrets";
 
 /** Long enough to identify the command, short enough not to store a payload. */
-export const MAX_POLICY_INPUT_LENGTH = 500;
-
-/** Key names whose value is assumed to be a secret. */
-const SECRET_KEY_NAME = String.raw`[A-Za-z0-9_.-]*(?:token|secret|key|password|passwd|pwd|credential|auth)[A-Za-z0-9_.-]*`;
-
-interface RedactionRule {
-  pattern: RegExp;
-  replacement: string;
-}
-
-const REDACTION_RULES: RedactionRule[] = [
-  {
-    // PEM blocks first: their body would otherwise be caught piecemeal.
-    pattern:
-      /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
-    replacement: REDACTED,
-  },
-  {
-    // `SECRET=value`, `--token=value`, `SECRET="value"` — keep the name.
-    pattern: new RegExp(
-      String.raw`(${SECRET_KEY_NAME})(\s*=\s*)(?:"[^"]*"|'[^']*'|\S+)`,
-      "gi",
-    ),
-    replacement: `$1$2${REDACTED}`,
-  },
-  {
-    // `--token value`, `-p value`.
-    pattern: new RegExp(
-      String.raw`(--?${SECRET_KEY_NAME}\s+)(?:"[^"]*"|'[^']*'|\S+)`,
-      "gi",
-    ),
-    replacement: `$1${REDACTED}`,
-  },
-  {
-    pattern: /((?:authorization|proxy-authorization):\s*)\S+(?:\s+\S+)?/gi,
-    replacement: `$1${REDACTED}`,
-  },
-  {
-    pattern: /\b(bearer|basic)\s+\S+/gi,
-    replacement: `$1 ${REDACTED}`,
-  },
-  {
-    // Well-known issued-token shapes.
-    pattern:
-      /\b(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,}|sk-[A-Za-z0-9_-]{16,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{20,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})/g,
-    replacement: REDACTED,
-  },
-  {
-    // Long opaque runs with no separator: an ordinary path or identifier is
-    // broken up by `/`, `.`, or spaces well before this length.
-    pattern: /\b[A-Za-z0-9_-]{40,}\b/g,
-    replacement: REDACTED,
-  },
-];
-
-function truncate(value: string): string {
-  if (value.length <= MAX_POLICY_INPUT_LENGTH) {
-    return value;
-  }
-  return `${value.slice(0, MAX_POLICY_INPUT_LENGTH)}...`;
-}
+export const MAX_POLICY_INPUT_LENGTH = MAX_REDACTED_TEXT_LENGTH;
 
 /**
  * Produce a redacted, length-bounded summary of a tool input for the policy
@@ -85,10 +38,5 @@ export function redactPolicyInput(input: string | undefined): string {
     return "";
   }
 
-  let summary = input;
-  for (const rule of REDACTION_RULES) {
-    summary = summary.replace(rule.pattern, rule.replacement);
-  }
-
-  return truncate(summary);
+  return redactSecrets(input);
 }

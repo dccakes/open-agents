@@ -208,6 +208,47 @@ export function policyNeedsApproval(
 }
 
 /**
+ * The outcome of one evaluation, kept together so callers that need both the
+ * refusal and the decision behind it do not evaluate the policy twice. For
+ * `bash` a second evaluation would re-run the whole quote-aware parse.
+ */
+type Enforcement =
+  | { refused: PolicyRefusal }
+  | {
+      refused: null;
+      context: AgentPolicyContext;
+      decision: PolicyDecision;
+    };
+
+/**
+ * Evaluate once and decide whether the call is refused. Shared by
+ * `enforcePolicy` and `enforcePolicyWithApproval`.
+ */
+function enforce(
+  experimental_context: unknown,
+  call: PolicyToolCall,
+): Enforcement {
+  const context = getPolicy(experimental_context);
+  if (!context) {
+    return { refused: missingPolicyRefusal(call.toolName) };
+  }
+
+  const decision = evaluate(call, context.policy, context.posture);
+
+  if (decision.action === "deny") {
+    record(context, call, decision, "execute");
+    return { refused: refusal(call, decision, "deny") };
+  }
+
+  if (decision.action === "ask" && !isInteractivePolicyContext(context)) {
+    record(context, call, decision, "execute");
+    return { refused: refusal(call, decision, "approval-unavailable") };
+  }
+
+  return { refused: null, context, decision };
+}
+
+/**
  * Authoritative gate, called from `execute` before any side effect.
  *
  * Returns a structured refusal to hand back to the model, or `null` when the
@@ -218,24 +259,7 @@ export function enforcePolicy(
   experimental_context: unknown,
   call: PolicyToolCall,
 ): PolicyRefusal | null {
-  const context = getPolicy(experimental_context);
-  if (!context) {
-    return missingPolicyRefusal(call.toolName);
-  }
-
-  const decision = evaluate(call, context.policy, context.posture);
-
-  if (decision.action === "deny") {
-    record(context, call, decision, "execute");
-    return refusal(call, decision, "deny");
-  }
-
-  if (decision.action === "ask" && !isInteractivePolicyContext(context)) {
-    record(context, call, decision, "execute");
-    return refusal(call, decision, "approval-unavailable");
-  }
-
-  return null;
+  return enforce(experimental_context, call).refused;
 }
 
 /**
@@ -280,17 +304,16 @@ export async function enforcePolicyWithApproval(
   call: PolicyToolCall,
   toolCallId: string,
 ): Promise<PolicyRefusal | null> {
-  const refused = enforcePolicy(experimental_context, call);
-  if (refused) {
-    return refused;
+  const enforcement = enforce(experimental_context, call);
+  if (enforcement.refused) {
+    return enforcement.refused;
   }
 
-  const context = getPolicy(experimental_context);
-  if (!context?.approvalGate) {
+  const { context, decision } = enforcement;
+  if (!context.approvalGate) {
     return null;
   }
 
-  const decision = evaluate(call, context.policy, context.posture);
   if (decision.action !== "ask") {
     return null;
   }

@@ -1,4 +1,5 @@
 import { parseCommand } from "./command-parser";
+import { compilePolicy } from "./compiled-policy";
 import type {
   CommandPolicy,
   PolicyAction,
@@ -37,33 +38,28 @@ function matchesText(rule: PolicyRule, text: string): boolean {
 }
 
 /**
- * Find the first rule that matches, checking deny, then ask, then allow. An
- * allow rule can therefore never override a deny rule for the same command.
+ * Find the first rule in `rules` that matches `text`.
+ *
+ * `rules` arrives pre-bucketed by scope and already in deny → ask → allow order
+ * (see `compiled-policy.ts`), so an allow rule can never override a deny rule
+ * for the same command and the scan is one pass over the rules that can apply.
  */
 function firstMatch(
-  policy: CommandPolicy,
+  rules: PolicyRule[],
   toolName: string,
-  candidates: { text: string; scope: "segment" | "command" }[],
+  text: string,
 ): Match | null {
-  for (const rules of [policy.deny, policy.ask, policy.allow]) {
-    for (const rule of rules) {
-      if (!appliesToTool(rule, toolName)) {
-        continue;
-      }
-      const scope = rule.scope ?? "segment";
-      for (const candidate of candidates) {
-        if (candidate.scope !== scope) {
-          continue;
-        }
-        if (matchesText(rule, candidate.text)) {
-          return {
-            rule,
-            action: rule.action,
-            matchedText: candidate.text,
-            reason: rule.reason,
-          };
-        }
-      }
+  for (const rule of rules) {
+    if (!appliesToTool(rule, toolName)) {
+      continue;
+    }
+    if (matchesText(rule, text)) {
+      return {
+        rule,
+        action: rule.action,
+        matchedText: text,
+        reason: rule.reason,
+      };
     }
   }
 
@@ -137,22 +133,27 @@ function evaluateBash(
     );
   }
 
+  const compiled = compilePolicy(policy);
   const matches: Match[] = [];
 
   const wholeCommand = command.trim();
   if (wholeCommand !== "") {
-    const commandMatch = firstMatch(policy, BASH_TOOL_NAME, [
-      { text: wholeCommand, scope: "command" },
-    ]);
+    const commandMatch = firstMatch(
+      compiled.command,
+      BASH_TOOL_NAME,
+      wholeCommand,
+    );
     if (commandMatch) {
       matches.push(commandMatch);
     }
   }
 
   for (const segment of parsed.segments) {
-    const segmentMatch = firstMatch(policy, BASH_TOOL_NAME, [
-      { text: segment.text, scope: "segment" },
-    ]);
+    const segmentMatch = firstMatch(
+      compiled.segment,
+      BASH_TOOL_NAME,
+      segment.text,
+    );
     if (segmentMatch) {
       matches.push(segmentMatch);
     }
@@ -178,12 +179,12 @@ export function evaluate(
     return evaluateBash(toolCall.command ?? "", policy, posture);
   }
 
+  // A non-bash call has one text and no segments, so scope does not narrow
+  // anything: every rule for the tool is matched against the target.
   const target = toolCall.target ?? "";
   const match =
-    firstMatch(policy, toolCall.toolName, [
-      { text: target, scope: "segment" },
-      { text: target, scope: "command" },
-    ]) ?? policyDefault(policy);
+    firstMatch(compilePolicy(policy).any, toolCall.toolName, target) ??
+    policyDefault(policy);
 
   return decide(match.action, match, match.reason, posture);
 }
