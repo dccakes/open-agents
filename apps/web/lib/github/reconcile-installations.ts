@@ -33,14 +33,21 @@ const appInstallationSchema = z.object({
     .optional(),
 });
 
-interface AppInstallationSummary {
+export interface AppInstallationSummary {
   installationId: number;
   accountId: number | null;
   accountLogin: string | null;
 }
 
-/** Every installation the App currently holds, across all accounts. */
-async function listAppInstallations(): Promise<AppInstallationSummary[]> {
+/**
+ * Every installation the App currently holds, across all accounts.
+ *
+ * Exported for `scripts/org-ownership.ts`, which uses it to show what a
+ * reconciliation *would* remove before anyone commits to it.
+ */
+export async function listAppInstallations(): Promise<
+  AppInstallationSummary[]
+> {
   const octokit = getAppOctokit();
   const pages = await octokit.paginate("GET /app/installations", {
     per_page: 100,

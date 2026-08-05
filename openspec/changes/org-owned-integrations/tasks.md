@@ -56,7 +56,7 @@
 ## 6. Sync becomes additive — switch
 
 - [x] 6.1 `syncUserInstallations` upserts only; `deleteInstallationsNotInList` is scoped to rows where `organization_id IS NULL`.
-- [x] 6.2 Reconciliation against `GET /app/installations` via `getAppOctokit()`, removing organization-owned rows the App no longer holds. Idempotent and safe to run repeatedly.
+- [x] 6.2 Reconciliation against `GET /app/installations` via `getAppOctokit()` (run via `bun run --cwd apps/web org:ownership reconcile-installations --apply`), removing organization-owned rows the App no longer holds. Idempotent and safe to run repeatedly.
 - [x] 6.3 Confirm the `installation.deleted` webhook removes organization-owned rows.
 - [x] 6.4 Tests: a member who can no longer see the installation does not remove it by syncing; personal pruning still works and touches no other user's rows; reconciliation removes a stale org row; webhook deletion removes the org row.
 
@@ -68,7 +68,7 @@
 
 ## 8. Vercel link migration and conflict resolution
 
-- [x] 8.1 Migration routine: per repository, create one organization link where all per-user links agree; where they disagree, create no organization link, retain the per-user rows, and write a conflict record.
+- [x] 8.1 Migration routine (run via `bun run --cwd apps/web org:ownership migrate-vercel-links --apply`; dry run without `--apply`): per repository, create one organization link where all per-user links agree; where they disagree, create no organization link, retain the per-user rows, and write a conflict record.
 - [x] 8.2 Admin surface listing unresolved conflicts with competing projects and who recorded each, with resolution gated on `integration.connect`; resolving creates the organization link and clears the record.
 - [x] 8.3 Organization Vercel team recorded on `org_settings` (or a colocated org table), gated on `integration.connect`, readable by approved members.
 - [x] 8.4 Tests: agreeing repositories migrate; disagreeing repositories create no organization link and are recorded; no automatic winner is chosen; personal fallback still resolves during the window; member 403 on resolve and on setting the team.

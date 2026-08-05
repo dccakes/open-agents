@@ -43,6 +43,7 @@ Ownership is discriminated by a nullable `organizationId` column: non-NULL means
 - **Never prune org-owned rows from one user's view.** `GET /user/installations` answers "what can this user see". Removal comes from the `installation.deleted` webhook or `reconcileOrgInstallations()` (authenticated as the App). `deleteInstallationsNotInList` is scoped to `organization_id IS NULL` for this reason.
 - **Linear.** The connection is resolved by organization. Actors resolve by *verified* email or an admin-recorded `linear_actor_links` mapping — never a fallback identity.
 - **Vercel.** Repo→project links are org-scoped, but the migration only promotes repos whose members already agree; disagreements land in `vercel_project_link_conflicts` for a person to settle. Vercel API calls still use the acting member's own OAuth token.
+- **Running the one-shots.** The Vercel link migration and the installation reconciliation are deliberately not on a route or a cron — run them with `bun run --cwd apps/web org:ownership <status|migrate-vercel-links|reconcile-installations>`. Dry run unless `--apply`, and it prints the target database host first, because `reconcile-installations` deletes rows and preview databases are Neon forks pointing at real external resources.
 
 ## Configuration
 
