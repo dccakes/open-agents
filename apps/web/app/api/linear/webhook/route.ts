@@ -167,7 +167,7 @@ async function handleAgentSession({
   const actor = await resolveApprovedLinearActor(actorEmail, actorLinearUserId);
 
   if (!actor.ok) {
-    if (actor.reason === "no-email") {
+    if (actor.reason === "no-identity") {
       console.warn("[Linear webhook] No actor identity in payload");
       return;
     }

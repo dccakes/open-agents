@@ -3,7 +3,6 @@ import {
   checkAccountPromotable,
   type GitHubAccountCandidate,
   type InstallationRecord,
-  isPromotableAccount,
   planInstallationPromotion,
 } from "@/lib/org/github-account-plan";
 
@@ -48,11 +47,6 @@ describe("checkAccountPromotable", () => {
       ok: false,
       reason: "missing-account-id",
     });
-  });
-
-  test("isPromotableAccount mirrors the check", () => {
-    expect(isPromotableAccount(account())).toBe(true);
-    expect(isPromotableAccount(account({ accountType: "User" }))).toBe(false);
   });
 });
 

@@ -30,9 +30,13 @@ export type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /** One column's before/after, so the record answers "changed from what?". */
 export interface OrgSettingsChange {
-  field: "agentRunsPaused" | "dailyTokenBudget";
-  previousValue: boolean | number | null;
-  newValue: boolean | number | null;
+  field:
+    | "agentRunsPaused"
+    | "dailyTokenBudget"
+    | "vercelTeamId"
+    | "vercelTeamSlug";
+  previousValue: boolean | number | string | null;
+  newValue: boolean | number | string | null;
 }
 
 export interface OrgSettingsAuditEntry {

@@ -13,15 +13,19 @@
  * while an admin decides, which is the worst case we are willing to ship.
  */
 
+import {
+  groupBy,
+  type OwnableRecord,
+  pickSurvivor,
+} from "@/lib/org/pick-survivor";
+
 /** The subset of a link row the migration decision needs. */
-export interface VercelLinkRecord {
+export interface VercelLinkRecord extends OwnableRecord {
   userId: string;
-  organizationId: string | null;
   repoOwner: string;
   repoName: string;
   projectId: string;
   projectName: string;
-  createdAt: Date;
 }
 
 export interface RepoCoordinate {
@@ -55,29 +59,6 @@ function repoKey(coordinate: RepoCoordinate): string {
 }
 
 /**
- * The earliest row wins, with an already-promoted row always preferred so a
- * replay cannot move ownership between rows. Ties break on user id, so the
- * survivor is the same on a preview fork as on production.
- */
-function pickSurvivor(records: VercelLinkRecord[]): VercelLinkRecord {
-  return records.reduce((earliest, candidate) => {
-    const alreadyOwned = candidate.organizationId !== null;
-    const earliestOwned = earliest.organizationId !== null;
-
-    if (alreadyOwned !== earliestOwned) {
-      return alreadyOwned ? candidate : earliest;
-    }
-
-    const delta = candidate.createdAt.getTime() - earliest.createdAt.getTime();
-    if (delta !== 0) {
-      return delta < 0 ? candidate : earliest;
-    }
-
-    return candidate.userId < earliest.userId ? candidate : earliest;
-  });
-}
-
-/**
  * Plan the migration for every repository represented in `records`.
  *
  * Entries come back ordered by `owner/name` so an applying caller — and a
@@ -86,26 +67,11 @@ function pickSurvivor(records: VercelLinkRecord[]): VercelLinkRecord {
 export function planVercelLinkMigration(
   records: VercelLinkRecord[],
 ): VercelLinkPlanEntry[] {
-  const byRepo = new Map<string, VercelLinkRecord[]>();
-
-  for (const link of records) {
-    const key = repoKey(link);
-    const existing = byRepo.get(key);
-    if (existing) {
-      existing.push(link);
-    } else {
-      byRepo.set(key, [link]);
-    }
-  }
-
+  const byRepo = groupBy(records, repoKey);
   const entries: VercelLinkPlanEntry[] = [];
 
   for (const group of byRepo.values()) {
     const first = group[0];
-    if (!first) {
-      continue;
-    }
-
     const distinctProjects = new Set(group.map((link) => link.projectId));
 
     if (distinctProjects.size > 1) {
@@ -122,7 +88,7 @@ export function planVercelLinkMigration(
       continue;
     }
 
-    const survivor = pickSurvivor(group);
+    const survivor = pickSurvivor(group, (link) => link.userId);
 
     entries.push({
       kind: "promote",
@@ -138,13 +104,4 @@ export function planVercelLinkMigration(
   }
 
   return entries.sort((a, b) => repoKey(a).localeCompare(repoKey(b)));
-}
-
-/** The repositories a plan refuses to migrate, for the conflict table. */
-export function conflictedRepos(
-  plan: VercelLinkPlanEntry[],
-): VercelLinkConflict[] {
-  return plan.filter(
-    (entry): entry is VercelLinkConflict => entry.kind === "conflict",
-  );
 }

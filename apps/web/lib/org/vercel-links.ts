@@ -27,23 +27,13 @@ import {
   getAllVercelProjectLinks,
   getPersonalVercelLinksForRepo,
 } from "@/lib/db/vercel-project-links";
-import { getSeededOrganizationId } from "@/lib/org/seeded-organization";
+import { groupBy } from "@/lib/org/pick-survivor";
+import { requireSeededOrganizationId } from "@/lib/org/seeded-organization";
 import { OrgSettingsError } from "@/lib/org/settings-errors";
 import {
   planVercelLinkMigration,
   type VercelLinkRecord,
 } from "@/lib/org/vercel-link-plan";
-
-async function requireSeededOrganizationId(): Promise<string> {
-  const organizationId = await getSeededOrganizationId();
-  if (!organizationId) {
-    throw new OrgSettingsError(
-      "unavailable",
-      "The organization has not been seeded yet.",
-    );
-  }
-  return organizationId;
-}
 
 export interface VercelLinkMigrationOutcome {
   promotedRepoCount: number;
@@ -111,25 +101,13 @@ export interface VercelLinkConflictView {
 function groupCandidates(
   records: VercelLinkRecord[],
 ): VercelLinkConflictView["candidates"] {
-  const byProject = new Map<
-    string,
-    { projectId: string; projectName: string; userIds: string[] }
-  >();
-
-  for (const record of records) {
-    const existing = byProject.get(record.projectId);
-    if (existing) {
-      existing.userIds.push(record.userId);
-    } else {
-      byProject.set(record.projectId, {
-        projectId: record.projectId,
-        projectName: record.projectName,
-        userIds: [record.userId],
-      });
-    }
-  }
-
-  return [...byProject.values()];
+  return [...groupBy(records, (record) => record.projectId).values()].map(
+    ([first, ...rest]) => ({
+      projectId: first.projectId,
+      projectName: first.projectName,
+      userIds: [first.userId, ...rest.map((record) => record.userId)],
+    }),
+  );
 }
 
 /** Unresolved disagreements, with their competing projects. */
@@ -140,22 +118,28 @@ export async function readVercelLinkConflicts(
   const organizationId = await requireSeededOrganizationId();
 
   const conflicts = await listUnresolvedVercelLinkConflicts(organizationId);
-
-  const views: VercelLinkConflictView[] = [];
-  for (const conflict of conflicts) {
-    const records = await getPersonalVercelLinksForRepo(
-      conflict.repoOwner,
-      conflict.repoName,
-    );
-    views.push({
-      repoOwner: conflict.repoOwner,
-      repoName: conflict.repoName,
-      detectedAt: conflict.detectedAt,
-      candidates: groupCandidates(records),
-    });
+  if (conflicts.length === 0) {
+    return [];
   }
 
-  return views;
+  // One read for every conflicted repository rather than one per repository.
+  // The per-repo query filters on `organization_id IS NULL`, which no index
+  // covers — the partial index is `WHERE organization_id IS NOT NULL`, its
+  // exact complement — so a loop here is N sequential scans of the table.
+  const allLinks = await getAllVercelProjectLinks();
+  const personalByRepo = groupBy(
+    allLinks.filter((link) => link.organizationId === null),
+    (link) => `${link.repoOwner}/${link.repoName}`,
+  );
+
+  return conflicts.map((conflict) => ({
+    repoOwner: conflict.repoOwner,
+    repoName: conflict.repoName,
+    detectedAt: conflict.detectedAt,
+    candidates: groupCandidates(
+      personalByRepo.get(`${conflict.repoOwner}/${conflict.repoName}`) ?? [],
+    ),
+  }));
 }
 
 /**

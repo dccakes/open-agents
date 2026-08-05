@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { AuthorizationError } from "@/lib/auth/authorization-error";
+import { OrgSettingsError } from "@/lib/org/settings-errors";
 import type { OrgSettingsAuditEntry } from "@/lib/org/settings-audit";
 
 interface SettingsRow {
@@ -77,6 +78,14 @@ mock.module("@/lib/db/client", () => ({
 
 mock.module("@/lib/org/seeded-organization", () => ({
   getSeededOrganizationId: () => Promise.resolve(organizationId),
+  requireSeededOrganizationId: () => {
+    if (!organizationId) {
+      return Promise.reject(
+        new OrgSettingsError("unavailable", "not seeded yet"),
+      );
+    }
+    return Promise.resolve(organizationId);
+  },
 }));
 
 mock.module("@/lib/auth/require-permission", () => ({

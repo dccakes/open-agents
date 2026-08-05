@@ -13,6 +13,12 @@
  * again.
  */
 
+import {
+  groupBy,
+  type OwnableRecord,
+  pickSurvivor,
+} from "@/lib/org/pick-survivor";
+
 /** An account as GitHub describes it, before we decide anything about it. */
 export interface GitHubAccountCandidate {
   /** GitHub's immutable numeric account id — the promotion key. */
@@ -22,7 +28,7 @@ export interface GitHubAccountCandidate {
 }
 
 export type AccountPromotionRefusal =
-  /** Personal accounts are never promotable. See `isPromotableAccount`. */
+  /** Personal accounts are never promotable. See `checkAccountPromotable`. */
   | "personal-account"
   /** GitHub did not give us the numeric id, so we cannot key on it. */
   | "missing-account-id";
@@ -53,19 +59,11 @@ export function checkAccountPromotable(
   return { ok: true };
 }
 
-export function isPromotableAccount(
-  candidate: GitHubAccountCandidate,
-): boolean {
-  return checkAccountPromotable(candidate).ok;
-}
-
 /** The subset of an installation record the collapse decision needs. */
-export interface InstallationRecord {
+export interface InstallationRecord extends OwnableRecord {
   id: string;
   userId: string;
   installationId: number;
-  organizationId: string | null;
-  createdAt: Date;
 }
 
 export interface InstallationPromotion {
@@ -81,35 +79,6 @@ export interface InstallationPromotion {
 }
 
 /**
- * The earliest record wins, and its user becomes provenance.
- *
- * Earliest rather than latest because the first person to install the App is
- * the closest thing to the account's actual installer; every later row is a
- * copy created by someone else's sync. Ties break on record id so the outcome
- * is deterministic across replays — two rows sharing a timestamp must not
- * produce a different survivor on a preview than on production.
- */
-function pickSurvivor(records: InstallationRecord[]): InstallationRecord {
-  return records.reduce((earliest, candidate) => {
-    const alreadyOwned = candidate.organizationId !== null;
-    const earliestOwned = earliest.organizationId !== null;
-
-    // An existing organization-owned row always survives, so a re-run cannot
-    // move ownership onto a different record and churn the unique index.
-    if (alreadyOwned !== earliestOwned) {
-      return alreadyOwned ? candidate : earliest;
-    }
-
-    const delta = candidate.createdAt.getTime() - earliest.createdAt.getTime();
-    if (delta !== 0) {
-      return delta < 0 ? candidate : earliest;
-    }
-
-    return candidate.id < earliest.id ? candidate : earliest;
-  });
-}
-
-/**
  * Plan the collapse of every record for the given installations.
  *
  * @param records every installation record for the account being promoted,
@@ -119,21 +88,11 @@ function pickSurvivor(records: InstallationRecord[]): InstallationRecord {
 export function planInstallationPromotion(
   records: InstallationRecord[],
 ): InstallationPromotion[] {
-  const byInstallation = new Map<number, InstallationRecord[]>();
-
-  for (const record of records) {
-    const existing = byInstallation.get(record.installationId);
-    if (existing) {
-      existing.push(record);
-    } else {
-      byInstallation.set(record.installationId, [record]);
-    }
-  }
-
+  const byInstallation = groupBy(records, (record) => record.installationId);
   const promotions: InstallationPromotion[] = [];
 
   for (const [installationId, group] of byInstallation) {
-    const survivor = pickSurvivor(group);
+    const survivor = pickSurvivor(group, (record) => record.id);
 
     promotions.push({
       installationId,

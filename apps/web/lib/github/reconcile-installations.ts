@@ -33,16 +33,14 @@ const appInstallationSchema = z.object({
     .optional(),
 });
 
-export interface AppInstallationSummary {
+interface AppInstallationSummary {
   installationId: number;
   accountId: number | null;
   accountLogin: string | null;
 }
 
 /** Every installation the App currently holds, across all accounts. */
-export async function listAppInstallations(): Promise<
-  AppInstallationSummary[]
-> {
+async function listAppInstallations(): Promise<AppInstallationSummary[]> {
   const octokit = getAppOctokit();
   const pages = await octokit.paginate("GET /app/installations", {
     per_page: 100,

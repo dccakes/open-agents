@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { AuthorizationError } from "@/lib/auth/authorization-error";
+import { OrgSettingsError } from "@/lib/org/settings-errors";
 
 interface Row {
   id: string;
@@ -13,7 +14,6 @@ interface Row {
 let permitted = true;
 let organizationId: string | null = "org-1";
 let byAccountId: Row[] = [];
-let orgOwned: Row[] = [];
 let storedAccount: { accountId: number } | undefined;
 
 const claimed: string[] = [];
@@ -39,16 +39,21 @@ mock.module("@/lib/auth/require-permission", () => ({
 
 mock.module("@/lib/org/seeded-organization", () => ({
   getSeededOrganizationId: async () => organizationId,
+  requireSeededOrganizationId: async () => {
+    if (!organizationId) {
+      throw new OrgSettingsError("unavailable", "not seeded");
+    }
+    return organizationId;
+  },
 }));
 
 mock.module("@/lib/db/installations", () => ({
   getInstallationsByAccountId: async () => byAccountId,
-  getOrgInstallations: async () => orgOwned,
   claimInstallationForOrganization: async (p: { id: string }) => {
     claimed.push(p.id);
   },
-  releaseInstallationFromOrganization: async (id: string) => {
-    released.push(id);
+  releaseInstallationsFromOrganization: async (ids: string[]) => {
+    released.push(...ids);
   },
   deleteInstallationsByIds: async (ids: string[]) => {
     deleted.push(ids);
@@ -93,7 +98,6 @@ beforeEach(() => {
   permitted = true;
   organizationId = "org-1";
   byAccountId = [];
-  orgOwned = [];
   storedAccount = { accountId: 4242 };
   claimed.length = 0;
   released.length = 0;
@@ -164,12 +168,14 @@ describe("releaseGitHubAccount", () => {
   });
 
   test("returns the account's installations to personal ownership", async () => {
-    orgOwned = [
+    byAccountId = [
       row({ id: "ours", organizationId: "org-1", accountId: 4242 }),
+      // A record on the same account that another organization owns must not
+      // be released by this organization's admin.
       row({
-        id: "other-account",
-        organizationId: "org-1",
-        accountId: 9999,
+        id: "other-org",
+        organizationId: "org-2",
+        accountId: 4242,
         installationId: 200,
       }),
     ];

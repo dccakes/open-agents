@@ -6,11 +6,7 @@ import {
   scryptSync,
 } from "crypto";
 import { getAuthConfig } from "@/lib/config/auth";
-import {
-  getLinearWorkspace,
-  getLinearWorkspaceForOrganization,
-} from "@/lib/db/linear-workspaces";
-import { getSeededOrganizationId } from "@/lib/org/seeded-organization";
+import { getLinearWorkspace } from "@/lib/db/linear-workspaces";
 
 function getEncryptionKey(): Buffer {
   const { secret } = getAuthConfig();
@@ -52,12 +48,7 @@ export function decryptLinearToken(encryptedToken: string): string {
 }
 
 export async function getLinearWorkspaceToken(): Promise<string | null> {
-  // Resolved by organization, falling back to the age-ordered lookup only
-  // while the seeder has not yet claimed the existing row.
-  const organizationId = await getSeededOrganizationId();
-  const workspace = organizationId
-    ? await getLinearWorkspaceForOrganization(organizationId)
-    : await getLinearWorkspace();
+  const workspace = await getLinearWorkspace();
   if (!workspace) return null;
 
   try {

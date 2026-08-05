@@ -1,55 +1,52 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { AuthorizationError } from "@/lib/auth/authorization-error";
+import { OrgSettingsError } from "@/lib/org/settings-errors";
 
 let permitted = true;
-let organizationId: string | null = "org-1";
-let teamRow: { teamId: string | null; teamSlug: string | null } | null = {
-  teamId: null,
-  teamSlug: null,
+let settings: {
+  organizationId: string;
+  agentRunsPaused: boolean;
+  dailyTokenBudget: number | null;
+  vercelTeamId: string | null;
+  vercelTeamSlug: string | null;
+} | null = {
+  organizationId: "org-1",
+  agentRunsPaused: false,
+  dailyTokenBudget: null,
+  vercelTeamId: null,
+  vercelTeamSlug: null,
 };
 
-let updateCalls: Record<string, unknown>[] = [];
+let writes: { fields: Record<string, unknown>; actorId: string }[] = [];
 
-const selectBuilder = {
-  from: () => ({
-    where: () => ({
-      limit: () => Promise.resolve(teamRow ? [teamRow] : []),
-    }),
-  }),
-};
-
-mock.module("@/lib/db/client", () => ({
-  db: {
-    select: () => selectBuilder,
-    update: () => ({
-      set: (values: Record<string, unknown>) => ({
-        where: () => ({
-          returning: () => {
-            updateCalls.push(values);
-            if (!teamRow) {
-              return Promise.resolve([]);
-            }
-            teamRow = {
-              teamId: values.vercelTeamId as string | null,
-              teamSlug: values.vercelTeamSlug as string | null,
-            };
-            return Promise.resolve([teamRow]);
-          },
-        }),
-      }),
-    }),
+// Mocked at the `lib/org/settings` seam rather than at the database, because
+// that is where this module's contract now lives: it contributes the gate and
+// the field mapping, and delegates the transaction and audit record.
+mock.module("@/lib/org/settings", () => ({
+  readOrgSettings: async () => {
+    if (!settings) {
+      throw new OrgSettingsError("unavailable", "no settings row");
+    }
+    return settings;
   },
-}));
-
-mock.module("@/lib/org/seeded-organization", () => ({
-  getSeededOrganizationId: async () => organizationId,
+  writeOrgSettingsFields: async (
+    fields: Record<string, unknown>,
+    actorId: string,
+  ) => {
+    writes.push({ fields, actorId });
+    if (!settings) {
+      throw new OrgSettingsError("unavailable", "no settings row");
+    }
+    settings = { ...settings, ...fields } as typeof settings;
+    return settings;
+  },
 }));
 
 mock.module("@/lib/auth/require-permission", () => ({
   requireApprovedMember: () =>
     Promise.resolve({
       userId: "user-admin",
-      organizationId: organizationId ?? "org-1",
+      organizationId: "org-1",
       role: "admin",
     }),
   requirePermission: () => {
@@ -64,9 +61,14 @@ const modulePromise = import("@/lib/org/vercel-team");
 
 beforeEach(() => {
   permitted = true;
-  organizationId = "org-1";
-  teamRow = { teamId: null, teamSlug: null };
-  updateCalls = [];
+  writes = [];
+  settings = {
+    organizationId: "org-1",
+    agentRunsPaused: false,
+    dailyTokenBudget: null,
+    vercelTeamId: null,
+    vercelTeamSlug: null,
+  };
 });
 
 describe("setOrgVercelTeam", () => {
@@ -77,8 +79,8 @@ describe("setOrgVercelTeam", () => {
     await expect(
       setOrgVercelTeam({ teamId: "team_1", teamSlug: "next-degree" }),
     ).rejects.toBeInstanceOf(AuthorizationError);
-    expect(updateCalls).toEqual([]);
-    expect(teamRow?.teamId).toBeNull();
+    expect(writes).toEqual([]);
+    expect(settings?.vercelTeamId).toBeNull();
   });
 
   test("records the team for a permitted caller", async () => {
@@ -92,14 +94,30 @@ describe("setOrgVercelTeam", () => {
     expect(result).toEqual({ teamId: "team_1", teamSlug: "next-degree" });
   });
 
-  test("rejects malformed input", async () => {
+  // The write goes through the settings module's transaction so it lands in
+  // the same audit record as every other `org_settings` change — an earlier
+  // draft wrote the columns directly and silently sat outside that trail.
+  test("writes through the audited settings path, attributed to the actor", async () => {
+    const { setOrgVercelTeam } = await modulePromise;
+
+    await setOrgVercelTeam({ teamId: "team_1", teamSlug: "next-degree" });
+
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.actorId).toBe("user-admin");
+    expect(writes[0]?.fields).toEqual({
+      vercelTeamId: "team_1",
+      vercelTeamSlug: "next-degree",
+    });
+  });
+
+  test("rejects malformed input before writing", async () => {
     const { setOrgVercelTeam } = await modulePromise;
 
     await expect(setOrgVercelTeam({ teamId: 7 })).rejects.toMatchObject({
       name: "OrgSettingsError",
       kind: "invalid",
     });
-    expect(updateCalls).toEqual([]);
+    expect(writes).toEqual([]);
   });
 
   test("allows clearing the team", async () => {
@@ -114,7 +132,13 @@ describe("setOrgVercelTeam", () => {
 describe("readOrgVercelTeam", () => {
   test("is open to an approved member without integration.connect", async () => {
     permitted = false;
-    teamRow = { teamId: "team_1", teamSlug: "next-degree" };
+    settings = {
+      organizationId: "org-1",
+      agentRunsPaused: false,
+      dailyTokenBudget: null,
+      vercelTeamId: "team_1",
+      vercelTeamSlug: "next-degree",
+    };
     const { readOrgVercelTeam } = await modulePromise;
 
     await expect(readOrgVercelTeam()).resolves.toEqual({
@@ -124,7 +148,7 @@ describe("readOrgVercelTeam", () => {
   });
 
   test("raises when the settings row is missing", async () => {
-    teamRow = null;
+    settings = null;
     const { readOrgVercelTeam } = await modulePromise;
 
     await expect(readOrgVercelTeam()).rejects.toMatchObject({

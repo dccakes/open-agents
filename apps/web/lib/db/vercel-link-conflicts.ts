@@ -81,6 +81,16 @@ export async function resolveVercelLinkConflict(params: {
 export async function hasUnresolvedVercelLinkConflicts(
   organizationId: string,
 ): Promise<boolean> {
-  const rows = await listUnresolvedVercelLinkConflicts(organizationId);
+  const rows = await db
+    .select({ id: vercelProjectLinkConflicts.id })
+    .from(vercelProjectLinkConflicts)
+    .where(
+      and(
+        eq(vercelProjectLinkConflicts.organizationId, organizationId),
+        isNull(vercelProjectLinkConflicts.resolvedAt),
+      ),
+    )
+    .limit(1);
+
   return rows.length > 0;
 }

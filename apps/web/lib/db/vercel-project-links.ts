@@ -16,6 +16,17 @@ const selection = {
   teamSlug: vercelProjectLinks.teamSlug,
 };
 
+/** The shape the migration planner consumes. Hoisted so its two readers cannot drift. */
+const linkRecordColumns = {
+  userId: vercelProjectLinks.userId,
+  organizationId: vercelProjectLinks.organizationId,
+  repoOwner: vercelProjectLinks.repoOwner,
+  repoName: vercelProjectLinks.repoName,
+  projectId: vercelProjectLinks.projectId,
+  projectName: vercelProjectLinks.projectName,
+  createdAt: vercelProjectLinks.createdAt,
+};
+
 /**
  * The repository's Vercel project.
  *
@@ -48,7 +59,7 @@ export async function getVercelProjectLinkByRepo(
       .limit(1);
 
     if (orgRow) {
-      return { ...orgRow };
+      return orgRow;
     }
   }
 
@@ -64,22 +75,12 @@ export async function getVercelProjectLinkByRepo(
     )
     .limit(1);
 
-  return row ? { ...row } : null;
+  return row ?? null;
 }
 
 /** Every link row, for the migration planner. */
 export async function getAllVercelProjectLinks(): Promise<VercelLinkRecord[]> {
-  return db
-    .select({
-      userId: vercelProjectLinks.userId,
-      organizationId: vercelProjectLinks.organizationId,
-      repoOwner: vercelProjectLinks.repoOwner,
-      repoName: vercelProjectLinks.repoName,
-      projectId: vercelProjectLinks.projectId,
-      projectName: vercelProjectLinks.projectName,
-      createdAt: vercelProjectLinks.createdAt,
-    })
-    .from(vercelProjectLinks);
+  return db.select(linkRecordColumns).from(vercelProjectLinks);
 }
 
 /** The personal rows recorded for one repository, for the admin screen. */
@@ -88,15 +89,7 @@ export async function getPersonalVercelLinksForRepo(
   repoName: string,
 ): Promise<VercelLinkRecord[]> {
   return db
-    .select({
-      userId: vercelProjectLinks.userId,
-      organizationId: vercelProjectLinks.organizationId,
-      repoOwner: vercelProjectLinks.repoOwner,
-      repoName: vercelProjectLinks.repoName,
-      projectId: vercelProjectLinks.projectId,
-      projectName: vercelProjectLinks.projectName,
-      createdAt: vercelProjectLinks.createdAt,
-    })
+    .select(linkRecordColumns)
     .from(vercelProjectLinks)
     .where(
       and(

@@ -6,22 +6,26 @@
  * configuration, and which gate guards it should follow what it *is*, not
  * which table it happens to live in.
  *
+ * That different gate is the *only* thing that lives here. The read comes from
+ * `readOrgSettings()`, and the write keeps `updateOrgSettings`' transaction and
+ * audit record — an earlier draft re-implemented both, which quietly gave
+ * `org_settings` a second writer with weaker durability than the first, and
+ * would have left these two columns outside the audit trail that
+ * `shared-config-governance` is going to fill in.
+ *
  * This records the organization's tie-in to Vercel. It does not change how
  * Vercel calls are authenticated — those still use the acting member's own
  * Vercel OAuth credential, because Vercel sign-in is a personal identity and
  * this change does not touch authentication.
  */
 
-import { eq } from "drizzle-orm";
 import { z } from "zod";
 import {
   type PermissionCheckOptions,
   requireApprovedMember,
   requirePermission,
 } from "@/lib/auth/require-permission";
-import { db } from "@/lib/db/client";
-import { orgSettings } from "@/lib/db/schema";
-import { getSeededOrganizationId } from "@/lib/org/seeded-organization";
+import { readOrgSettings, writeOrgSettingsFields } from "@/lib/org/settings";
 import { OrgSettingsError } from "@/lib/org/settings-errors";
 
 export interface OrgVercelTeam {
@@ -29,47 +33,22 @@ export interface OrgVercelTeam {
   teamSlug: string | null;
 }
 
-export const orgVercelTeamSchema = z.object({
+const orgVercelTeamSchema = z.object({
   teamId: z.string().trim().min(1).nullable(),
   teamSlug: z.string().trim().min(1).nullable(),
 });
-
-async function requireSeededOrganizationId(): Promise<string> {
-  const organizationId = await getSeededOrganizationId();
-  if (!organizationId) {
-    throw new OrgSettingsError(
-      "unavailable",
-      "The organization has not been seeded yet.",
-    );
-  }
-  return organizationId;
-}
 
 /** Open to any approved member — knowing the team is ordinary information. */
 export async function readOrgVercelTeam(
   options?: PermissionCheckOptions,
 ): Promise<OrgVercelTeam> {
   await requireApprovedMember(options);
-  const organizationId = await requireSeededOrganizationId();
+  const settings = await readOrgSettings();
 
-  const rows = await db
-    .select({
-      teamId: orgSettings.vercelTeamId,
-      teamSlug: orgSettings.vercelTeamSlug,
-    })
-    .from(orgSettings)
-    .where(eq(orgSettings.organizationId, organizationId))
-    .limit(1);
-
-  const row = rows[0];
-  if (!row) {
-    throw new OrgSettingsError(
-      "unavailable",
-      `No settings row exists for organization ${organizationId}.`,
-    );
-  }
-
-  return row;
+  return {
+    teamId: settings.vercelTeamId,
+    teamSlug: settings.vercelTeamSlug,
+  };
 }
 
 /**
@@ -82,7 +61,7 @@ export async function setOrgVercelTeam(
   input: unknown,
   options?: PermissionCheckOptions,
 ): Promise<OrgVercelTeam> {
-  await requireApprovedMember(options);
+  const actor = await requireApprovedMember(options);
   await requirePermission({ integration: ["connect"] }, options);
 
   const parsed = orgVercelTeamSchema.safeParse(input);
@@ -95,28 +74,13 @@ export async function setOrgVercelTeam(
     );
   }
 
-  const organizationId = await requireSeededOrganizationId();
-
-  const rows = await db
-    .update(orgSettings)
-    .set({
+  const next = await writeOrgSettingsFields(
+    {
       vercelTeamId: parsed.data.teamId,
       vercelTeamSlug: parsed.data.teamSlug,
-      updatedAt: new Date(),
-    })
-    .where(eq(orgSettings.organizationId, organizationId))
-    .returning({
-      teamId: orgSettings.vercelTeamId,
-      teamSlug: orgSettings.vercelTeamSlug,
-    });
+    },
+    actor.userId,
+  );
 
-  const next = rows[0];
-  if (!next) {
-    throw new OrgSettingsError(
-      "unavailable",
-      `Settings for organization ${organizationId} disappeared mid-update.`,
-    );
-  }
-
-  return next;
+  return { teamId: next.vercelTeamId, teamSlug: next.vercelTeamSlug };
 }

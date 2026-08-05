@@ -16,7 +16,7 @@ import {
 } from "@/lib/auth/require-permission";
 import { db } from "@/lib/db/client";
 import { orgSettings } from "@/lib/db/schema";
-import { getSeededOrganizationId } from "@/lib/org/seeded-organization";
+import { requireSeededOrganizationId } from "@/lib/org/seeded-organization";
 import { OrgSettingsError } from "@/lib/org/settings-errors";
 import {
   type DbTransaction,
@@ -74,17 +74,6 @@ const settingsColumns = {
   vercelTeamId: orgSettings.vercelTeamId,
   vercelTeamSlug: orgSettings.vercelTeamSlug,
 };
-
-async function requireSeededOrganizationId(): Promise<string> {
-  const organizationId = await getSeededOrganizationId();
-  if (!organizationId) {
-    throw new OrgSettingsError(
-      "unavailable",
-      "The organization has not been seeded yet.",
-    );
-  }
-  return organizationId;
-}
 
 async function selectSettings(
   client: typeof db | DbTransaction,
@@ -175,7 +164,80 @@ function diffOrgSettings(
     });
   }
 
+  if (previous.vercelTeamId !== next.vercelTeamId) {
+    changes.push({
+      field: "vercelTeamId",
+      previousValue: previous.vercelTeamId,
+      newValue: next.vercelTeamId,
+    });
+  }
+
+  if (previous.vercelTeamSlug !== next.vercelTeamSlug) {
+    changes.push({
+      field: "vercelTeamSlug",
+      previousValue: previous.vercelTeamSlug,
+      newValue: next.vercelTeamSlug,
+    });
+  }
+
   return changes;
+}
+
+/** Columns a caller may write through `writeOrgSettingsFields`. */
+export type OrgSettingsWritableFields = Partial<
+  Pick<
+    OrgSettingsValues,
+    "agentRunsPaused" | "dailyTokenBudget" | "vercelTeamId" | "vercelTeamSlug"
+  >
+>;
+
+/**
+ * Write settings columns inside the transaction that also records the audit.
+ *
+ * **Carries no permission check** — the caller has already made it, and which
+ * one it is depends on the field: `orgSettings.update` for the run controls,
+ * `integration.connect` for the Vercel team (see `lib/org/vercel-team.ts`).
+ * That is exactly why this is a separate, unexported-from-the-gate function
+ * rather than another branch inside `updateOrgSettings`.
+ *
+ * What it does guarantee is the part no caller should be re-deciding: one
+ * transaction, one before/after diff, one audit record. A second writer to
+ * `org_settings` that skipped this would sit outside the audit trail
+ * `shared-config-governance` is going to fill in, and nobody would notice
+ * while the seam is still a log line.
+ */
+export async function writeOrgSettingsFields(
+  fields: OrgSettingsWritableFields,
+  actorId: string,
+): Promise<OrgSettingsValues> {
+  const organizationId = await requireSeededOrganizationId();
+
+  return await db.transaction(async (tx) => {
+    const previous = await selectSettings(tx, organizationId);
+
+    const rows = await tx
+      .update(orgSettings)
+      .set({ ...fields, updatedAt: new Date() })
+      .where(eq(orgSettings.organizationId, organizationId))
+      .returning(settingsColumns);
+
+    const next = rows[0];
+    if (!next) {
+      throw new OrgSettingsError(
+        "unavailable",
+        `Settings for organization ${organizationId} disappeared mid-update.`,
+      );
+    }
+
+    await recordOrgSettingsAudit(tx, {
+      organizationId,
+      actorId,
+      changes: diffOrgSettings(previous, next),
+      occurredAt: new Date(),
+    });
+
+    return next;
+  });
 }
 
 /**
@@ -196,32 +258,6 @@ export async function updateOrgSettings(
   await requirePermission({ orgSettings: ["update"] }, options);
 
   const update = parseUpdate(input);
-  const organizationId = await requireSeededOrganizationId();
 
-  return await db.transaction(async (tx) => {
-    const previous = await selectSettings(tx, organizationId);
-
-    const rows = await tx
-      .update(orgSettings)
-      .set({ ...update, updatedAt: new Date() })
-      .where(eq(orgSettings.organizationId, organizationId))
-      .returning(settingsColumns);
-
-    const next = rows[0];
-    if (!next) {
-      throw new OrgSettingsError(
-        "unavailable",
-        `Settings for organization ${organizationId} disappeared mid-update.`,
-      );
-    }
-
-    await recordOrgSettingsAudit(tx, {
-      organizationId,
-      actorId: actor.userId,
-      changes: diffOrgSettings(previous, next),
-      occurredAt: new Date(),
-    });
-
-    return next;
-  });
+  return await writeOrgSettingsFields(update, actor.userId);
 }

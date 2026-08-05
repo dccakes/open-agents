@@ -21,8 +21,7 @@ import {
   claimInstallationForOrganization,
   deleteInstallationsByIds,
   getInstallationsByAccountId,
-  getOrgInstallations,
-  releaseInstallationFromOrganization,
+  releaseInstallationsFromOrganization,
 } from "@/lib/db/installations";
 import {
   addOrgGitHubAccount,
@@ -36,19 +35,8 @@ import {
   type GitHubAccountCandidate,
   planInstallationPromotion,
 } from "@/lib/org/github-account-plan";
-import { getSeededOrganizationId } from "@/lib/org/seeded-organization";
+import { requireSeededOrganizationId } from "@/lib/org/seeded-organization";
 import { OrgSettingsError } from "@/lib/org/settings-errors";
-
-async function requireSeededOrganizationId(): Promise<string> {
-  const organizationId = await getSeededOrganizationId();
-  if (!organizationId) {
-    throw new OrgSettingsError(
-      "unavailable",
-      "The organization has not been seeded yet.",
-    );
-  }
-  return organizationId;
-}
 
 /** The accounts the organization claims. Open to any approved member. */
 export async function readOrgGitHubAccounts(
@@ -153,18 +141,18 @@ export async function releaseGitHubAccount(
     return { accountId, releasedInstallationIds: [] };
   }
 
-  const owned = await getOrgInstallations(organizationId);
-  const released: number[] = [];
+  // Queried by account id, symmetric with `claimGitHubAccount` above, rather
+  // than reading every organization-owned record and filtering in memory.
+  const owned = (await getInstallationsByAccountId(accountId)).filter(
+    (installation) => installation.organizationId === organizationId,
+  );
 
-  for (const installation of owned) {
-    if (installation.accountId !== accountId) {
-      continue;
-    }
-    await releaseInstallationFromOrganization(installation.id);
-    released.push(installation.installationId);
-  }
-
+  await releaseInstallationsFromOrganization(
+    owned.map((installation) => installation.id),
+  );
   await removeOrgGitHubAccount(organizationId, accountId);
+
+  const released = owned.map((installation) => installation.installationId);
 
   return { accountId, releasedInstallationIds: released };
 }

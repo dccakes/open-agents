@@ -14,6 +14,10 @@ let organizationId: string | null = "org-1";
 mock.module("@/lib/db/installations", () => ({
   getInstallationsByUserId: async () => personal,
   getOrgInstallations: async () => organizational,
+  getInstallationByUserAndId: async (_userId: string, installationId: number) =>
+    personal.find((row) => row.installationId === installationId),
+  getOrgInstallationById: async (_orgId: string, installationId: number) =>
+    organizational.find((row) => row.installationId === installationId),
 }));
 
 mock.module("@/lib/org/seeded-organization", () => ({

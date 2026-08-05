@@ -9,8 +9,12 @@
  * and a caller who posts directly still meets `requirePermission`.
  */
 
-import { isAuthorizationError } from "@/lib/auth/authorization-error";
 import { hasPermission } from "@/lib/auth/require-permission";
+import {
+  type ActionFailure,
+  type ActionResult,
+  toActionError as toSharedActionError,
+} from "@/lib/org/action-result";
 import {
   claimGitHubAccount,
   readOrgGitHubAccounts,
@@ -21,7 +25,6 @@ import {
   readLinearActorLinks,
   unlinkLinearActor,
 } from "@/lib/org/linear-actor-links";
-import { isOrgSettingsError } from "@/lib/org/settings-errors";
 import {
   readVercelLinkConflicts,
   resolveVercelLinkDisagreement,
@@ -53,25 +56,13 @@ export interface IntegrationOwnershipView {
   canManage: boolean;
 }
 
-export type OwnershipActionResult<T> =
-  | { success: true; data: T }
-  | { success: false; error: string; status: number };
+export type OwnershipActionResult<T> = ActionResult<T>;
 
-function toActionError<T>(error: unknown): OwnershipActionResult<T> {
-  if (isAuthorizationError(error)) {
-    return { success: false, error: error.message, status: error.status };
-  }
-  if (isOrgSettingsError(error)) {
-    return { success: false, error: error.message, status: error.status };
-  }
-
-  const message = error instanceof Error ? error.message : String(error);
-  console.error("[integration-ownership] Action failed:", message);
-  return {
-    success: false,
-    error: "Integration ownership is unavailable right now.",
-    status: 500,
-  };
+function toActionError(error: unknown): ActionFailure {
+  return toSharedActionError(error, {
+    logPrefix: "[integration-ownership]",
+    fallbackMessage: "Integration ownership is unavailable right now.",
+  });
 }
 
 export async function loadIntegrationOwnership(): Promise<

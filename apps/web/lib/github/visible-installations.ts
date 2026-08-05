@@ -12,7 +12,9 @@
  */
 
 import {
+  getInstallationByUserAndId,
   getInstallationsByUserId,
+  getOrgInstallationById,
   getOrgInstallations,
 } from "@/lib/db/installations";
 import type { GitHubInstallation } from "@/lib/db/schema";
@@ -43,13 +45,25 @@ export async function getVisibleInstallations(
   );
 }
 
-/** One visible installation, by its GitHub installation id. */
+/**
+ * One visible installation, by its GitHub installation id.
+ *
+ * Two indexed single-row lookups rather than `getVisibleInstallations(...)`
+ * plus a scan — that would read, dedupe and sort every installation to answer
+ * a question about one. Same precedence rule: the organization's record wins.
+ */
 export async function getVisibleInstallationById(
   userId: string,
   installationId: number,
 ): Promise<GitHubInstallation | undefined> {
-  const visible = await getVisibleInstallations(userId);
-  return visible.find(
-    (installation) => installation.installationId === installationId,
-  );
+  const organizationId = await getSeededOrganizationId();
+
+  const [organizational, personal] = await Promise.all([
+    organizationId
+      ? getOrgInstallationById(organizationId, installationId)
+      : Promise.resolve(undefined),
+    getInstallationByUserAndId(userId, installationId),
+  ]);
+
+  return organizational ?? personal;
 }

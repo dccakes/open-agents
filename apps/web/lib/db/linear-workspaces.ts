@@ -1,5 +1,6 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import { getSeededOrganizationId } from "@/lib/org/seeded-organization";
 import { db } from "./client";
 import {
   type LinearWorkspace,
@@ -80,22 +81,29 @@ export async function upsertLinearWorkspace(
 /**
  * The organization's Linear connection.
  *
- * Resolved by organization rather than by record age, which was only ever
- * correct while exactly one row existed. The unclaimed fallback keeps a
- * connection made before this column existed working until the seeder
- * backfills it.
+ * One resolver, not two: the table is a deployment singleton, so this resolves
+ * the organization itself rather than making every caller decide whether it
+ * wants the org-scoped or the age-ordered lookup. A two-name API here was how
+ * two routes kept resolving by row age after the rest had moved.
+ *
+ * The single fallback — oldest unclaimed row — covers exactly one window: a
+ * connection made before the column existed, until the seeder claims it.
  */
-export async function getLinearWorkspaceForOrganization(
-  organizationId: string,
-): Promise<LinearWorkspace | undefined> {
-  const [owned] = await db
-    .select()
-    .from(linearWorkspaces)
-    .where(eq(linearWorkspaces.organizationId, organizationId))
-    .limit(1);
+export async function getLinearWorkspace(): Promise<
+  LinearWorkspace | undefined
+> {
+  const organizationId = await getSeededOrganizationId();
 
-  if (owned) {
-    return owned;
+  if (organizationId) {
+    const [owned] = await db
+      .select()
+      .from(linearWorkspaces)
+      .where(eq(linearWorkspaces.organizationId, organizationId))
+      .limit(1);
+
+    if (owned) {
+      return owned;
+    }
   }
 
   const [unclaimed] = await db
@@ -106,17 +114,6 @@ export async function getLinearWorkspaceForOrganization(
     .limit(1);
 
   return unclaimed;
-}
-
-export async function getLinearWorkspace(): Promise<
-  LinearWorkspace | undefined
-> {
-  const [workspace] = await db
-    .select()
-    .from(linearWorkspaces)
-    .orderBy(asc(linearWorkspaces.createdAt))
-    .limit(1);
-  return workspace;
 }
 
 /**

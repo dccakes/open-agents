@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { AuthorizationError } from "@/lib/auth/authorization-error";
+import { OrgSettingsError } from "@/lib/org/settings-errors";
 
 let permitted = true;
 let organizationId: string | null = "org-1";
@@ -25,6 +26,12 @@ mock.module("@/lib/auth/require-permission", () => ({
 
 mock.module("@/lib/org/seeded-organization", () => ({
   getSeededOrganizationId: async () => organizationId,
+  requireSeededOrganizationId: async () => {
+    if (!organizationId) {
+      throw new OrgSettingsError("unavailable", "not seeded");
+    }
+    return organizationId;
+  },
 }));
 
 mock.module("@/lib/org/membership", () => ({

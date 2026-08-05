@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { AuthorizationError } from "@/lib/auth/authorization-error";
+import { OrgSettingsError } from "@/lib/org/settings-errors";
 import type { VercelLinkRecord } from "@/lib/org/vercel-link-plan";
 
 let permitted = true;
@@ -34,6 +35,12 @@ mock.module("@/lib/auth/require-permission", () => ({
 
 mock.module("@/lib/org/seeded-organization", () => ({
   getSeededOrganizationId: async () => organizationId,
+  requireSeededOrganizationId: async () => {
+    if (!organizationId) {
+      throw new OrgSettingsError("unavailable", "not seeded");
+    }
+    return organizationId;
+  },
 }));
 
 mock.module("@/lib/db/vercel-project-links", () => ({
@@ -207,10 +214,18 @@ describe("readVercelLinkConflicts", () => {
         detectedAt: new Date("2026-08-01"),
       },
     ];
-    personalForRepo = [
+    // Read from the single all-links query, not one query per conflict.
+    allLinks = [
       link({ userId: "u1", projectId: "prj_a", projectName: "web" }),
       link({ userId: "u2", projectId: "prj_b", projectName: "staging" }),
       link({ userId: "u3", projectId: "prj_a", projectName: "web" }),
+      // An organization-owned row for an unrelated repo must not leak in.
+      link({
+        userId: "u4",
+        repoName: "other",
+        organizationId: "org-1",
+        projectId: "prj_z",
+      }),
     ];
     const { readVercelLinkConflicts } = await modulePromise;
 

@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  conflictedRepos,
   planVercelLinkMigration,
   type VercelLinkRecord,
 } from "@/lib/org/vercel-link-plan";
@@ -138,19 +137,5 @@ describe("planVercelLinkMigration", () => {
 
   test("plans nothing when there are no links", () => {
     expect(planVercelLinkMigration([])).toEqual([]);
-  });
-});
-
-describe("conflictedRepos", () => {
-  test("returns only the repositories that could not be migrated", () => {
-    const plan = planVercelLinkMigration([
-      link({ repoName: "agreed", userId: "u1" }),
-      link({ repoName: "disputed", userId: "u1", projectId: "prj_a" }),
-      link({ repoName: "disputed", userId: "u2", projectId: "prj_b" }),
-    ]);
-
-    const conflicts = conflictedRepos(plan);
-    expect(conflicts).toHaveLength(1);
-    expect(conflicts[0]?.repoName).toBe("disputed");
   });
 });

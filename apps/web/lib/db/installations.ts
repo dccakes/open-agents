@@ -51,57 +51,47 @@ export async function upsertInstallation(
 ): Promise<GitHubInstallation> {
   const now = new Date();
 
-  // An organization-owned record for this installation absorbs the refresh.
+  // Both candidate rows in one query: the organization's record for this
+  // installation, and this user's own.
   //
-  // Without this branch, a member syncing an installation the organization
-  // already owns would find no row of *their own*, insert a personal one, and
-  // re-fragment exactly what promotion collapsed — silently, on every sync.
-  const [orgOwned] = await db
-    .select({ id: githubInstallations.id })
+  // The organization's has to be considered at all because without it a member
+  // syncing an installation the organization already owns would find no row of
+  // *their own*, insert a personal one, and re-fragment exactly what promotion
+  // collapsed — silently, on every sync. Fetching both together keeps that
+  // correctness without paying a second round-trip per installation, which
+  // `syncUserInstallations` would multiply by the user's installation count.
+  const candidates = await db
+    .select({
+      id: githubInstallations.id,
+      organizationId: githubInstallations.organizationId,
+    })
     .from(githubInstallations)
     .where(
-      and(
-        eq(githubInstallations.installationId, data.installationId),
-        isNotNull(githubInstallations.organizationId),
+      or(
+        and(
+          eq(githubInstallations.installationId, data.installationId),
+          isNotNull(githubInstallations.organizationId),
+        ),
+        and(
+          eq(githubInstallations.userId, data.userId),
+          or(
+            eq(githubInstallations.installationId, data.installationId),
+            eq(githubInstallations.accountLogin, data.accountLogin),
+          ),
+        ),
       ),
-    )
-    .limit(1);
+    );
 
-  if (orgOwned) {
+  const target =
+    candidates.find((row) => row.organizationId !== null) ?? candidates[0];
+
+  if (target) {
     const [updated] = await db
       .update(githubInstallations)
       // `userId` is deliberately absent: on an organization-owned record it is
       // provenance — who installed it — not whoever synced most recently.
       .set(refreshedColumns(data, now))
-      .where(eq(githubInstallations.id, orgOwned.id))
-      .returning();
-
-    if (!updated) {
-      throw new Error("Failed to update organization GitHub installation");
-    }
-
-    return updated;
-  }
-
-  const existing = await db
-    .select({ id: githubInstallations.id })
-    .from(githubInstallations)
-    .where(
-      and(
-        eq(githubInstallations.userId, data.userId),
-        or(
-          eq(githubInstallations.installationId, data.installationId),
-          eq(githubInstallations.accountLogin, data.accountLogin),
-        ),
-      ),
-    )
-    .limit(1);
-
-  if (existing[0]) {
-    const [updated] = await db
-      .update(githubInstallations)
-      .set(refreshedColumns(data, now))
-      .where(eq(githubInstallations.id, existing[0].id))
+      .where(eq(githubInstallations.id, target.id))
       .returning();
 
     if (!updated) {
@@ -191,6 +181,25 @@ export async function getOrgInstallationByAccountLogin(
   return installation;
 }
 
+/** The organization's record for one installation id. */
+export async function getOrgInstallationById(
+  organizationId: string,
+  installationId: number,
+): Promise<GitHubInstallation | undefined> {
+  const [installation] = await db
+    .select()
+    .from(githubInstallations)
+    .where(
+      and(
+        eq(githubInstallations.organizationId, organizationId),
+        eq(githubInstallations.installationId, installationId),
+      ),
+    )
+    .limit(1);
+
+  return installation;
+}
+
 /** Every installation the organization owns, for listing surfaces. */
 export async function getOrgInstallations(
   organizationId: string,
@@ -253,14 +262,18 @@ export async function claimInstallationForOrganization(params: {
     .where(eq(githubInstallations.id, params.id));
 }
 
-/** Return a record to personal ownership by the user recorded on it. */
-export async function releaseInstallationFromOrganization(
-  id: string,
+/** Return records to personal ownership by the users recorded on them. */
+export async function releaseInstallationsFromOrganization(
+  ids: string[],
 ): Promise<void> {
+  if (ids.length === 0) {
+    return;
+  }
+
   await db
     .update(githubInstallations)
     .set({ organizationId: null, updatedAt: new Date() })
-    .where(eq(githubInstallations.id, id));
+    .where(inArray(githubInstallations.id, ids));
 }
 
 export async function deleteInstallationsByIds(ids: string[]): Promise<number> {

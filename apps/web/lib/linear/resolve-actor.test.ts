@@ -73,12 +73,12 @@ describe("resolveApprovedLinearActor", () => {
     });
   });
 
-  test("refuses a payload with no actor email", async () => {
+  test("refuses a payload with no actor identity", async () => {
     const { resolveApprovedLinearActor } = await modulePromise;
 
     expect(await resolveApprovedLinearActor(undefined)).toEqual({
       ok: false,
-      reason: "no-email",
+      reason: "no-identity",
     });
   });
 

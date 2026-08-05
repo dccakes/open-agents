@@ -25,19 +25,20 @@ import { getLinearActorLink } from "@/lib/db/linear-actor-links";
 import { users } from "@/lib/db/schema";
 import {
   type LinearActorIdentity,
+  type LinearActorResolution as IdentityResolution,
   resolveLinearActorIdentity,
 } from "@/lib/linear/actor-resolution";
 import { isApprovedMember } from "@/lib/org/membership";
 import { getSeededOrganizationId } from "@/lib/org/seeded-organization";
 
+/**
+ * The identity outcomes, plus the one this layer adds: a user was identified
+ * but holds no membership row. Built on the pure resolver's union rather than
+ * restating it, so a new refusal reason cannot be added there and silently
+ * missed here.
+ */
 export type LinearActorResolution =
-  | { ok: true; userId: string; via: "mapping" | "verified-email" }
-  /** The payload carried no identifying information at all. */
-  | { ok: false; reason: "no-email" }
-  /** Nobody is mapped, and no user holds that address. */
-  | { ok: false; reason: "not-connected" }
-  /** A user holds that address but has never verified it. */
-  | { ok: false; reason: "unverified-email"; userId: string }
+  | IdentityResolution
   /** A user was identified, but holds no membership row. */
   | { ok: false; reason: "pending"; userId: string };
 
@@ -78,11 +79,7 @@ export async function resolveApprovedLinearActor(
   });
 
   if (!resolution.ok) {
-    // `no-identity` keeps the wire name `no-email` that callers already switch
-    // on; the payload still most often fails here for want of an address.
-    return resolution.reason === "no-identity"
-      ? { ok: false, reason: "no-email" }
-      : resolution;
+    return resolution;
   }
 
   // Membership is checked last and separately: a mapping is a statement about

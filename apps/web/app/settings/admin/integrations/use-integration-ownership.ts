@@ -23,11 +23,6 @@ import {
   unlinkLinearActorAction,
 } from "@/lib/org/integration-ownership-actions";
 
-interface MutationResult {
-  success: boolean;
-  error?: string;
-}
-
 export function useIntegrationOwnership() {
   const [view, setView] = useState<IntegrationOwnershipView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -44,33 +39,22 @@ export function useIntegrationOwnership() {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    loadIntegrationOwnership().then((result) => {
-      if (cancelled) {
-        return;
-      }
-      if (result.success) {
-        setView(result.data);
-      } else {
-        setLoadError(result.error);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    void reload();
+  }, [reload]);
 
   const run = useCallback(
     async (
       action: () => Promise<{ success: boolean; error?: string }>,
       successMessage: string,
-    ): Promise<MutationResult> => {
+    ): Promise<{ success: boolean }> => {
       setPending(true);
       try {
         const result = await action();
         if (!result.success) {
+          // The message is surfaced here rather than returned; no caller reads
+          // it, they only branch on success to decide whether to clear a form.
           toast.error(result.error ?? "That didn't work.");
-          return { success: false, error: result.error };
+          return { success: false };
         }
         toast.success(successMessage);
         await reload();

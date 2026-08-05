@@ -19,19 +19,8 @@ import {
 } from "@/lib/db/linear-actor-links";
 import type { LinearActorLink } from "@/lib/db/schema";
 import { isApprovedMember } from "@/lib/org/membership";
-import { getSeededOrganizationId } from "@/lib/org/seeded-organization";
+import { requireSeededOrganizationId } from "@/lib/org/seeded-organization";
 import { OrgSettingsError } from "@/lib/org/settings-errors";
-
-async function requireSeededOrganizationId(): Promise<string> {
-  const organizationId = await getSeededOrganizationId();
-  if (!organizationId) {
-    throw new OrgSettingsError(
-      "unavailable",
-      "The organization has not been seeded yet.",
-    );
-  }
-  return organizationId;
-}
 
 export async function readLinearActorLinks(
   options?: PermissionCheckOptions,
