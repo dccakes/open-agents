@@ -11,10 +11,7 @@ import {
   getSessionsWithUnreadByUserId,
   getUsedSessionTitles,
 } from "@/lib/db/sessions";
-import {
-  getVercelProjectLinkByRepo,
-  upsertVercelProjectLink,
-} from "@/lib/db/vercel-project-links";
+import { upsertVercelProjectLink } from "@/lib/db/vercel-project-links";
 import { getUserPreferences } from "@/lib/db/user-preferences";
 import { sanitizeUserPreferencesForSession } from "@/lib/model-access";
 import {
@@ -36,6 +33,7 @@ import {
   isVercelInvalidTokenError,
   listMatchingVercelProjects,
 } from "@/lib/vercel/projects";
+import { resolveUsableVercelProjectLink } from "@/lib/vercel/resolve-linked-project";
 import { getUserVercelToken } from "@/lib/vercel/token";
 import {
   vercelProjectSelectionSchema,
@@ -395,10 +393,14 @@ export async function POST(req: Request) {
         });
         resolvedVercelProject = matchedProject;
       } else if (explicitVercelProject === undefined) {
-        resolvedVercelProject = await getVercelProjectLinkByRepo(
+        // Intersected with this member's own Vercel access, not taken on
+        // trust: the organization owns the mapping, but the credential that
+        // has to query the project is personal.
+        resolvedVercelProject = await resolveUsableVercelProjectLink({
+          userId: session.user.id,
           repoOwner,
           repoName,
-        );
+        });
       }
     }
 
