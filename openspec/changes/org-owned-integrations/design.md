@@ -101,10 +101,10 @@ One deploy. Migration `0043` adds the ownership columns and the new tables; `004
 
 That change is proposed and unimplemented (0 of 26 tasks). Its task 2.1 adds `organization_id` + `is_org_shared` to `github_installations` and leaves every row personal; its decision 4 explains why. This design keeps that principle and replaces the mechanism, because a boolean on a per-user row does not survive a reinstall (decision 2) and does not resolve the duplicate-row problem at all.
 
-Recommended split, to be confirmed in review:
+The split, now applied to that change's artifacts:
 
 - **This change owns ownership**: the schema, promotion, resolution, and sync behavior for org-owned integrations.
-- **`shared-config-governance` keeps gating, audit, soft delete, restore, purge, and the webhook-secret consolidation.** Its task 2.1 is dropped; its task 2.3 ("gate org-shared installation removal") consumes `organization_id IS NOT NULL` from here instead of `is_org_shared`, and its design decision 4 is amended to point at decision 2 above.
+- **`shared-config-governance` keeps gating, audit, soft delete, restore, purge, and the webhook-secret consolidation.** Its task 2.1 is dropped and its design decision 4 amended to point at decision 2 above; its task 2.3 ("gate org-shared installation removal") now reads `organization_id IS NOT NULL`. Note the *account-level* release path already exists and is gated (`releaseGitHubAccount`); what that change still owes is the per-installation removal route.
 - **Order:** either may land first. If `shared-config-governance` lands first, task 2.1 must still be dropped or this change inherits a column it does not use. If this change lands first, its promotion and demotion actions are ungated until gating arrives — so they are guarded with `requirePermission({ integration: ["connect", "disconnect"] })` here, using statements `org-roles-and-settings` already defines, and the audit write is added by `shared-config-governance` when it lands.
 
 ## Open Questions
