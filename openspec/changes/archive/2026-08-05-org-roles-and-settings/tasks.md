@@ -65,3 +65,14 @@ decide.
 - [ ] 4.5 Follow-up PR (after one deploy): drop `users.is_admin`.
 - [x] 4.6 `bun run ci` green.
 - [ ] 4.7 Manual: sign in from a non-allowlisted domain → pending screen; approve → access; demote last admin → refused; remove a member → their sessions and shares die; flip kill switch → next run start blocked.
+
+---
+
+## Deferred at archive (2026-08-05)
+
+Archived with 4.5 and 4.7 open. 4.7 is manual verification. **4.5 is real
+outstanding work**: `users.is_admin` is still declared in
+`apps/web/lib/db/schema.ts`, so the column drop and its migration still need a
+follow-up PR. It was deliberately sequenced one deploy behind the role
+migration and is not covered by any other open change — carry it forward
+rather than treating this archive as closing it.
