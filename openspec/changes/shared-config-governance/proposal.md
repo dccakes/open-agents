@@ -31,7 +31,7 @@ This change was split out of `org-roles-and-settings` after review found that ch
 ## Impact
 
 - **Depends on**: `org-roles-and-settings` — this change consumes `requirePermission()`, the `integration`/`orgSettings`/`observability` statements, and the seeded organization id. It cannot land before that one.
-- **Database**: new `config_audit` table; `deleted_at` added to shared-integration tables; `organization_id` and `is_org_shared` added to `github_installations`. Drizzle migrations for each.
+- **Database**: new `config_audit` table; `deleted_at` added to shared-integration tables. The installation-ownership columns are **no longer this change's work** — `org-owned-integrations` supplies `github_installations.organization_id` and the `org_github_accounts` allowlist (see design decision 4). Drizzle migrations for the rest.
 - **API routes**: `/api/linear/connect`, `/api/linear/disconnect`, GitHub installation removal, and sandbox provider settings routes gain permission checks, confirmation checks, and audit writes. New restore routes.
 - **Removed env var**: `LINEAR_WEBHOOK_SECRET` is deleted from `lib/config/linear.ts` and the regenerated `.env.example`. The webhook route reads the workspace record instead.
 - **Cron**: soft-delete purge handler, returning early unless `VERCEL_ENV === "production"` — preview databases are Neon forks whose rows point at real external resources.

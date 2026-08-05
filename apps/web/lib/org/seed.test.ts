@@ -30,18 +30,20 @@ let updateCalls: UpdateCall[] = [];
 
 type SelectChain = Promise<Record<string, unknown>[]> & {
   where: () => SelectChain;
+  orderBy: () => SelectChain;
   limit: () => Promise<Record<string, unknown>[]>;
 };
 
 /**
  * A real Promise carrying the builder methods, so a query can be awaited
- * directly (`select().from(users)`) or narrowed first (`.where().limit()`),
- * exactly as Drizzle allows.
+ * directly (`select().from(users)`) or narrowed first
+ * (`.where().orderBy().limit()`), exactly as Drizzle allows.
  */
 function selectChain(table: unknown): SelectChain {
   const rows = () => Promise.resolve(selectRows.get(table) ?? []);
   return Object.assign(rows(), {
     where: () => selectChain(table),
+    orderBy: () => selectChain(table),
     limit: () => rows(),
   });
 }
@@ -68,12 +70,14 @@ mock.module("@/lib/db/client", () => ({
     }),
     update: (table: unknown) => ({
       set: (values: Record<string, unknown>) => ({
-        where: () => ({
-          returning: () => {
-            updateCalls.push({ table, values });
-            return Promise.resolve(updateReturns.get(table) ?? []);
-          },
-        }),
+        // Awaitable on its own, since not every update asks for RETURNING.
+        where: () =>
+          Object.assign(Promise.resolve(undefined), {
+            returning: () => {
+              updateCalls.push({ table, values });
+              return Promise.resolve(updateReturns.get(table) ?? []);
+            },
+          }),
       }),
     }),
   },

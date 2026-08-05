@@ -33,7 +33,7 @@ export async function GET(req: Request) {
 
   try {
     const [savedLink, projects] = await Promise.all([
-      getVercelProjectLinkByRepo(session.user.id, repoOwner, repoName),
+      getVercelProjectLinkByRepo(repoOwner, repoName),
       listMatchingVercelProjects({
         token,
         repoOwner,

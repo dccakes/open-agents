@@ -32,6 +32,21 @@ Do **not** enable session cookie caching while permission checks resolve from th
 
 `ADMIN_EMAILS` is `required-prod`, so a production deploy fails at build time unless it is set — set it in the Vercel project environment before deploying. Both it and `ALLOWED_EMAIL_DOMAINS` require a *verified* email to match, and an unset allowlist auto-approves nobody.
 
+### Integration ownership
+
+Shared integrations belong to the **organization**; OAuth identities stay **personal** and only authorize the human. Concretely: a resolver for a shared resource takes no `userId`. If you find yourself adding one, that is a scoping bug in waiting — it is exactly what made GitHub installations per-person.
+
+Ownership is discriminated by a nullable `organizationId` column: non-NULL means the organization owns the row, NULL means it is personal. On an org-owned row the `userId` is **provenance** (who set it up), never authority.
+
+- **GitHub.** `github_installations` rows become org-owned only when an admin claims the GitHub account in `/settings/admin/integrations`. The allowlist (`org_github_accounts`) is keyed by GitHub's immutable numeric `account.id` — not the login (rename-able) and not the installation id (a reinstall issues a new one). Resolve with `getOrgInstallationByAccountLogin()`; list with `getVisibleInstallations()`.
+- **Authorization did not move.** `verifyRepoAccess` step 1 checks the *caller's own* GitHub credentials and is the authorization; step 2 resolves the installation and is not. That order is why org ownership widens nothing, and `lib/github/access.test.ts` pins it. Do not reorder those steps or let step 2's result satisfy step 1.
+- **Never prune org-owned rows from one user's view.** `GET /user/installations` answers "what can this user see". Removal comes from the `installation.deleted` webhook or `reconcileOrgInstallations()` (authenticated as the App). `deleteInstallationsNotInList` is scoped to `organization_id IS NULL` for this reason.
+- **Linear.** The connection is resolved by organization. Actors resolve by *verified* email or an admin-recorded `linear_actor_links` mapping — never a fallback identity.
+- **Vercel is the sharpest case, because it is also the sign-in provider.** Three separate things, deliberately: the OAuth *identity* is personal and untouched; every Vercel API *call* uses the acting member's own token; only the repo→project *mapping* is org-owned, keyed `(organization_id, repo_owner, repo_name)`. A mapping is a fact about a repository, not an identity.
+- **An org-owned mapping must be intersected with the member's own provider access.** `resolveUsableVercelProjectLink()` returns the org's link only if that member's Vercel token can see the project — the same shape as `verifyRepoAccess` step 1. Skip it and a session records a project the member cannot query, and they get no deployment URL with nothing explaining why.
+- **Personal rows are permanent for GitHub, absent for Vercel.** An installation on someone's own GitHub account is never promotable, so `github_installations.organization_id` stays nullable and `verifyRepoAccess` keeps its org-then-personal fallback for good. `vercel_project_links.organization_id` is NOT NULL because no such category exists there. `lib/db/ownership-schema.test.ts` pins both shapes.
+- **Running reconciliation.** `reconcileOrgInstallations()` is deliberately not on a route or a cron — run it with `bun run --cwd apps/web org:ownership <status|reconcile-installations>`. Dry run unless `--apply`, and it prints the target database host first, because it deletes rows and preview databases are Neon forks pointing at real external resources.
+
 ## Configuration
 
 **Never read `process.env` outside a config module.** `bun run ci` fails if you do (`scripts/check-env-boundary.ts`).

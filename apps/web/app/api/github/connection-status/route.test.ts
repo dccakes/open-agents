@@ -37,8 +37,8 @@ mock.module("@/lib/github/users", () => ({
   getGitHubAccountId: async () => null,
 }));
 
-mock.module("@/lib/db/installations", () => ({
-  getInstallationsByUserId: async () => installations,
+mock.module("@/lib/github/visible-installations", () => ({
+  getVisibleInstallations: async () => installations,
 }));
 
 mock.module("@/lib/github/sync", () => ({

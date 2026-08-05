@@ -1,12 +1,22 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { AuthorizationError } from "@/lib/auth/authorization-error";
+import { OrgSettingsError } from "@/lib/org/settings-errors";
 import type { OrgSettingsAuditEntry } from "@/lib/org/settings-audit";
 
 interface SettingsRow {
   organizationId: string;
   agentRunsPaused: boolean;
   dailyTokenBudget: number | null;
+  // Stored on this row but gated elsewhere — see `lib/org/vercel-team.ts`.
+  vercelTeamId: string | null;
+  vercelTeamSlug: string | null;
 }
+
+/** The Vercel columns' resting state, spread into each fixture row. */
+const NO_VERCEL_TEAM = {
+  vercelTeamId: null,
+  vercelTeamSlug: null,
+} as const;
 
 let settingsRow: SettingsRow | null = null;
 let organizationId: string | null = "org-1";
@@ -68,6 +78,14 @@ mock.module("@/lib/db/client", () => ({
 
 mock.module("@/lib/org/seeded-organization", () => ({
   getSeededOrganizationId: () => Promise.resolve(organizationId),
+  requireSeededOrganizationId: () => {
+    if (!organizationId) {
+      return Promise.reject(
+        new OrgSettingsError("unavailable", "not seeded yet"),
+      );
+    }
+    return Promise.resolve(organizationId);
+  },
 }));
 
 mock.module("@/lib/auth/require-permission", () => ({
@@ -103,6 +121,7 @@ beforeEach(() => {
     organizationId: "org-1",
     agentRunsPaused: false,
     dailyTokenBudget: null,
+    ...NO_VERCEL_TEAM,
   };
   organizationId = "org-1";
   selectError = null;
@@ -120,6 +139,7 @@ describe("readOrgSettings", () => {
       organizationId: "org-1",
       agentRunsPaused: true,
       dailyTokenBudget: 500_000,
+      ...NO_VERCEL_TEAM,
     };
     const { readOrgSettings } = await modulePromise;
 
@@ -127,6 +147,7 @@ describe("readOrgSettings", () => {
       organizationId: "org-1",
       agentRunsPaused: true,
       dailyTokenBudget: 500_000,
+      ...NO_VERCEL_TEAM,
     });
   });
 
@@ -172,6 +193,7 @@ describe("getDailyTokenBudget", () => {
       organizationId: "org-1",
       agentRunsPaused: false,
       dailyTokenBudget: 1_000_000,
+      ...NO_VERCEL_TEAM,
     };
     const { getDailyTokenBudget } = await modulePromise;
 
@@ -245,6 +267,7 @@ describe("updateOrgSettings", () => {
       organizationId: "org-1",
       agentRunsPaused: true,
       dailyTokenBudget: null,
+      ...NO_VERCEL_TEAM,
     };
     const { updateOrgSettings } = await modulePromise;
 
@@ -284,6 +307,7 @@ describe("updateOrgSettings", () => {
       organizationId: "org-1",
       agentRunsPaused: false,
       dailyTokenBudget: 100,
+      ...NO_VERCEL_TEAM,
     };
     const { updateOrgSettings } = await modulePromise;
 

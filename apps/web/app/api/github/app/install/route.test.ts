@@ -34,8 +34,8 @@ mock.module("@/lib/github/users", () => ({
   getGitHubAccountId: async () => (hasLinkedGitHub ? "12345" : null),
 }));
 
-mock.module("@/lib/db/installations", () => ({
-  getInstallationsByUserId: async () => installations,
+mock.module("@/lib/github/visible-installations", () => ({
+  getVisibleInstallations: async () => installations,
 }));
 
 mock.module("@/lib/github/sync", () => ({

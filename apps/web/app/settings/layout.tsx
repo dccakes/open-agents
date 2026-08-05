@@ -7,6 +7,7 @@ import {
   LogOut,
   Menu,
   Settings as SettingsIcon,
+  Share2,
   ShieldAlert,
   SlidersHorizontal,
   Trophy,
@@ -111,6 +112,12 @@ const adminSidebarItems = [
     label: "Members",
     href: "/settings/admin/members",
     icon: Users,
+  },
+  {
+    id: "org-integrations",
+    label: "Integrations",
+    href: "/settings/admin/integrations",
+    icon: Share2,
   },
   {
     id: "admin",

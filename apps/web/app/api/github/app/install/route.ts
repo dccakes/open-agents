@@ -2,7 +2,7 @@ import { generateState } from "arctic";
 import { NextResponse, type NextRequest } from "next/server";
 import { getDeploymentConfig } from "@/lib/config/deployment";
 import { getPublicConfig } from "@/lib/config/public";
-import { getInstallationsByUserId } from "@/lib/db/installations";
+import { getVisibleInstallations } from "@/lib/github/visible-installations";
 import { syncUserInstallations } from "@/lib/github/sync";
 import { getUserGitHubToken } from "@/lib/github/token";
 import {
@@ -99,7 +99,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   }
 
   // try to sync installations
-  let installations = await getInstallationsByUserId(session.user.id);
+  let installations = await getVisibleInstallations(session.user.id);
 
   if (installations.length === 0) {
     try {
@@ -107,7 +107,7 @@ export async function GET(req: NextRequest): Promise<Response> {
       const username = await getGitHubUsername(session.user.id);
       if (token && username) {
         await syncUserInstallations(session.user.id, token, username);
-        installations = await getInstallationsByUserId(session.user.id);
+        installations = await getVisibleInstallations(session.user.id);
       }
     } catch (error) {
       console.error("Failed to sync GitHub installations in install flow:", {

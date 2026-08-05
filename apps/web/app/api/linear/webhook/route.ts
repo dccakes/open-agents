@@ -12,6 +12,7 @@ import {
   postLinearThoughtActivity,
 } from "@/lib/linear/activities";
 import { buildIssueContextBlock, getLinearIssue } from "@/lib/linear/issues";
+import { refusalMessage } from "@/lib/linear/actor-refusal-message";
 import { resolveApprovedLinearActor } from "@/lib/linear/resolve-actor";
 import { getLinearWorkspaceToken } from "@/lib/linear/token";
 import { APP_DEFAULT_MODEL_ID } from "@/lib/models";
@@ -31,6 +32,9 @@ const agentSessionEventSchema = z.object({
       .optional(),
     actor: z
       .object({
+        // The actor's Linear user id — the key an administrator maps when a
+        // member's Linear address differs from their sign-in address.
+        id: z.string().optional(),
         email: z.string().optional(),
         name: z.string().optional(),
       })
@@ -91,6 +95,7 @@ export async function POST(req: Request): Promise<Response> {
   const issueUrl = data.issue.url;
   const actorEmail = data.actor?.email;
   const actorName = data.actor?.name;
+  const actorLinearUserId = data.actor?.id;
 
   after(async () => {
     try {
@@ -100,6 +105,7 @@ export async function POST(req: Request): Promise<Response> {
         issueUrl,
         actorEmail,
         actorName,
+        actorLinearUserId,
       });
     } catch (err) {
       console.error(
@@ -118,12 +124,14 @@ async function handleAgentSession({
   issueUrl,
   actorEmail,
   actorName,
+  actorLinearUserId,
 }: {
   agentSessionId: string;
   issueId: string;
   issueUrl: string;
   actorEmail?: string;
   actorName?: string;
+  actorLinearUserId?: string;
 }): Promise<void> {
   const token = await getLinearWorkspaceToken();
   if (!token) {
@@ -156,20 +164,25 @@ async function handleAgentSession({
   // This path has no browser session, so the membership chokepoint in
   // `lib/session/` never runs here. The matched user's membership is therefore
   // checked explicitly, before anything is created.
-  const actor = await resolveApprovedLinearActor(actorEmail);
+  const actor = await resolveApprovedLinearActor(actorEmail, actorLinearUserId);
 
   if (!actor.ok) {
-    if (actor.reason === "no-email") {
-      console.warn("[Linear webhook] No actor email in payload");
+    if (actor.reason === "no-identity") {
+      console.warn("[Linear webhook] No actor identity in payload");
       return;
     }
 
     const appUrl = getPublicConfig().appUrl ?? "";
     const handle = actorName ? `@${actorName}` : actorEmail;
-    const message =
-      actor.reason === "pending"
-        ? `Hey ${handle}, ${actorEmail} is signed in but still waiting on an administrator to approve access. Once approved you can run sessions from Linear.`
-        : `Hey ${handle}, ${actorEmail} isn't connected to Open Agents yet. Sign in at ${appUrl} to run sessions from Linear.`;
+    // Each refusal names the actual obstacle. "Not connected" sent to someone
+    // who *is* connected — under a different address, or with an unverified
+    // one — reads as a bug and gives them nothing to act on.
+    const message = refusalMessage({
+      reason: actor.reason,
+      handle,
+      actorEmail,
+      appUrl,
+    });
 
     await postLinearComment(token, issueId, message).catch((err) =>
       console.error("[Linear webhook] Failed to post refusal comment:", err),

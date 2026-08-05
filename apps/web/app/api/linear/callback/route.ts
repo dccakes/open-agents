@@ -6,6 +6,7 @@ import { getPublicConfig } from "@/lib/config/public";
 import { upsertLinearWorkspace } from "@/lib/db/linear-workspaces";
 import { linearGraphQL } from "@/lib/linear/client";
 import { encryptLinearToken } from "@/lib/linear/token";
+import { requireSeededOrganizationId } from "@/lib/org/seeded-organization";
 import { getServerSession } from "@/lib/session/get-server-session";
 
 function getAppUrl(req: Request): string {
@@ -121,11 +122,15 @@ export async function GET(req: Request): Promise<Response> {
 
     // Encrypt token and upsert workspace
     const encryptedToken = encryptLinearToken(token);
+    // Owned by the organization from the moment it is created, rather than
+    // created ownerless and claimed later — there is no window in which the
+    // connection belongs to nobody.
     await upsertLinearWorkspace({
       workspaceId,
       workspaceName,
       accessToken: encryptedToken,
       installedByUserId: session.user.id,
+      organizationId: await requireSeededOrganizationId(),
     });
 
     const response = NextResponse.redirect(

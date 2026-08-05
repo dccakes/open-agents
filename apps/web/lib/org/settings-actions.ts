@@ -9,16 +9,12 @@
  * hiding a control is not authorization.
  */
 
-import { isAuthorizationError } from "@/lib/auth/authorization-error";
 import {
   hasPermission,
   requireApprovedMember,
 } from "@/lib/auth/require-permission";
-import {
-  isOrgSettingsError,
-  readOrgSettings,
-  updateOrgSettings,
-} from "@/lib/org/settings";
+import { toActionError as toSharedActionError } from "@/lib/org/action-result";
+import { readOrgSettings, updateOrgSettings } from "@/lib/org/settings";
 
 export interface OrgSettingsView {
   agentRunsPaused: boolean;
@@ -37,22 +33,10 @@ export interface OrgSettingsInput {
 }
 
 function toActionError(error: unknown): OrgSettingsActionResult {
-  // `status` travels with the result so a denial reads as 403 at the caller
-  // rather than as an indistinguishable failure string.
-  if (isAuthorizationError(error)) {
-    return { success: false, error: error.message, status: error.status };
-  }
-  if (isOrgSettingsError(error)) {
-    return { success: false, error: error.message, status: error.status };
-  }
-
-  const message = error instanceof Error ? error.message : String(error);
-  console.error("[org-settings] Action failed:", message);
-  return {
-    success: false,
-    error: "Organization settings are unavailable right now.",
-    status: 500,
-  };
+  return toSharedActionError(error, {
+    logPrefix: "[org-settings]",
+    fallbackMessage: "Organization settings are unavailable right now.",
+  });
 }
 
 /** The current settings, plus whether this viewer may change them. */

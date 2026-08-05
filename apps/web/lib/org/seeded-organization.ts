@@ -12,6 +12,7 @@ import { eq } from "drizzle-orm";
 import { getMembershipConfig } from "@/lib/config/auth";
 import { db } from "@/lib/db/client";
 import { organizations } from "@/lib/db/schema";
+import { OrgSettingsError } from "@/lib/org/settings-errors";
 
 /**
  * Cached per process. Exactly one organization exists and its id never
@@ -50,4 +51,26 @@ export function setSeededOrganizationId(id: string): void {
 /** Drop the cache. Exists for tests; nothing in the app should need it. */
 export function resetSeededOrganizationCache(): void {
   cachedOrganizationId = null;
+}
+
+/**
+ * The seeded organization's id, or a refusal.
+ *
+ * The counterpart to `getSeededOrganizationId()`, and the choice between them
+ * is the point: this one refuses when the organization is missing, that one
+ * hands back `null` and leaves the caller to decide. Every "decide" so far has
+ * been some flavour of *fall back to per-user data* — which is the failure
+ * mode org ownership exists to remove — so anything managing shared
+ * configuration should reach for this one, and a caller that genuinely wants
+ * to degrade should have to say so by picking the other name.
+ */
+export async function requireSeededOrganizationId(): Promise<string> {
+  const organizationId = await getSeededOrganizationId();
+  if (!organizationId) {
+    throw new OrgSettingsError(
+      "unavailable",
+      "The organization has not been seeded yet.",
+    );
+  }
+  return organizationId;
 }

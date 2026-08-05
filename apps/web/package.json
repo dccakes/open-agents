@@ -14,7 +14,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "db:check": "bun run scripts/check-migrations.ts",
-    "env:example": "bun run scripts/generate-env-example.ts"
+    "env:example": "bun run scripts/generate-env-example.ts",
+    "org:ownership": "bun run scripts/org-ownership.ts"
   },
   "dependencies": {
     "@ai-sdk/elevenlabs": "^2.0.29",

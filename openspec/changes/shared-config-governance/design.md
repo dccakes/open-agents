@@ -38,8 +38,10 @@ Relevant existing state: `apps/web/app/api/linear/connect/route.ts` and the disc
 
 ### 4. Existing GitHub installations stay personal
 
-- **Decision:** `github_installations` gains `organizationId` and `isOrgShared`. The migration marks **nothing** as org-shared; sharing an installation is an explicit admin action afterwards.
-- **Rationale:** the alternative — marking existing installations org-shared on migration — broadens who can act on them at deploy time, silently, based on a guess about intent. Marking none is the only default that cannot widen access. The cost is that an admin has to opt each shared installation in, once.
+- **Decision (amended):** ownership is a non-NULL `github_installations.organization_id`, set only when an admin claims the installation's GitHub *account* in `org_github_accounts`. The migration marks **nothing** as org-owned. The original `isOrgShared` boolean is **not** added.
+- **Rationale, unchanged:** marking existing installations org-shared on migration would broaden who can act on them at deploy time, silently, based on a guess about intent. Marking none is the only default that cannot widen access. The cost is that an admin has to opt in, once.
+- **Why the mechanism changed:** `isOrgShared` is a flag on a row, and a row is an *installation*. Uninstalling and reinstalling the GitHub App issues a **new** `installation_id` — a new row, with the flag back to false — so sharing would silently lapse at exactly the moment nobody is watching, surfacing only as a teammate's `no_installation`. Keying on GitHub's immutable numeric `account.id` survives both reinstalls and org renames. The flag also had nothing to say about the duplicate rows the old `(user_id, installation_id)` key produced: one installation was N rows, and setting a boolean on them leaves N rows and no single answer.
+- **Delivered by:** `org-owned-integrations`, which this change now consumes rather than duplicates. Its `lib/db/ownership-schema.test.ts` pins the column and index shape.
 
 ### 5. The purge job is production-only, and the boundary is exclusive
 

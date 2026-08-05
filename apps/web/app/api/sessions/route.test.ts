@@ -58,6 +58,10 @@ mock.module("@/lib/db/user-preferences", () => ({
   }),
 }));
 
+// The Vercel link resolver is a real server module; its dependencies below
+// are already mocked, so it runs for real and its intersection is exercised.
+mock.module("server-only", () => ({}));
+
 mock.module("@/lib/db/vercel-project-links", () => ({
   getVercelProjectLinkByRepo: async () => savedLink,
   upsertVercelProjectLink: async (input: Record<string, unknown>) => {
@@ -314,6 +318,16 @@ describe("/api/sessions POST vercel project linking", () => {
       teamId: null,
       teamSlug: null,
     };
+    // The organization's link is only usable by a member whose own Vercel
+    // account can see the project, so the fixture has to say it can.
+    matchingProjects = [
+      {
+        projectId: "project-2",
+        projectName: "dashboard",
+        teamId: null,
+        teamSlug: null,
+      },
+    ];
 
     const response = await POST(
       createJsonRequest({
@@ -336,6 +350,43 @@ describe("/api/sessions POST vercel project linking", () => {
       vercelTeamSlug: null,
     });
     expect(body.session.vercelProjectName).toBe("dashboard");
+  });
+
+  // The organization owns the mapping; the credential that queries the project
+  // is personal. A member who cannot see the linked project must not get a
+  // session pointing at it — they would silently get no deployment URL.
+  test("ignores the saved link when the member cannot see that project", async () => {
+    const { POST } = await routeModulePromise;
+
+    savedLink = {
+      projectId: "project-2",
+      projectName: "dashboard",
+      teamId: null,
+      teamSlug: null,
+    };
+    matchingProjects = [
+      {
+        projectId: "someone-elses-project",
+        projectName: "other",
+        teamId: null,
+        teamSlug: null,
+      },
+    ];
+
+    const response = await POST(
+      createJsonRequest({
+        repoOwner: "vercel",
+        repoName: "open-agents",
+        branch: "main",
+        cloneUrl: "https://github.com/vercel/open-agents",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(createCalls[0]).toMatchObject({
+      vercelProjectId: null,
+      vercelProjectName: null,
+    });
   });
 
   test("explicit null suppresses Vercel linking for that session", async () => {

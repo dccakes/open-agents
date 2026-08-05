@@ -1,5 +1,6 @@
-import { asc, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import { getSeededOrganizationId } from "@/lib/org/seeded-organization";
 import { db } from "./client";
 import {
   type LinearWorkspace,
@@ -14,6 +15,7 @@ export interface UpsertLinearWorkspaceInput {
   webhookSecret?: string | null;
   webhookId?: string | null;
   installedByUserId?: string | null;
+  organizationId?: string | null;
 }
 
 export async function upsertLinearWorkspace(
@@ -36,6 +38,9 @@ export async function upsertLinearWorkspace(
         webhookSecret: data.webhookSecret ?? null,
         webhookId: data.webhookId ?? null,
         installedByUserId: data.installedByUserId ?? null,
+        // Only ever written, never cleared: a reconnect that omits the
+        // organization must not orphan a connection members already resolve.
+        ...(data.organizationId ? { organizationId: data.organizationId } : {}),
         updatedAt: now,
       })
       .where(eq(linearWorkspaces.id, existing[0].id))
@@ -56,6 +61,7 @@ export async function upsertLinearWorkspace(
     webhookSecret: data.webhookSecret ?? null,
     webhookId: data.webhookId ?? null,
     installedByUserId: data.installedByUserId ?? null,
+    organizationId: data.organizationId ?? null,
     createdAt: now,
     updatedAt: now,
   };
@@ -72,14 +78,29 @@ export async function upsertLinearWorkspace(
   return created;
 }
 
+/**
+ * The organization's Linear connection.
+ *
+ * Takes no caller id and has no fallback: the connect flow sets
+ * `organizationId` when it creates the row, so a connection is owned from the
+ * moment it exists. Resolving by row age — which is what this did before the
+ * column existed — is gone, along with the window where a connection belonged
+ * to nobody.
+ */
 export async function getLinearWorkspace(): Promise<
   LinearWorkspace | undefined
 > {
+  const organizationId = await getSeededOrganizationId();
+  if (!organizationId) {
+    return undefined;
+  }
+
   const [workspace] = await db
     .select()
     .from(linearWorkspaces)
-    .orderBy(asc(linearWorkspaces.createdAt))
+    .where(eq(linearWorkspaces.organizationId, organizationId))
     .limit(1);
+
   return workspace;
 }
 

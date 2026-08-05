@@ -8,9 +8,15 @@
 
 ---
 
-**Prerequisite:** `org-roles-and-settings` task group 1 must have landed — this change consumes
-`requirePermission()`, the `integration`/`orgSettings`/`observability` statements, and the
-seeded organization id. Resolve open question 1 in `design.md` before task 2.1.
+**Prerequisites:**
+
+- `org-roles-and-settings` task group 1 must have landed — this change consumes
+  `requirePermission()`, the `integration`/`orgSettings`/`observability` statements, and the
+  seeded organization id.
+- `org-owned-integrations` supplies the installation ownership model this change gates.
+  Task 2.1 was dropped and design decision 4 amended accordingly; see both below.
+  Open question 1 is answered there too — no installation is org-owned until an admin
+  claims its GitHub account.
 
 ## 1. Audit trail
 
@@ -23,9 +29,9 @@ seeded organization id. Resolve open question 1 in `design.md` before task 2.1.
 
 ## 2. Integration gating
 
-- [ ] 2.1 Add `organization_id` + `is_org_shared` to `github_installations`; migration leaves every existing row personal.
+- ~~2.1 Add `organization_id` + `is_org_shared` to `github_installations`.~~ **Dropped** — `org-owned-integrations` provides ownership via a non-NULL `organization_id`, set only when an admin claims the GitHub *account* in `org_github_accounts`. Adding `is_org_shared` on top would be a second ownership concept that nothing reads. See design decision 4.
 - [ ] 2.2 Gate `/api/linear/connect` on `integration.connect` and the disconnect path on `integration.disconnect`; leave connection status open to approved members.
-- [ ] 2.3 Gate org-shared GitHub installation removal on `integration.disconnect`; leave personal installation removal to its owner.
+- [ ] 2.3 Gate org-shared GitHub installation removal on `integration.disconnect`; leave personal installation removal to its owner. "Org-shared" reads `organization_id IS NOT NULL`. Note the account-level path already exists and is gated: `releaseGitHubAccount()` in `lib/org/github-accounts.ts`. What is still missing is the per-installation removal route.
 - [ ] 2.4 Gate org-level sandbox defaults and provider enablement on `orgSettings.update`; leave per-user provider selection open.
 - [ ] 2.5 Gate observability configuration on `observability.configure` (the surface itself lands with WS-1.2).
 - [ ] 2.6 Wire every gated mutation to an audit write.

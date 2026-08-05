@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getInstallationsByUserId } from "@/lib/db/installations";
+import { getVisibleInstallations } from "@/lib/github/visible-installations";
 import type { GitHubConnectionStatusResponse } from "@/lib/github/status";
 import {
   isGitHubInstallationsAuthError,
@@ -18,7 +18,7 @@ export async function GET() {
 
   const [linked, installations] = await Promise.all([
     hasGitHubAccount(session.user.id),
-    getInstallationsByUserId(session.user.id),
+    getVisibleInstallations(session.user.id),
   ]);
 
   if (!linked) {
