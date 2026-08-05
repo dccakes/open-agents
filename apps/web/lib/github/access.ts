@@ -64,8 +64,10 @@ function getGitHubHttpStatus(error: unknown): number | null {
  * Resolve the installation covering `accountLogin`.
  *
  * The organization's own installation is preferred, and a personal record is
- * the fallback — the dual read that lets this land before every account has
- * been claimed. The contract step removes the fallback.
+ * the fallback. That fallback is **permanent**, not a migration step: an
+ * installation on someone's own GitHub account is never promotable (sharing it
+ * would hand the organization their private repositories), so personal records
+ * are a standing category rather than a backlog to drain.
  *
  * Note what this function does *not* take: a permission, a role, or any notion
  * of what the caller may reach. It is a resource lookup. The authorization

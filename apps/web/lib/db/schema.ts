@@ -291,26 +291,24 @@ export const githubInstallations = pgTable(
 
 // Repository → Vercel project links.
 //
-// Same ownership discriminator as `github_installations`: non-NULL
-// `organizationId` means the organization owns the mapping and every member
-// resolves it; NULL means the row is one member's personal mapping.
+// Keyed by the *repository*, not by the person: which project a repo deploys
+// to is a fact about the repo, and the primary key is what makes "one answer
+// per repository" true rather than a rule someone has to remember. `userId` is
+// provenance — who set it — and carries no authority.
 //
-// Promotion is done *in place* — one existing row gains an `organizationId`
-// and the duplicates are deleted — rather than by inserting a new org row.
-// Inserting would collide with the `(userId, repoOwner, repoName)` primary key
-// whenever the promoting user already had their own mapping for that repo.
+// Deleting a user leaves the link standing (`set null`): the organization's
+// deployment target must not disappear because the person who recorded it did.
 export const vercelProjectLinks = pgTable(
   "vercel_project_links",
   {
-    userId: text("user_id")
+    organizationId: text("organization_id")
       .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
-    // Non-NULL ⇒ organization-owned; `userId` is then provenance only.
-    organizationId: text("organization_id").references(() => organizations.id, {
-      onDelete: "cascade",
-    }),
+      .references(() => organizations.id, { onDelete: "cascade" }),
     repoOwner: text("repo_owner").notNull(),
     repoName: text("repo_name").notNull(),
+    userId: text("user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     projectId: text("project_id").notNull(),
     projectName: text("project_name").notNull(),
     teamId: text("team_id"),
@@ -320,47 +318,8 @@ export const vercelProjectLinks = pgTable(
   },
   (table) => [
     primaryKey({
-      columns: [table.userId, table.repoOwner, table.repoName],
+      columns: [table.organizationId, table.repoOwner, table.repoName],
     }),
-    // One organization-owned mapping per repository.
-    uniqueIndex("vercel_project_links_org_repo_idx")
-      .on(table.organizationId, table.repoOwner, table.repoName)
-      .where(sql`${table.organizationId} IS NOT NULL`),
-  ],
-);
-
-// Repositories whose members recorded *different* Vercel projects.
-//
-// A row here means "we deliberately did not pick a winner". The competing
-// candidates are not copied into this table — the per-user rows are retained
-// on conflict, so the candidates are queryable from `vercel_project_links`
-// itself and cannot drift out of sync with a snapshot.
-//
-// The reasoning behind not auto-resolving: a Vercel project link decides where
-// a deployment lands. "Most recently updated wins" is a defensible rule for a
-// preference and an indefensible one for a deploy target.
-export const vercelProjectLinkConflicts = pgTable(
-  "vercel_project_link_conflicts",
-  {
-    id: text("id").primaryKey(),
-    organizationId: text("organization_id")
-      .notNull()
-      .references(() => organizations.id, { onDelete: "cascade" }),
-    repoOwner: text("repo_owner").notNull(),
-    repoName: text("repo_name").notNull(),
-    detectedAt: timestamp("detected_at").defaultNow().notNull(),
-    // NULL while unresolved. The contract step is gated on there being none.
-    resolvedAt: timestamp("resolved_at"),
-    resolvedByUserId: text("resolved_by_user_id").references(() => users.id, {
-      onDelete: "set null",
-    }),
-  },
-  (table) => [
-    uniqueIndex("vercel_project_link_conflicts_org_repo_idx").on(
-      table.organizationId,
-      table.repoOwner,
-      table.repoName,
-    ),
   ],
 );
 
@@ -901,7 +860,3 @@ export type LinearActorLink = typeof linearActorLinks.$inferSelect;
 export type NewLinearActorLink = typeof linearActorLinks.$inferInsert;
 export type OrgGitHubAccount = typeof orgGitHubAccounts.$inferSelect;
 export type NewOrgGitHubAccount = typeof orgGitHubAccounts.$inferInsert;
-export type VercelProjectLinkConflict =
-  typeof vercelProjectLinkConflicts.$inferSelect;
-export type NewVercelProjectLinkConflict =
-  typeof vercelProjectLinkConflicts.$inferInsert;

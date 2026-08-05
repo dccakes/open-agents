@@ -87,7 +87,7 @@ Key tables and their roles:
 | `authSessions` | Better-auth sessions |
 | `verification` | Auth verification tokens |
 | `githubInstallations` | GitHub App installations. `organizationId` non-NULL ⇒ organization-owned (one row per installation); NULL ⇒ personal to `userId` |
-| `vercelProjectLinks` | Repo ↔ Vercel project mappings. Same ownership discriminator as installations |
+| `vercelProjectLinks` | Repo ↔ Vercel project mappings, keyed `(organization_id, repo_owner, repo_name)`; no personal variant |
 | `sessions` | Core entity — coding sessions with repo, branch, sandbox state, PR info, lifecycle, `posture` (`strict`/`auto`/`dangerous`, default `auto`) |
 | `chats` | Chat conversations attached to sessions |
 | `chatMessages` | Individual messages (role + parts JSONB) |
@@ -106,7 +106,6 @@ Key tables and their roles:
 | `orgSettings` | Org-scoped settings: agent-run kill switch, daily token budget, org Vercel team |
 | `orgGitHubAccounts` | GitHub accounts the org claims, keyed by GitHub's immutable numeric account id |
 | `linearActorLinks` | Linear user id → QuackOps user, for members whose Linear address differs from their sign-in address |
-| `vercelProjectLinkConflicts` | Repos whose members named different Vercel projects; awaiting an admin decision |
 
 **Sessions** is the central entity. It carries repo info, Vercel project linkage, sandbox state (JSONB), hibernation timestamps, git stats, PR status, snapshot URL, cached diffs, and the security posture every chat in the session runs under.
 

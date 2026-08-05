@@ -69,17 +69,18 @@ See `proposal.md` — Why. The design-relevant facts about current state:
 - **Rationale:** the webhook has no cookie, so email matching is the only automatic signal available; requiring `emailVerified` closes the obvious spoof. But `accountLinking.allowDifferentEmails` is enabled, so a mismatch is an expected, ordinary state rather than a misconfiguration — it needs a deliberate resolution path, and an admin-curated mapping is one. A fallback identity is not: it would let anyone who can act in the connected Linear workspace start an agent run attributed to the org, which is precisely the property `resolve-actor.ts` was written to prevent.
 - **Existing rows:** the backfill sets `organization_id` to the seeded org on the single existing workspace row, which is safe because the table is already documented as one-connection-per-deployment.
 
-### 8. Vercel links auto-migrate only where members already agree; conflicts are surfaced, not resolved by guess
+### 8. Vercel links are re-keyed to the repository; existing rows are dropped, not migrated
 
-- **Decision:** re-key `vercel_project_links` to `(organization_id, repo_owner, repo_name)` with `linked_by_user_id` provenance. For each repo where all per-user rows name the same `project_id`, migrate to one org row. Where they disagree, migrate **nothing** for that repo, retain the per-user rows, and record the conflict for an admin to resolve on a settings screen.
-- **Rationale:** a Vercel project link determines where a deployment lands. "Most recently updated wins" is a defensible rule for a preference and an indefensible one for a deploy target — the failure mode is a member's work being deployed to the wrong project with no signal that a choice was ever made. Leaving a conflicted repo unmapped degrades to today's behavior for that repo while an admin decides.
-- **Consequence:** the code path must tolerate a repo having org rows, per-user rows, or neither, for the duration of the resolution window. Reads prefer the org row and fall back to the caller's personal row; that fallback is removed in the contract step (decision 9) once conflicts are drained.
+- **Decision:** `vercel_project_links` is keyed `(organization_id, repo_owner, repo_name)` with a NOT NULL organization and `user_id` as nullable provenance. There is no personal variant and no migration routine: the re-key migration deletes the existing rows.
+- **Rationale:** an earlier draft carried a migration planner, a conflict table, a conflict-resolution admin surface and a dual read, all to rescue divergent per-user rows. That machinery is only worth its weight against real data that would otherwise be lost — and this deployment has one account and test data. Deleting the rows costs one re-link; keeping the machinery costs a permanent conflict concept in a model whose whole point is that there is one answer per repository.
+- **What the key buys:** "one Vercel project per repository" stops being a rule someone has to remember and becomes something the database refuses to violate. The conflict case cannot arise because a second member linking the same repo updates the one row.
+- **Alternative rejected:** backfilling the organization id at runtime from the seeder, the way the Linear connection was going to be claimed. It works, but it keeps a nullable column and a fallback read forever to serve rows that will not exist after the first deploy.
 
-### 9. Expand-contract, because previews and production run the same migrations against different code
+### 9. One deploy, because nothing here needs to survive a rollout window
 
-- **Decision:** three deploys. **Expand** — add columns and tables, backfill, keep every existing resolver working and dual-read (org row first, per-user row second). **Switch** — resolution reads org-owned rows only; promotion and allowlist UI ship; admins promote accounts and drain Vercel conflicts. **Contract** — drop the per-user fallbacks and the now-unused columns/indexes.
-- **Rationale:** migrations run during `bun run build` on every deploy, so there is always a window where the previous build's code is serving against the new schema. A single add-and-drop migration breaks that window — the same reasoning `org-roles-and-settings` applied to `users.isAdmin`.
-- **Rollback:** expand and switch are both revertible by deploying the previous build, because expand only adds and switch only changes reads. Contract is the one-way door, and it is gated on an operator confirming no rows remain in the conflict table.
+- **Decision:** ship it in one deploy. The additive columns land, the Vercel table is re-keyed, and the resolvers read the new shape immediately.
+- **Rationale:** the three-deploy expand/switch/contract plan existed to protect data across a rolling release. With one account and disposable data, the window it protects is worth less than the machinery it requires — and that machinery (dual reads, a migration routine, a conflict table, a contract-readiness gate) was most of the change's surface area.
+- **What survived, and why it is not migration machinery:** `verifyRepoAccess` keeps its org-then-personal fallback permanently. An installation on someone's own GitHub account is never promotable, so personal records are a standing category, not a backlog. An earlier draft listed that fallback for removal in the contract step, which was simply wrong.
 
 ## Risks / Trade-offs
 
@@ -87,16 +88,14 @@ See `proposal.md` — Why. The design-relevant facts about current state:
 - **An admin adds the wrong GitHub account to the allowlist.** → Promotion is reversible: demotion re-personalizes the installation to its `installed_by_user_id` and drops the org row. This is a real, expected operation, not an emergency path, so it ships with the allowlist rather than after it. Note it does not un-see what was seen in the interim; the allowlist screen says so.
 - **Preview deployments fork the allowlist along with everything else**, so a preview resolves org-owned installations pointing at real GitHub installations. → This is not new exposure: the installation rows were already forked and already resolvable. What is new is that a preview's approved members resolve them uniformly, which is bounded by the unchanged step-1 check. The durable fix is per-preview secret and data isolation, which belongs to whichever workstream owns it.
 - **The `install.deleted` webhook can be missed** (delivery failure, App reconfiguration), leaving a stale org-owned row that resolves to an installation GitHub no longer has. → Token minting fails and the action surfaces the existing `app_no_access` message; the `GET /app/installations` reconciliation converges the row on its next run.
-- **Vercel conflicts may never be drained**, stranding the contract step. → The conflict table is small and enumerable; the contract step is explicitly gated on it being empty, so the failure mode is "step 3 waits", not "step 3 corrupts".
+- **The Vercel re-key deletes existing links.** → Accepted, not mitigated: this deployment has one account and test data, and re-linking a repo restores it in a click. The migration says so in a comment rather than doing it quietly. On a deployment with links worth keeping, this would need the migration routine that was removed instead.
 - **`shared-config-governance` is proposed but unimplemented, and its task 2.1 conflicts with this design.** → Reconciliation below; this is the one item that needs a human decision before implementation starts.
 
 ## Migration Plan
 
-1. **Expand** — add `organization_id` + `installed_by_user_id` to `github_installations` with partial unique indexes for the two ownership modes; add `org_github_accounts`; add `organization_id` to `linear_workspaces` and backfill the seeded org; add `linear_actor_links`; add `organization_id` + `linked_by_user_id` to `vercel_project_links`; add the Vercel conflict table. Parse `account.id` in the sync and webhook schemas and start persisting it. All resolvers dual-read.
-2. **Switch** — org-scoped resolvers become the only path for org-owned resources; sync goes additive; the App-authenticated reconciliation lands; allowlist and Linear-actor-mapping admin surfaces ship; the non-conflicting Vercel links migrate and conflicts are written to the conflict table.
-3. **Contract** — after admins have promoted their accounts and drained conflicts, drop the per-user fallback reads, the old unique indexes, and any column left unused.
+One deploy. Migration `0043` adds the ownership columns and the new tables; `0044` re-keys `vercel_project_links` to the repository, deletes its existing rows (see Risks), and drops the conflict table. The resolvers read the new shape immediately.
 
-**Rollback:** revert to the previous deploy at steps 1 or 2; both are additive with respect to reads. Step 3 requires a forward fix.
+**Rollback:** redeploying the previous build restores the previous code, but `0044` is not reversible — the deleted Vercel links are gone and are re-created by linking a repo again.
 
 ## Reconciliation with `shared-config-governance`
 

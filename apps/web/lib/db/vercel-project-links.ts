@@ -1,8 +1,7 @@
-import { and, eq, inArray, isNull } from "drizzle-orm";
-import type { VercelProjectSelection } from "@/lib/vercel/types";
+import { and, eq } from "drizzle-orm";
 import { getSeededOrganizationId } from "@/lib/org/seeded-organization";
+import type { VercelProjectSelection } from "@/lib/vercel/types";
 import { db } from "./client";
-import { type VercelLinkRecord } from "@/lib/org/vercel-link-plan";
 import { vercelProjectLinks } from "./schema";
 
 function normalizeRepoCoordinate(value: string): string {
@@ -16,51 +15,21 @@ const selection = {
   teamSlug: vercelProjectLinks.teamSlug,
 };
 
-/** The shape the migration planner consumes. Hoisted so its two readers cannot drift. */
-const linkRecordColumns = {
-  userId: vercelProjectLinks.userId,
-  organizationId: vercelProjectLinks.organizationId,
-  repoOwner: vercelProjectLinks.repoOwner,
-  repoName: vercelProjectLinks.repoName,
-  projectId: vercelProjectLinks.projectId,
-  projectName: vercelProjectLinks.projectName,
-  createdAt: vercelProjectLinks.createdAt,
-};
-
 /**
  * The repository's Vercel project.
  *
- * Prefers the organization's mapping and falls back to the caller's own — the
- * dual read that keeps a repository working while its members' disagreement is
- * unresolved, or before the migration has run. The contract step removes the
- * fallback, gated on the conflict table being empty.
+ * Takes no caller id: which project a repository deploys to is a fact about
+ * the repository, and every member gets the same answer. The row is keyed
+ * `(organization_id, repo_owner, repo_name)`, so there is no per-user variant
+ * to fall back to and no way for two members to hold different answers.
  */
 export async function getVercelProjectLinkByRepo(
-  userId: string,
   repoOwner: string,
   repoName: string,
 ): Promise<VercelProjectSelection | null> {
-  const normalizedOwner = normalizeRepoCoordinate(repoOwner);
-  const normalizedRepo = normalizeRepoCoordinate(repoName);
-
   const organizationId = await getSeededOrganizationId();
-
-  if (organizationId) {
-    const [orgRow] = await db
-      .select(selection)
-      .from(vercelProjectLinks)
-      .where(
-        and(
-          eq(vercelProjectLinks.organizationId, organizationId),
-          eq(vercelProjectLinks.repoOwner, normalizedOwner),
-          eq(vercelProjectLinks.repoName, normalizedRepo),
-        ),
-      )
-      .limit(1);
-
-    if (orgRow) {
-      return orgRow;
-    }
+  if (!organizationId) {
+    return null;
   }
 
   const [row] = await db
@@ -68,9 +37,9 @@ export async function getVercelProjectLinkByRepo(
     .from(vercelProjectLinks)
     .where(
       and(
-        eq(vercelProjectLinks.userId, userId),
-        eq(vercelProjectLinks.repoOwner, normalizedOwner),
-        eq(vercelProjectLinks.repoName, normalizedRepo),
+        eq(vercelProjectLinks.organizationId, organizationId),
+        eq(vercelProjectLinks.repoOwner, normalizeRepoCoordinate(repoOwner)),
+        eq(vercelProjectLinks.repoName, normalizeRepoCoordinate(repoName)),
       ),
     )
     .limit(1);
@@ -78,87 +47,36 @@ export async function getVercelProjectLinkByRepo(
   return row ?? null;
 }
 
-/** Every link row, for the migration planner. */
-export async function getAllVercelProjectLinks(): Promise<VercelLinkRecord[]> {
-  return db.select(linkRecordColumns).from(vercelProjectLinks);
-}
-
-/** The personal rows recorded for one repository, for the admin screen. */
-export async function getPersonalVercelLinksForRepo(
-  repoOwner: string,
-  repoName: string,
-): Promise<VercelLinkRecord[]> {
-  return db
-    .select(linkRecordColumns)
-    .from(vercelProjectLinks)
-    .where(
-      and(
-        isNull(vercelProjectLinks.organizationId),
-        eq(vercelProjectLinks.repoOwner, normalizeRepoCoordinate(repoOwner)),
-        eq(vercelProjectLinks.repoName, normalizeRepoCoordinate(repoName)),
-      ),
-    );
-}
-
-/** Promote one existing row in place. See the schema note on why in place. */
-export async function claimVercelLinkForOrganization(params: {
-  organizationId: string;
-  userId: string;
-  repoOwner: string;
-  repoName: string;
-}): Promise<void> {
-  await db
-    .update(vercelProjectLinks)
-    .set({ organizationId: params.organizationId, updatedAt: new Date() })
-    .where(
-      and(
-        eq(vercelProjectLinks.userId, params.userId),
-        eq(vercelProjectLinks.repoOwner, params.repoOwner),
-        eq(vercelProjectLinks.repoName, params.repoName),
-      ),
-    );
-}
-
-export async function deleteVercelLinksForUsers(params: {
-  userIds: string[];
-  repoOwner: string;
-  repoName: string;
-}): Promise<number> {
-  if (params.userIds.length === 0) {
-    return 0;
-  }
-
-  const deleted = await db
-    .delete(vercelProjectLinks)
-    .where(
-      and(
-        inArray(vercelProjectLinks.userId, params.userIds),
-        eq(vercelProjectLinks.repoOwner, params.repoOwner),
-        eq(vercelProjectLinks.repoName, params.repoName),
-        isNull(vercelProjectLinks.organizationId),
-      ),
-    )
-    .returning({ userId: vercelProjectLinks.userId });
-
-  return deleted.length;
-}
-
+/**
+ * Record which Vercel project a repository deploys to.
+ *
+ * `userId` is provenance — who set it — never authority. A later member
+ * linking the same repository updates the organization's one row rather than
+ * creating a competing one, which is what stops two people from quietly
+ * deploying the same repo to different projects.
+ */
 export async function upsertVercelProjectLink(params: {
   userId: string;
   repoOwner: string;
   repoName: string;
   project: VercelProjectSelection;
 }): Promise<void> {
-  const normalizedOwner = normalizeRepoCoordinate(params.repoOwner);
-  const normalizedRepo = normalizeRepoCoordinate(params.repoName);
+  const organizationId = await getSeededOrganizationId();
+  if (!organizationId) {
+    throw new Error(
+      "Cannot link a Vercel project before the organization is seeded.",
+    );
+  }
+
   const now = new Date();
 
   await db
     .insert(vercelProjectLinks)
     .values({
+      organizationId,
       userId: params.userId,
-      repoOwner: normalizedOwner,
-      repoName: normalizedRepo,
+      repoOwner: normalizeRepoCoordinate(params.repoOwner),
+      repoName: normalizeRepoCoordinate(params.repoName),
       projectId: params.project.projectId,
       projectName: params.project.projectName,
       teamId: params.project.teamId,
@@ -168,11 +86,12 @@ export async function upsertVercelProjectLink(params: {
     })
     .onConflictDoUpdate({
       target: [
-        vercelProjectLinks.userId,
+        vercelProjectLinks.organizationId,
         vercelProjectLinks.repoOwner,
         vercelProjectLinks.repoName,
       ],
       set: {
+        userId: params.userId,
         projectId: params.project.projectId,
         projectName: params.project.projectName,
         teamId: params.project.teamId,

@@ -12,7 +12,7 @@
 
 - `org-roles-and-settings` has landed; this change consumes `requirePermission()`, the `integration` statements, and `getSeededOrganizationId()`.
 - Settle the `shared-config-governance` reconciliation in `design.md` before group 2 — specifically whether that change's task 2.1 is dropped. Groups 1–3 assume it is.
-- Groups 1–5 are the **expand** deploy, 6–9 the **switch** deploy, 10 the **contract** deploy. Do not compress them into one deploy: migrations run on every build, so each step must be serveable by the previous build's code.
+- Ships in **one deploy**. The three-deploy expand/switch/contract plan protected data across a rolling release; with one account and disposable data it cost more than it bought, so the dual reads, the Vercel migration routine, the conflict table and the contract gate were removed rather than sequenced. See `design.md` decisions 8 and 9.
 
 ## 1. Ownership schema — expand
 
@@ -80,9 +80,10 @@
 - [x] 9.3 Update `docs/agents/architecture.md`, the `AGENTS.md` authentication section, and `openspec/context.md`'s schema table with the ownership model.
 - [x] 9.4 Add the lesson to `docs/agents/lessons-learned.md`: a resolver for a shared resource that takes a `userId` is a scoping bug in waiting.
 
-## 10. Contract
+## 10. Simplification (replaces the contract step)
 
-- [ ] 10.1 Confirm no unresolved rows remain in `vercel_project_link_conflicts`; block this group while any remain.
-- [ ] 10.2 Remove the per-user fallback from `verifyRepoAccess` step 2 and from the Vercel link reader.
-- [ ] 10.3 Drop the superseded unique indexes on `github_installations` and re-key `vercel_project_links` to `(organization_id, repo_owner, repo_name)`; generate and commit the migrations.
-- [ ] 10.4 `bun run ci` green; regenerate `.env.example` if any variable changed and commit it.
+- [x] 10.1 Re-key `vercel_project_links` to `(organization_id, repo_owner, repo_name)`; delete the migration planner, conflict table, conflict-resolution surface and dual read. Existing rows are dropped — sanctioned, and stated in the migration.
+- [x] 10.2 Linear connections are org-owned at connect time, so the unclaimed fallback and the seeder claim are gone.
+- [x] 10.3 Drop the `account_id` backfill; new rows carry it from the sync and webhook payloads.
+- [x] 10.4 Keep `verifyRepoAccess`'s org-then-personal fallback **permanently** — personal GitHub accounts are never promotable, so it is a standing category, not a backlog. An earlier draft wrongly listed it for removal.
+- [x] 10.5 `bun run ci` and `next build` green; `ownership-schema.test.ts` updated for both shapes.

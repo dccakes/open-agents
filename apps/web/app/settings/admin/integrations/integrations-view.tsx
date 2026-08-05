@@ -4,7 +4,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { GitHubAccountsSection } from "./github-accounts-section";
 import { LinearActorsSection } from "./linear-actors-section";
 import { useIntegrationOwnership } from "./use-integration-ownership";
-import { VercelLinksSection } from "./vercel-links-section";
+import { VercelTeamSection } from "./vercel-team-section";
 
 export function IntegrationsView() {
   const {
@@ -15,7 +15,6 @@ export function IntegrationsView() {
     releaseAccount,
     linkActor,
     unlinkActor,
-    resolveConflict,
     saveVercelTeam,
   } = useIntegrationOwnership();
 
@@ -54,13 +53,11 @@ export function IntegrationsView() {
         onLink={linkActor}
         onUnlink={unlinkActor}
       />
-      <VercelLinksSection
-        conflicts={view.vercelConflicts}
+      <VercelTeamSection
         team={view.vercelTeam}
         canManage={view.canManage}
         pending={pending}
-        onResolve={resolveConflict}
-        onSaveTeam={saveVercelTeam}
+        onSave={saveVercelTeam}
       />
     </div>
   );

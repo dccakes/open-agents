@@ -231,26 +231,6 @@ export async function getAllOrgOwnedInstallations(): Promise<
     .where(isNotNull(githubInstallations.organizationId));
 }
 
-/** Installation records still missing the numeric account id, for backfill. */
-export async function getInstallationsMissingAccountId(): Promise<
-  GitHubInstallation[]
-> {
-  return db
-    .select()
-    .from(githubInstallations)
-    .where(isNull(githubInstallations.accountId));
-}
-
-export async function setInstallationAccountId(
-  id: string,
-  accountId: number,
-): Promise<void> {
-  await db
-    .update(githubInstallations)
-    .set({ accountId, updatedAt: new Date() })
-    .where(eq(githubInstallations.id, id));
-}
-
 /** Make a record the organization's. Idempotent by construction. */
 export async function claimInstallationForOrganization(params: {
   id: string;

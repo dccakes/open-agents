@@ -25,10 +25,6 @@ import {
   readLinearActorLinks,
   unlinkLinearActor,
 } from "@/lib/org/linear-actor-links";
-import {
-  readVercelLinkConflicts,
-  resolveVercelLinkDisagreement,
-} from "@/lib/org/vercel-links";
 import { readOrgVercelTeam, setOrgVercelTeam } from "@/lib/org/vercel-team";
 
 export interface OrgGitHubAccountView {
@@ -41,16 +37,9 @@ export interface LinearActorLinkView {
   userId: string;
 }
 
-export interface VercelConflictView {
-  repoOwner: string;
-  repoName: string;
-  candidates: { projectId: string; projectName: string; userIds: string[] }[];
-}
-
 export interface IntegrationOwnershipView {
   githubAccounts: OrgGitHubAccountView[];
   linearActorLinks: LinearActorLinkView[];
-  vercelConflicts: VercelConflictView[];
   vercelTeam: { teamId: string | null; teamSlug: string | null };
   /** Whether the viewer may change any of this. UI affordance only. */
   canManage: boolean;
@@ -69,14 +58,12 @@ export async function loadIntegrationOwnership(): Promise<
   OwnershipActionResult<IntegrationOwnershipView>
 > {
   try {
-    const [accounts, actorLinks, conflicts, vercelTeam, canManage] =
-      await Promise.all([
-        readOrgGitHubAccounts(),
-        readLinearActorLinks(),
-        readVercelLinkConflicts(),
-        readOrgVercelTeam(),
-        hasPermission({ integration: ["connect"] }),
-      ]);
+    const [accounts, actorLinks, vercelTeam, canManage] = await Promise.all([
+      readOrgGitHubAccounts(),
+      readLinearActorLinks(),
+      readOrgVercelTeam(),
+      hasPermission({ integration: ["connect"] }),
+    ]);
 
     return {
       success: true,
@@ -88,11 +75,6 @@ export async function loadIntegrationOwnership(): Promise<
         linearActorLinks: actorLinks.map((link) => ({
           linearUserId: link.linearUserId,
           userId: link.userId,
-        })),
-        vercelConflicts: conflicts.map((conflict) => ({
-          repoOwner: conflict.repoOwner,
-          repoName: conflict.repoName,
-          candidates: conflict.candidates,
         })),
         vercelTeam,
         canManage,
@@ -150,19 +132,6 @@ export async function unlinkLinearActorAction(
 ): Promise<OwnershipActionResult<null>> {
   try {
     await unlinkLinearActor(linearUserId);
-    return { success: true, data: null };
-  } catch (error) {
-    return toActionError(error);
-  }
-}
-
-export async function resolveVercelConflictAction(input: {
-  repoOwner: string;
-  repoName: string;
-  projectId: string;
-}): Promise<OwnershipActionResult<null>> {
-  try {
-    await resolveVercelLinkDisagreement(input);
     return { success: true, data: null };
   } catch (error) {
     return toActionError(error);

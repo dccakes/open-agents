@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { getSeededOrganizationId } from "@/lib/org/seeded-organization";
 import { db } from "./client";
@@ -81,88 +81,27 @@ export async function upsertLinearWorkspace(
 /**
  * The organization's Linear connection.
  *
- * One resolver, not two: the table is a deployment singleton, so this resolves
- * the organization itself rather than making every caller decide whether it
- * wants the org-scoped or the age-ordered lookup. A two-name API here was how
- * two routes kept resolving by row age after the rest had moved.
- *
- * The single fallback — oldest unclaimed row — covers exactly one window: a
- * connection made before the column existed, until the seeder claims it.
+ * Takes no caller id and has no fallback: the connect flow sets
+ * `organizationId` when it creates the row, so a connection is owned from the
+ * moment it exists. Resolving by row age — which is what this did before the
+ * column existed — is gone, along with the window where a connection belonged
+ * to nobody.
  */
 export async function getLinearWorkspace(): Promise<
   LinearWorkspace | undefined
 > {
   const organizationId = await getSeededOrganizationId();
-
-  if (organizationId) {
-    const [owned] = await db
-      .select()
-      .from(linearWorkspaces)
-      .where(eq(linearWorkspaces.organizationId, organizationId))
-      .limit(1);
-
-    if (owned) {
-      return owned;
-    }
+  if (!organizationId) {
+    return undefined;
   }
 
-  const [unclaimed] = await db
+  const [workspace] = await db
     .select()
-    .from(linearWorkspaces)
-    .where(isNull(linearWorkspaces.organizationId))
-    .orderBy(asc(linearWorkspaces.createdAt))
-    .limit(1);
-
-  return unclaimed;
-}
-
-/**
- * Attach the existing connection to the organization.
- *
- * Runs from the seeder, not from a migration: migrations are static SQL and
- * cannot know the seeded organization's id. Idempotent — once the row is
- * claimed there is no unclaimed row left to match.
- *
- * Claims the *oldest* unclaimed row only, one per call. Claiming every
- * unclaimed row at once would violate the one-connection-per-organization
- * unique index the moment a deployment somehow held two, turning a data
- * oddity into a failed boot.
- */
-export async function claimLinearWorkspaceForOrganization(
-  organizationId: string,
-): Promise<boolean> {
-  const [existingOwned] = await db
-    .select({ id: linearWorkspaces.id })
     .from(linearWorkspaces)
     .where(eq(linearWorkspaces.organizationId, organizationId))
     .limit(1);
 
-  if (existingOwned) {
-    return false;
-  }
-
-  const [candidate] = await db
-    .select({ id: linearWorkspaces.id })
-    .from(linearWorkspaces)
-    .where(isNull(linearWorkspaces.organizationId))
-    .orderBy(asc(linearWorkspaces.createdAt))
-    .limit(1);
-
-  if (!candidate) {
-    return false;
-  }
-
-  await db
-    .update(linearWorkspaces)
-    .set({ organizationId, updatedAt: new Date() })
-    .where(
-      and(
-        eq(linearWorkspaces.id, candidate.id),
-        isNull(linearWorkspaces.organizationId),
-      ),
-    );
-
-  return true;
+  return workspace;
 }
 
 export async function deleteLinearWorkspace(

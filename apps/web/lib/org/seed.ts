@@ -17,7 +17,6 @@ import { nanoid } from "nanoid";
 import { PLATFORM_ADMIN_ROLE } from "@/lib/auth/permissions";
 import { getMembershipConfig } from "@/lib/config/auth";
 import { db } from "@/lib/db/client";
-import { claimLinearWorkspaceForOrganization } from "@/lib/db/linear-workspaces";
 import {
   authSessions,
   orgMembers,
@@ -44,8 +43,6 @@ export interface SeedOrganizationResult {
   promotedOrganizationOwners: number;
   promotedPlatformAdmins: number;
   backfilledSessions: number;
-  /** True when this process attached an existing Linear connection. */
-  claimedLinearWorkspace: boolean;
 }
 
 async function ensureOrganizationRow(): Promise<{
@@ -207,16 +204,6 @@ export async function ensureSeededOrganization(): Promise<SeedOrganizationResult
     .where(isNull(authSessions.activeOrganizationId))
     .returning({ id: authSessions.id });
 
-  // A Linear connection made before it could be scoped to an organization is
-  // attached here rather than in a migration — the organization's id is not
-  // knowable from static SQL. Idempotent: once claimed, nothing is unclaimed.
-  //
-  // Unlike the GitHub allowlist, this needs no administrative decision. The
-  // table has always held one connection per deployment, so attaching it to
-  // the one organization widens nothing: the same people could already use it.
-  const claimedLinearWorkspace =
-    await claimLinearWorkspaceForOrganization(organizationId);
-
   return {
     organizationId,
     createdOrganization: created,
@@ -225,6 +212,5 @@ export async function ensureSeededOrganization(): Promise<SeedOrganizationResult
     promotedOrganizationOwners,
     promotedPlatformAdmins,
     backfilledSessions: backfilled.length,
-    claimedLinearWorkspace,
   };
 }

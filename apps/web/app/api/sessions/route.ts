@@ -396,7 +396,6 @@ export async function POST(req: Request) {
         resolvedVercelProject = matchedProject;
       } else if (explicitVercelProject === undefined) {
         resolvedVercelProject = await getVercelProjectLinkByRepo(
-          session.user.id,
           repoOwner,
           repoName,
         );

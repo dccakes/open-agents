@@ -18,7 +18,7 @@ The organization is what holds the relationship with GitHub, Linear, and Vercel.
 - Replace per-installation sharing toggles with an **org GitHub account allowlist**: an admin declares which GitHub organizations are ours, and installations on those accounts are org-owned on arrival — current and future. Installations on personal GitHub *user* accounts stay personal, always.
 - **Fix a destructive sync:** `syncUserInstallations` currently calls `deleteInstallationsNotInList(userId, ...)`. Once rows are org-owned, one member's narrower view of `GET /user/installations` would delete the org's installations for everyone. Sync becomes additive; removal comes only from the GitHub App `installation.deleted` webhook, which is the authoritative signal.
 - **Linear:** add `organization_id` to `linear_workspaces` (unique per org) and resolve the connection by organization rather than by row age. Replace email-string actor matching with an explicit, admin-managed `linear_actor_links` mapping (Linear user id → QuackOps user id), with verified-email matching retained as the automatic path. Unmatched actors are still refused — no fallback identity.
-- **Vercel:** repo→project links become org-scoped (`organization_id, repo_owner, repo_name`), with an org-level Vercel team recorded as the org's tie-in. The per-user Vercel OAuth token remains the credential used to *perform* the call. Migration collapses divergent per-user links deterministically and records every discarded mapping rather than dropping it silently.
+- **Vercel:** repo→project links are re-keyed to `(organization_id, repo_owner, repo_name)` — no personal variant, so the resolver takes no caller id and two members cannot disagree. An org-level Vercel team is recorded as the org's tie-in. The per-user Vercel OAuth token remains the credential used to *perform* the call. **Existing links are dropped rather than migrated** (see Impact).
 - Sign-in stays personal. Vercel OAuth and GitHub OAuth remain per-user identity providers; this change does not touch how anyone authenticates.
 
 ## Capabilities
@@ -27,7 +27,7 @@ The organization is what holds the relationship with GitHub, Linear, and Vercel.
 
 - `org-owned-github-installations`: GitHub App installations are owned by the organization, resolved without a caller id, admitted via an admin-declared GitHub account allowlist, and never pruned by one member's sync.
 - `org-scoped-linear-connection`: the Linear workspace connection is scoped to the organization, and Linear actors resolve to org members through an explicit identity mapping rather than an email-string coincidence.
-- `org-scoped-vercel-project-links`: repo→Vercel-project mappings belong to the organization, with a recorded org Vercel team and a deterministic, audited collapse of today's per-user duplicates.
+- `org-scoped-vercel-project-links`: repo→Vercel-project mappings belong to the organization and are keyed by the repository, with a recorded org Vercel team.
 
 ### Modified Capabilities
 
@@ -37,7 +37,7 @@ The organization is what holds the relationship with GitHub, Linear, and Vercel.
 
 - **Depends on**: `org-roles-and-settings` (landed) for `requirePermission()`, the `integration` statements, and `getSeededOrganizationId()`.
 - **Overlaps with**: `shared-config-governance`, which is proposed and unimplemented (0 of 26 tasks). Its task 2.1 (`organization_id` + `is_org_shared` on `github_installations`, all rows personal) and design decision 4 are superseded by this change's ownership model. Sequencing and the reconciliation are settled in `design.md`; this is the one open coordination item for review.
-- **Database**: `github_installations` re-keyed to `(organization_id, installation_id)` with `installed_by_user_id` provenance; new `org_github_accounts` allowlist table; `organization_id` on `linear_workspaces`; new `linear_actor_links` table; `vercel_project_links` re-keyed to `(organization_id, repo_owner, repo_name)` with `linked_by_user_id`. Drizzle migrations for each, plus backfills.
+- **Database**: `organization_id` + `account_id` on `github_installations` with a partial unique index; new `org_github_accounts` allowlist table; `organization_id` on `linear_workspaces`; new `linear_actor_links` table; `vercel_project_links` re-keyed to `(organization_id, repo_owner, repo_name)`. **The Vercel re-key deletes existing rows** — they all carry a NULL organization and static SQL cannot know the seeded org's id. Sanctioned: this deployment has one account and test data, and a link is re-created by linking a repo again.
 - **Code**: `lib/db/installations.ts`, `lib/github/access.ts`, `lib/github/sync.ts`, `app/api/github/webhook/route.ts`, `lib/db/linear-workspaces.ts`, `lib/linear/resolve-actor.ts`, `lib/db/vercel-project-links.ts`, and the six `/api/github/*` routes that read installations by user.
 - **UI**: admin surfaces for the GitHub account allowlist and the Linear actor mapping; connection screens show org-owned connections to every approved member instead of only to whoever synced them.
 - **Non-goals**: session sharing between members (`sessions.user_id` stays personal — Phase 2's scope model), per-resource ACLs, and multi-org support. Sandbox provider credentials are `sandbox-credential-protection`'s subject, not this change's.

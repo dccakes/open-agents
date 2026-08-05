@@ -16,8 +16,6 @@ import { z } from "zod";
 import {
   deleteInstallationsByIds,
   getAllOrgOwnedInstallations,
-  getInstallationsMissingAccountId,
-  setInstallationAccountId,
 } from "@/lib/db/installations";
 import { renameOrgGitHubAccount } from "@/lib/db/org-github-accounts";
 import { getAppOctokit } from "./app";
@@ -72,8 +70,6 @@ export async function listAppInstallations(): Promise<
 export interface ReconciliationOutcome {
   /** Organization-owned records GitHub no longer knows about. */
   removedInstallationIds: number[];
-  /** Records that gained a numeric account id from the App's view. */
-  backfilledAccountIdCount: number;
   /** Claimed accounts whose login GitHub reports as changed. */
   renamedAccountCount: number;
 }
@@ -98,19 +94,6 @@ export async function reconcileOrgInstallations(): Promise<ReconciliationOutcome
 
   await deleteInstallationsByIds(stale.map((installation) => installation.id));
 
-  // Backfill the numeric account id for records written before the column
-  // existed. Without it the allowlist can never match them, so they would stay
-  // personal forever with no explanation.
-  let backfilledAccountIdCount = 0;
-  for (const installation of await getInstallationsMissingAccountId()) {
-    const match = liveById.get(installation.installationId);
-    if (typeof match?.accountId !== "number") {
-      continue;
-    }
-    await setInstallationAccountId(installation.id, match.accountId);
-    backfilledAccountIdCount += 1;
-  }
-
   // A claimed account that was renamed on GitHub keeps its id and its
   // ownership; only the stored display login is behind.
   let renamedAccountCount = 0;
@@ -134,7 +117,6 @@ export async function reconcileOrgInstallations(): Promise<ReconciliationOutcome
     removedInstallationIds: stale.map(
       (installation) => installation.installationId,
     ),
-    backfilledAccountIdCount,
     renamedAccountCount,
   };
 }

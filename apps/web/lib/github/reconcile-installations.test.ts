@@ -10,10 +10,8 @@ interface Row {
 
 let appInstallations: unknown[] = [];
 let orgOwned: Row[] = [];
-let missingAccountId: Row[] = [];
 
 const deletedIds: string[][] = [];
-const accountIdWrites: { id: string; accountId: number }[] = [];
 const renames: { accountId: number; accountLogin: string }[] = [];
 
 mock.module("@/lib/github/app", () => ({
@@ -24,13 +22,9 @@ mock.module("@/lib/github/app", () => ({
 
 mock.module("@/lib/db/installations", () => ({
   getAllOrgOwnedInstallations: async () => orgOwned,
-  getInstallationsMissingAccountId: async () => missingAccountId,
   deleteInstallationsByIds: async (ids: string[]) => {
     deletedIds.push(ids);
     return ids.length;
-  },
-  setInstallationAccountId: async (id: string, accountId: number) => {
-    accountIdWrites.push({ id, accountId });
   },
 }));
 
@@ -59,9 +53,7 @@ function row(overrides: Partial<Row> = {}): Row {
 beforeEach(() => {
   appInstallations = [];
   orgOwned = [];
-  missingAccountId = [];
   deletedIds.length = 0;
-  accountIdWrites.length = 0;
   renames.length = 0;
 });
 
@@ -88,30 +80,6 @@ describe("reconcileOrgInstallations", () => {
 
     expect(deletedIds).toEqual([[]]);
     expect(outcome.removedInstallationIds).toEqual([]);
-  });
-
-  test("backfills a missing numeric account id from the App's view", async () => {
-    appInstallations = [
-      { id: 100, account: { id: 4242, login: "next-degree" } },
-    ];
-    missingAccountId = [row({ id: "needs-id", accountId: null })];
-    const { reconcileOrgInstallations } = await modulePromise;
-
-    const outcome = await reconcileOrgInstallations();
-
-    expect(accountIdWrites).toEqual([{ id: "needs-id", accountId: 4242 }]);
-    expect(outcome.backfilledAccountIdCount).toBe(1);
-  });
-
-  test("leaves a record alone when the App reports no account id", async () => {
-    appInstallations = [{ id: 100, account: { login: "next-degree" } }];
-    missingAccountId = [row({ id: "needs-id", accountId: null })];
-    const { reconcileOrgInstallations } = await modulePromise;
-
-    const outcome = await reconcileOrgInstallations();
-
-    expect(accountIdWrites).toEqual([]);
-    expect(outcome.backfilledAccountIdCount).toBe(0);
   });
 
   // A renamed account keeps its id and its ownership — only the display login

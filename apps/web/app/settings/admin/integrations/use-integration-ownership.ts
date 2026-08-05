@@ -18,7 +18,6 @@ import {
   linkLinearActorAction,
   loadIntegrationOwnership,
   releaseGitHubAccountAction,
-  resolveVercelConflictAction,
   setOrgVercelTeamAction,
   unlinkLinearActorAction,
 } from "@/lib/org/integration-ownership-actions";
@@ -100,15 +99,6 @@ export function useIntegrationOwnership() {
     [run],
   );
 
-  const resolveConflict = useCallback(
-    (input: { repoOwner: string; repoName: string; projectId: string }) =>
-      run(
-        () => resolveVercelConflictAction(input),
-        `${input.repoOwner}/${input.repoName} now uses one project for everyone.`,
-      ),
-    [run],
-  );
-
   const saveVercelTeam = useCallback(
     (input: { teamId: string | null; teamSlug: string | null }) =>
       run(() => setOrgVercelTeamAction(input), "Vercel team recorded."),
@@ -123,7 +113,6 @@ export function useIntegrationOwnership() {
     releaseAccount,
     linkActor,
     unlinkActor,
-    resolveConflict,
     saveVercelTeam,
   };
 }
