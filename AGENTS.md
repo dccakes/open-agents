@@ -100,12 +100,21 @@ bun run fix                                # Lint fix and format all files
 turbo typecheck --filter=web # Type check web app only
 
 # Testing
-bun test                                              # Run all tests
+bun run test:isolated                                 # Run all tests (one process per file) -- this is what CI runs
 bun test path/to/file.test.ts                         # Run single test file
-bun test --watch                                      # Watch mode
-bun run test:verbose                                  # Run tests with JUnit reporter streamed to stdout (useful in non-interactive shells)
-bun run test:verbose path/to/file.test.ts             # Same verbose output for a single test file
+bun test --watch path/to/file.test.ts                 # Watch mode for a single test file
+bun run test:verbose path/to/file.test.ts             # Single file with JUnit reporter on stdout (useful in non-interactive shells)
 ```
+
+**Never run bare `bun test` (or `bun run test:verbose`) across the whole suite.** Bun runs every
+file in one process, and `mock.module()` registrations leak across files -- a partial mock
+installed by one test replaces the real module for every file loaded afterwards, producing
+hundreds of bogus failures like `SyntaxError: Export named 'x' not found in module '...'`.
+
+Tests in this repo lean heavily on `mock.module()`, so they are only valid in isolation.
+`bun run test:isolated` (`scripts/test-isolated.ts`) spawns a separate `bun test` process per
+file, which is why it is the command wired into `bun run ci` and `.github/workflows/ci.yml`.
+Passing an explicit file path to `bun test` is fine -- that is already a single-file process.
 
 **CI/script execution rules:**
 
