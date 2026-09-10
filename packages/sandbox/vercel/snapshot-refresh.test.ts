@@ -101,6 +101,7 @@ describe("refreshBaseSnapshot", () => {
       },
     ]);
     expect(snapshot).toHaveBeenCalledTimes(1);
+    expect(snapshot).toHaveBeenCalledWith({ expiration: 0 });
     expect(stop).not.toHaveBeenCalled();
     expect(result).toEqual({
       sourceSnapshotId: "snap-current",

@@ -5,8 +5,8 @@
  * so the new image stays clone-ready (see `@open-agents/sandbox` snapshot-refresh).
  *
  * Usage:
- *   bun run scripts/vercel-refresh-base-snapshot.ts --command "apt-get update"
- *   bun run scripts/vercel-refresh-base-snapshot.ts --from snap_123 --command "apt-get install -y ripgrep"
+ *   bun run sandbox:snapshot-base --setup-base
+ *   bun run sandbox:snapshot-base --from snap_123 --command "sudo dnf install -y jq"
  */
 
 import {
@@ -22,6 +22,7 @@ import {
 const SANDBOX_BASE_SNAPSHOT_CONFIG_PATH = "apps/web/lib/sandbox/config.ts";
 
 interface CliOptions {
+  setupBase: boolean;
   baseSnapshotId?: string;
   sandboxTimeoutMs?: number;
   commandTimeoutMs?: number;
@@ -34,10 +35,12 @@ interface HelpResult {
 
 function printUsage() {
   console.log(`Usage:
-  bun run sandbox:snapshot-base -- --command "apt-get update"
-  bun run sandbox:snapshot-base -- --from snap_123 --command "apt-get install -y ripgrep"
+  bun run sandbox:snapshot-base -- --command "sudo dnf upgrade -y"
+  bun run sandbox:snapshot-base -- --from snap_123 --command "sudo dnf install -y jq"
+  bun run sandbox:snapshot-base --setup-base
 
 Options:
+  --setup-base                Install Bun, code-server, and browser automation tools
   --from <snapshot-id>         Override the starting snapshot id
   --command <shell-command>    Command to run inside the sandbox. Repeat as needed.
   --sandbox-timeout-ms <ms>    Sandbox lifetime for the refresh run
@@ -45,7 +48,7 @@ Options:
   --help                       Show this message
 
 Current configured base snapshot:
-  ${DEFAULT_SANDBOX_BASE_SNAPSHOT_ID}`);
+  ${DEFAULT_SANDBOX_BASE_SNAPSHOT_ID ?? "Vercel standard runtime"}`);
 }
 
 function requireOptionValue(
@@ -72,12 +75,22 @@ function parsePositiveNumber(value: string, option: string): number {
 
 function parseArgs(argv: string[]): CliOptions | HelpResult {
   const commands: string[] = [];
+  let setupBase = false;
   let baseSnapshotId: string | undefined;
   let sandboxTimeoutMs: number | undefined;
   let commandTimeoutMs: number | undefined;
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
+
+    if (arg === "--") {
+      continue;
+    }
+
+    if (arg === "--setup-base") {
+      setupBase = true;
+      continue;
+    }
 
     if (arg === "--help" || arg === "-h") {
       return { help: true };
@@ -117,6 +130,7 @@ function parseArgs(argv: string[]): CliOptions | HelpResult {
   }
 
   return {
+    setupBase,
     baseSnapshotId,
     sandboxTimeoutMs,
     commandTimeoutMs,
@@ -131,9 +145,18 @@ async function main() {
     return;
   }
 
+  const commands = [...parsed.commands];
+  if (parsed.setupBase) {
+    commands.unshift(
+      await Bun.file(
+        new URL("vercel-sandbox-base-setup.sh", import.meta.url),
+      ).text(),
+    );
+  }
+
   const result = await refreshBaseSnapshot({
     baseSnapshotId: parsed.baseSnapshotId ?? DEFAULT_SANDBOX_BASE_SNAPSHOT_ID,
-    commands: parsed.commands,
+    commands,
     sandboxTimeoutMs: parsed.sandboxTimeoutMs ?? DEFAULT_SANDBOX_TIMEOUT_MS,
     commandTimeoutMs: parsed.commandTimeoutMs,
     ports: DEFAULT_SANDBOX_PORTS,
@@ -142,9 +165,11 @@ async function main() {
 
   console.log("");
   console.log(`New snapshot id: ${result.snapshotId}`);
-  console.log(`Started from snapshot: ${result.sourceSnapshotId}`);
   console.log(
-    `Update ${SANDBOX_BASE_SNAPSHOT_CONFIG_PATH} to use: "${result.snapshotId}"`,
+    `Started from: ${result.sourceSnapshotId ?? "Vercel standard runtime"}`,
+  );
+  console.log(
+    `Set VERCEL_SANDBOX_BASE_SNAPSHOT_ID=${result.snapshotId} for ${SANDBOX_BASE_SNAPSHOT_CONFIG_PATH}`,
   );
 }
 

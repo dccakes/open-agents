@@ -1,5 +1,6 @@
-import { connectSandbox, type SandboxConnectConfig } from "../factory";
+import type { SandboxConnectConfig } from "../factory";
 import type { ExecResult, SnapshotResult } from "../interface";
+import { connectVercel } from "./connect";
 
 export const DEFAULT_BASE_SNAPSHOT_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -7,7 +8,7 @@ interface SnapshotSandbox {
   workingDirectory: string;
   exec(command: string, cwd: string, timeoutMs: number): Promise<ExecResult>;
   stop(): Promise<void>;
-  snapshot?(): Promise<SnapshotResult>;
+  snapshot?(options?: { expiration?: number }): Promise<SnapshotResult>;
 }
 
 type SnapshotSandboxConnector = (
@@ -15,7 +16,7 @@ type SnapshotSandboxConnector = (
 ) => Promise<SnapshotSandbox>;
 
 export interface RefreshBaseSnapshotOptions {
-  baseSnapshotId: string;
+  baseSnapshotId?: string;
   commands?: string[];
   sandboxTimeoutMs: number;
   commandTimeoutMs?: number;
@@ -33,7 +34,7 @@ export interface RefreshBaseSnapshotCommandResult {
 }
 
 export interface RefreshBaseSnapshotResult {
-  sourceSnapshotId: string;
+  sourceSnapshotId?: string;
   snapshotId: string;
   commandResults: RefreshBaseSnapshotCommandResult[];
 }
@@ -45,7 +46,7 @@ interface RefreshBaseSnapshotDependencies {
 function defaultConnectSnapshotSandbox(
   config: SandboxConnectConfig,
 ): Promise<SnapshotSandbox> {
-  return connectSandbox(config);
+  return connectVercel({}, config.options);
 }
 
 function formatCommandOutput(label: string, output: string): string | null {
@@ -85,7 +86,11 @@ export async function refreshBaseSnapshot(
   let snapshotCreated = false;
 
   try {
-    log(`Creating sandbox from base snapshot ${options.baseSnapshotId}.`);
+    log(
+      options.baseSnapshotId
+        ? `Creating sandbox from base snapshot ${options.baseSnapshotId}.`
+        : "Creating sandbox from Vercel's standard runtime.",
+    );
     // Skip git init so the new base image does not ship `.git` in /vercel/sandbox
     // (would break `git clone … .` for agent sandboxes).
     sandbox = await connectSnapshotSandbox({
@@ -131,7 +136,7 @@ export async function refreshBaseSnapshot(
     }
 
     log("Creating snapshot from prepared sandbox.");
-    const snapshot = await sandbox.snapshot();
+    const snapshot = await sandbox.snapshot({ expiration: 0 });
     snapshotCreated = true;
     log(`Created snapshot ${snapshot.snapshotId}.`);
 
