@@ -16,7 +16,7 @@ This directory contains the provider implementations for the pluggable sandbox s
 
 All sandbox images/environments **must** provide the following tools on `PATH`. The platform calls these via `sandbox.exec()` — missing tools cause 500 errors or silent failures.
 
-The canonical reference is `scripts/create-base-snapshot.ts`, which builds the Vercel base snapshot. The Docker `Dockerfile` mirrors that tool set.
+The canonical reference is `scripts/vercel-refresh-base-snapshot.ts`, which builds the Vercel base snapshot. The Docker `Dockerfile` mirrors that tool set.
 
 ### Mandatory
 
@@ -57,10 +57,30 @@ The canonical reference is `scripts/create-base-snapshot.ts`, which builds the V
 ### Building the dev image
 
 ```bash
-docker build -t open-agents/sandbox-dev:latest packages/sandbox/providers/docker/
+rtk docker build -t open-agents/sandbox-dev:latest packages/sandbox/providers/docker/
 ```
 
-> The image includes Chromium (via `agent-browser install chromium`) and code-server, so the build takes several minutes and produces a ~2 GB image.
+> The image includes Chromium and code-server, so the build takes several minutes and produces a ~2 GB image. On Linux ARM64 builds, Chromium comes from Debian's `chromium` package because Chrome for Testing is not published for Linux ARM64.
+
+Start Docker Desktop or OrbStack before building. To inspect the image interactively:
+
+```bash
+rtk docker run --rm -it open-agents/sandbox-dev:latest bash
+```
+
+Inside the container, run commands directly (without `rtk`):
+
+```bash
+git --version
+bun --version
+code-server --version
+agent-browser --version
+agent-browser open 'data:text/html,<title>Sandbox Working</title><main>Browser ready</main>'
+agent-browser get title
+agent-browser close
+```
+
+The browser title should be `Sandbox Working`. Run `exit` to stop and remove this test container.
 
 ### Configuring the image
 
@@ -74,9 +94,9 @@ If unset, the provider falls back to `ghcr.io/open-agents/sandbox:latest` (the p
 
 ### Keeping in sync with the Vercel snapshot
 
-When `scripts/create-base-snapshot.ts` adds or updates a tool, mirror that change in the `Dockerfile`. The two sources of truth are:
+When `scripts/vercel-refresh-base-snapshot.ts` adds or updates a tool, mirror that change in the `Dockerfile`. The two sources of truth are:
 
-- **Vercel base snapshot**: `scripts/create-base-snapshot.ts`
+- **Vercel base snapshot**: `scripts/vercel-refresh-base-snapshot.ts`
 - **Docker dev image**: `packages/sandbox/providers/docker/Dockerfile`
 
 ### Notes
@@ -95,7 +115,7 @@ Uses [Vercel Sandbox](https://vercel.com/docs/sandbox) (Firecracker microVMs). R
 - Sandboxes auto-expire; `expiresAt` is authoritative.
 - Persistent sandboxes are identified by `sandboxName` (session-scoped).
 - Lifecycle hibernation is handled by the durable workflow in `apps/web/app/workflows/`.
-- Base snapshot is configured via `VERCEL_SANDBOX_BASE_SNAPSHOT_ID`. See `apps/web/lib/sandbox/config.ts` for the current default. To rebuild the snapshot, run `scripts/create-base-snapshot.ts`.
+- Base snapshot is configured via `VERCEL_SANDBOX_BASE_SNAPSHOT_ID`. See `apps/web/lib/sandbox/config.ts` for the current default. To rebuild the snapshot, run `scripts/vercel-refresh-base-snapshot.ts`.
 
 ---
 

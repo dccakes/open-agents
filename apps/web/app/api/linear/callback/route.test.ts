@@ -5,6 +5,7 @@ interface UpsertWorkspaceCall {
   workspaceName: string;
   accessToken: string;
   installedByUserId: string;
+  organizationId: string;
 }
 
 interface TokenExchangeCall {
@@ -58,6 +59,10 @@ mock.module("@/lib/db/linear-workspaces", () => ({
       throw upsertError;
     }
   },
+}));
+
+mock.module("@/lib/org/seeded-organization", () => ({
+  requireSeededOrganizationId: async () => "org-1",
 }));
 
 const originalFetch = globalThis.fetch;
@@ -316,6 +321,7 @@ describe("GET /api/linear/callback (success)", () => {
         workspaceName: "Acme",
         accessToken: "encrypted:lin_oauth_token",
         installedByUserId: "user-1",
+        organizationId: "org-1",
       },
     ]);
   });

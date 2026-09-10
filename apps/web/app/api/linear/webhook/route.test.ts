@@ -45,6 +45,10 @@ let issueResult: { id: string; title: string } | null;
 let issueError: Error | null;
 let selectQueue: unknown[][];
 let createSessionCalls: CreateSessionInput[];
+let actorResolution:
+  | { ok: true; userId: string }
+  | { ok: false; reason: "not-connected" | "no-identity" };
+let actorError: Error | null;
 
 mock.module("next/server", () => ({
   after: (callback: () => Promise<void>) => {
@@ -106,6 +110,27 @@ mock.module("@/lib/linear/issues", () => ({
   },
   buildIssueContextBlock: (issue: { title: string }) =>
     `\n\n<issue>${issue.title}</issue>`,
+}));
+
+mock.module("@/lib/linear/resolve-actor", () => ({
+  resolveApprovedLinearActor: async (
+    actorEmail: string | undefined,
+    actorLinearUserId?: string | undefined,
+  ) => {
+    if (actorError) {
+      throw actorError;
+    }
+
+    if (!actorEmail && !actorLinearUserId) {
+      return { ok: false, reason: "no-identity" };
+    }
+
+    return actorResolution;
+  },
+}));
+
+mock.module("@/lib/org/agent-runs-gate", () => ({
+  checkAgentRunStartAllowed: async () => ({ allowed: true }),
 }));
 
 const routeModulePromise = import("./route");
@@ -199,9 +224,11 @@ beforeEach(() => {
   commentError = null;
   issueResult = { id: "issue-1", title: "Fix the thing" };
   issueError = null;
-  // users lookup, existing-session lookup, last-session lookup
-  selectQueue = [[{ id: "user-1" }], [], []];
+  // existing-session lookup, last-session lookup
+  selectQueue = [[], []];
   createSessionCalls = [];
+  actorResolution = { ok: true, userId: "user-1" };
+  actorError = null;
   consoleMessages = [];
 });
 
@@ -321,7 +348,7 @@ describe("POST /api/linear/webhook (transport)", () => {
   });
 
   test("swallows deferred handler errors", async () => {
-    selectQueue = [];
+    actorError = new Error("actor resolution failed");
     const { POST } = await routeModulePromise;
 
     await POST(webhookRequest({ payload: agentSessionPayload() }));
@@ -377,11 +404,11 @@ describe("POST /api/linear/webhook (deferred handling)", () => {
 
     expect(createSessionCalls).toHaveLength(0);
     expect(commentCalls).toHaveLength(0);
-    expect(consoleMessages.join("\n")).toContain("No actor email");
+    expect(consoleMessages.join("\n")).toContain("No actor identity");
   });
 
   test("comments with a sign-in prompt for an unknown user", async () => {
-    selectQueue = [[]];
+    actorResolution = { ok: false, reason: "not-connected" };
 
     await postAndFlush();
 
@@ -394,7 +421,7 @@ describe("POST /api/linear/webhook (deferred handling)", () => {
   });
 
   test("falls back to the email when the actor has no name", async () => {
-    selectQueue = [[]];
+    actorResolution = { ok: false, reason: "not-connected" };
 
     await postAndFlush(
       agentSessionPayload({ actor: { email: "dev@example.com" } }),
@@ -404,18 +431,18 @@ describe("POST /api/linear/webhook (deferred handling)", () => {
   });
 
   test("does not throw when the not-connected comment fails", async () => {
-    selectQueue = [[]];
+    actorResolution = { ok: false, reason: "not-connected" };
     commentError = new Error("comment failed");
 
     await postAndFlush();
 
     expect(consoleMessages.join("\n")).toContain(
-      "Failed to post not-connected comment",
+      "Failed to post refusal comment",
     );
   });
 
   test("is idempotent for an agent session that already has a session", async () => {
-    selectQueue = [[{ id: "user-1" }], [{ id: "existing-session" }], []];
+    selectQueue = [[{ id: "existing-session" }], []];
 
     await postAndFlush();
 
@@ -424,7 +451,6 @@ describe("POST /api/linear/webhook (deferred handling)", () => {
 
   test("creates a session inheriting the user's most recent repo", async () => {
     selectQueue = [
-      [{ id: "user-1" }],
       [],
       [
         {
@@ -455,7 +481,7 @@ describe("POST /api/linear/webhook (deferred handling)", () => {
   });
 
   test("asks which repository to use when the user has no prior session", async () => {
-    selectQueue = [[{ id: "user-1" }], [], []];
+    selectQueue = [[], []];
 
     await postAndFlush();
 
@@ -469,7 +495,6 @@ describe("POST /api/linear/webhook (deferred handling)", () => {
 
   test("asks which repository to use when the last session had no repo", async () => {
     selectQueue = [
-      [{ id: "user-1" }],
       [],
       [{ repoOwner: null, repoName: null, branch: null, cloneUrl: null }],
     ];
