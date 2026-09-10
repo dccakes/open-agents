@@ -31,6 +31,7 @@ Hard-won knowledge from building this codebase. When you make a mistake or disco
 - Config groups parse on every read rather than memoizing, because a large share of this repo's tests mutate `process.env` between cases and expect the change to be observed. Adding caching to a config accessor will break them.
 - Successful Vercel CLI auth (`vercel whoami`, team/project REST APIs, `.vercel` linking) does **not** guarantee Workflow observability access. `workflow inspect ... --backend vercel` can still fail with `401 {"error":{"code":"unauthorized","message":"You are not allowed to access this endpoint."}}` when the user/token lacks the Vercel product permission documented as `Vercel Workflow` (and possibly related Observability access), even if `WORKFLOW_VERCEL_AUTH_TOKEN` is passed explicitly from the Vercel CLI auth file.
 - Chrome for Testing does not publish Linux ARM64 builds, so the local Docker sandbox image cannot run `agent-browser install chromium` unconditionally on Apple Silicon hosts. Install Debian's `chromium` package for `TARGETARCH=arm64` and point `agent-browser` at `/usr/bin/chromium`; keep the Chrome-for-Testing installer for architectures it supports.
+- RTK's current Linux ARM64 release requires glibc 2.39, while the Debian 12 Docker base and Vercel `node22` runtime can provide an older glibc. Run the official installer first, then install Rustup and fall back to `cargo install --git https://github.com/rtk-ai/rtk --locked` when `rtk --version` fails.
 
 ## Next.js
 

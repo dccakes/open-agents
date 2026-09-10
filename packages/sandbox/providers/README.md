@@ -68,11 +68,12 @@ Start Docker Desktop or OrbStack before building. To inspect the image interacti
 rtk docker run --rm -it open-agents/sandbox-dev:latest bash
 ```
 
-Inside the container, run commands directly (without `rtk`):
+Inside the container, run these checks directly:
 
 ```bash
 git --version
 bun --version
+rtk --version
 code-server --version
 agent-browser --version
 agent-browser open 'data:text/html,<title>Sandbox Working</title><main>Browser ready</main>'
@@ -119,7 +120,7 @@ Uses [Vercel Sandbox](https://vercel.com/docs/sandbox) (Firecracker microVMs). R
 
 ### Building the base snapshot
 
-Run from the repository root after `rtk bun install --frozen-lockfile`. The setup recipe uses `dnf` for the `node22` runtime and installs Bun, code-server, agent-browser, and Chromium. It tests browser startup and leaves the workspace clone-ready. Base snapshots do not expire.
+Run from the repository root after `rtk bun install --frozen-lockfile`. The setup recipe uses `dnf` for the `node22` runtime and installs Bun, code-server, agent-browser, Chromium, and RTK. It runs the requested RTK installer and compiles from source when the published ARM64 binary requires a newer glibc than the runtime provides. It tests browser startup and leaves the workspace clone-ready. Base snapshots do not expire.
 
 If a project-scoped `VERCEL_OIDC_TOKEN` is already available in your environment:
 
@@ -160,7 +161,7 @@ Set the resulting `VERCEL_SANDBOX_BASE_SNAPSHOT_ID` in the application's environ
 The base snapshot built and restore-tested on 2026-09-10 belongs to `next-degree / quack-ops-web`:
 
 ```env
-VERCEL_SANDBOX_BASE_SNAPSHOT_ID=snap_LO8zgvrreFeiqmg1BEk3cV3XQmxv
+VERCEL_SANDBOX_BASE_SNAPSHOT_ID=snap_72AvnIK3Rz9Deda6eqLNCXBiw10G
 ```
 
 Create a separate test sandbox and open its interactive shell:
@@ -169,7 +170,7 @@ Create a separate test sandbox and open its interactive shell:
 rtk proxy vercel sandbox sh \
   --scope next-degree \
   --project quack-ops-web \
-  --snapshot snap_LO8zgvrreFeiqmg1BEk3cV3XQmxv \
+  --snapshot snap_72AvnIK3Rz9Deda6eqLNCXBiw10G \
   --timeout 30m \
   --non-persistent
 ```
@@ -181,13 +182,14 @@ rtk proxy vercel sandbox connect <sandbox-name> \
   --scope next-degree --project quack-ops-web
 ```
 
-Inside the sandbox, run these directly without `rtk`:
+Inside the sandbox, run these checks directly:
 
 ```bash
 pwd
 ls -la /vercel/sandbox
 git --version
 bun --version
+rtk --version
 code-server --version
 agent-browser --version
 agent-browser open 'data:text/html,<title>Sandbox Working</title><main>Browser ready</main>'
@@ -197,7 +199,7 @@ agent-browser close
 curl -I https://github.com
 ```
 
-The workspace should initially be empty, with no `.git`. This snapshot contains Bun `1.3.14`, code-server `4.136.2`, and agent-browser `0.37.1`. Expect title `Sandbox Working`, browser content `Browser ready`, and a successful HTTP response from GitHub. Changes in this test sandbox do not modify the base snapshot.
+The workspace should initially be empty, with no `.git`. This snapshot contains Bun `1.3.14`, RTK, code-server `4.136.2`, and agent-browser `0.37.1`. Expect title `Sandbox Working`, browser content `Browser ready`, and a successful HTTP response from GitHub. Changes in this test sandbox do not modify the base snapshot.
 
 Run `exit` to leave the shell, then stop the test sandbox from your local terminal rather than waiting for its 30-minute timeout:
 

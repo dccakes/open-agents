@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y \
     bash \
     curl \
     git \
+    cargo \
     ca-certificates \
     procps \
     jq \
@@ -38,6 +39,16 @@ COPY --from=oven/bun:1 /usr/local/bin/bunx /usr/local/bin/bunx
 
 # Route bun global installs to /usr/local so binaries land on PATH
 ENV BUN_INSTALL=/usr/local
+
+# rtk - token-efficient command runner for sandbox diagnostics and tooling
+RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh \
+    | RTK_INSTALL_DIR=/usr/local/bin sh \
+    && if ! rtk --version >/dev/null 2>&1; then \
+      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+        | sh -s -- -y --profile minimal \
+      && . "$HOME/.cargo/env" \
+      && cargo install --git https://github.com/rtk-ai/rtk --locked --root /usr/local --force; \
+    fi
 
 # code-server - in-browser VS Code editor (required for /code-editor route)
 RUN curl -fsSL https://code-server.dev/install.sh | sh \

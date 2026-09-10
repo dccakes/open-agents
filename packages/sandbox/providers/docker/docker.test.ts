@@ -25,6 +25,14 @@ describe("Docker provider", () => {
     expect(dockerfile).toContain(
       "agent-browser --executable-path /usr/bin/chromium",
     );
+    expect(dockerfile).toContain(
+      "https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh",
+    );
+    expect(dockerfile).toContain("RTK_INSTALL_DIR=/usr/local/bin");
+    expect(dockerfile).toContain(
+      "cargo install --git https://github.com/rtk-ai/rtk --locked --root /usr/local --force",
+    );
+    expect(dockerfile).toContain("https://sh.rustup.rs");
     expect(dockerfile).not.toContain("&& bunx agent-browser install chromium");
   });
 });
