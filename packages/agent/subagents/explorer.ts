@@ -1,21 +1,22 @@
-import type { LanguageModel } from "ai";
 import { gateway, stepCountIs, ToolLoopAgent } from "ai";
-import { z } from "zod";
 import { bashTool } from "../tools/bash";
 import { globTool } from "../tools/glob";
 import { grepTool } from "../tools/grep";
 import { readFileTool } from "../tools/read";
-import type { SandboxExecutionContext } from "../types";
 import {
   SUBAGENT_NO_QUESTIONS_RULES,
   SUBAGENT_RESPONSE_FORMAT,
   SUBAGENT_STEP_LIMIT,
-  SUBAGENT_WORKING_DIR,
 } from "./constants";
+import {
+  createSubagentPrepareCall,
+  type SubagentCallOptions,
+  subagentCallOptionsSchema,
+} from "./prepare-call";
 
 const EXPLORER_REMINDER = `## REMINDER
 - You CANNOT ask questions - no one will respond
-- This is READ-ONLY - do NOT create, modify, or delete any files
+- This is READ-ONLY and ENFORCED - write commands are refused by the security policy, not merely discouraged
 - Your final message MUST include both a **Summary** of what you searched AND the **Answer** to the task`;
 
 const EXPLORER_SYSTEM_PROMPT = `You are an explorer agent - a fast, read-only subagent specialized for exploring codebases.
@@ -23,13 +24,13 @@ const EXPLORER_SYSTEM_PROMPT = `You are an explorer agent - a fast, read-only su
 ## CRITICAL RULES
 
 ### READ-ONLY OPERATIONS ONLY
-This is a READ-ONLY exploration task. You are STRICTLY PROHIBITED from:
+This is a READ-ONLY exploration task, and the restriction is ENFORCED by a read-only security policy — not just a guideline. Every write-class and network-class command you attempt is REFUSED before it runs, so attempting one only wastes a step. You are STRICTLY PROHIBITED from:
 - Creating new files (no file creation of any kind)
 - Modifying existing files (no edits)
 - Deleting files
 - Running commands that change system state
 
-Your role is EXCLUSIVELY to search and analyze existing code.
+Your role is EXCLUSIVELY to search and analyze existing code. If a task genuinely requires a change, say so in your answer and let the parent agent make it.
 
 ${SUBAGENT_NO_QUESTIONS_RULES}
 
@@ -57,21 +58,22 @@ You have access to: read, grep, glob, bash (read-only commands only)
 - Use read when you know the specific file path
 - Use bash ONLY for read-only operations (ls, git status, git log, git diff, find)
 - All bash commands automatically run in the working directory — NEVER prepend \`cd <working-directory> &&\` or similar to commands
-- NEVER use bash for: mkdir, touch, rm, cp, mv, git add, git commit, npm install, or any file creation/modification
+- NEVER use bash for: mkdir, touch, rm, cp, mv, shell redirects (\`>\`), \`sed -i\`, git add, git commit, npm install, curl, or any file creation/modification — these are refused by policy
 - Return workspace-relative file paths in your final response (e.g., "src/index.ts:42")`;
 
-const callOptionsSchema = z.object({
-  task: z.string().describe("Short description of the exploration task"),
-  instructions: z
-    .string()
-    .describe("Detailed instructions for the exploration"),
-  sandbox: z
-    .custom<SandboxExecutionContext["sandbox"]>()
-    .describe("Sandbox for file system and shell operations"),
-  model: z.custom<LanguageModel>().describe("Language model for this subagent"),
-});
+export type ExplorerCallOptions = SubagentCallOptions;
 
-export type ExplorerCallOptions = z.infer<typeof callOptionsSchema>;
+/**
+ * Read-only is enforced by the policy profile, not by the tool list: the
+ * explorer has no `write`/`edit` tool, but its `bash` could still redirect,
+ * `sed -i`, or install packages. The profile denies all of that.
+ */
+export const prepareExplorerCall = createSubagentPrepareCall({
+  name: "Explorer",
+  systemPrompt: EXPLORER_SYSTEM_PROMPT,
+  reminder: EXPLORER_REMINDER,
+  readOnly: true,
+});
 
 export const explorerSubagent = new ToolLoopAgent({
   model: gateway("anthropic/claude-haiku-4.5"),
@@ -83,32 +85,6 @@ export const explorerSubagent = new ToolLoopAgent({
     bash: bashTool(),
   },
   stopWhen: stepCountIs(SUBAGENT_STEP_LIMIT),
-  callOptionsSchema,
-  prepareCall: ({ options, ...settings }) => {
-    if (!options) {
-      throw new Error("Explorer subagent requires task call options.");
-    }
-
-    const sandbox = options.sandbox;
-    const model = options.model ?? settings.model;
-    return {
-      ...settings,
-      model,
-      instructions: `${EXPLORER_SYSTEM_PROMPT}
-
-${SUBAGENT_WORKING_DIR}
-
-## Your Task
-${options.task}
-
-## Detailed Instructions
-${options.instructions}
-
-${EXPLORER_REMINDER}`,
-      experimental_context: {
-        sandbox,
-        model,
-      },
-    };
-  },
+  callOptionsSchema: subagentCallOptionsSchema,
+  prepareCall: prepareExplorerCall,
 });

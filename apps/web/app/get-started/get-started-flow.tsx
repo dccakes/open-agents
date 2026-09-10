@@ -6,37 +6,13 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Check, Github, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PickleStar } from "@/components/landing/pickle-star";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useSession } from "@/hooks/use-session";
 import { authClient } from "@/lib/auth/client";
 import { sanitizeInternalRedirect } from "@/lib/redirect-safety";
 
 type StepId = 1 | 2;
-
-function OpenAgentsLogo({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      className={className}
-      aria-label="Open Agents"
-    >
-      <path
-        d="M4 17L10 11L4 5"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M12 19H20"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
 
 export function GetStartedFlow() {
   const router = useRouter();
@@ -89,16 +65,16 @@ export function GetStartedFlow() {
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
       {/* left panel */}
-      <div className="flex shrink-0 flex-col justify-between bg-black px-6 py-6 md:w-1/2 md:px-12 md:py-10">
+      <div className="flex shrink-0 flex-col justify-between bg-(--pk-dark-teal) px-6 py-6 md:w-1/2 md:px-12 md:py-10">
         <div className="flex items-center gap-3">
-          <OpenAgentsLogo className="size-7 text-white/50" />
-          <span className="text-lg font-semibold tracking-tight text-white/50">
-            Open Agents
+          <PickleStar className="size-7 text-(--pk-accent)" />
+          <span className="text-lg font-semibold tracking-tight text-white">
+            QuackOps
           </span>
         </div>
-        <p className="hidden max-w-sm text-sm leading-relaxed text-zinc-600 md:block">
-          Spawn coding agents that run infinitely in the cloud. Powered by AI
-          SDK, Gateway, Sandbox, and Workflow SDK.
+        <p className="hidden max-w-sm text-sm leading-relaxed text-white/50 md:block">
+          Coding agents that run in cloud sandboxes, wired into Pickle&apos;s
+          repos. Connect your accounts to start a session.
         </p>
       </div>
 

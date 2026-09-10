@@ -1,6 +1,7 @@
 import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/rest";
 import { z } from "zod";
+import { getGitHubAppEnvConfig } from "@/lib/config/github";
 
 interface GitHubAppConfig {
   appId: number;
@@ -53,8 +54,8 @@ function parsePrivateKey(value: string): string {
 }
 
 function getGitHubAppConfig(): GitHubAppConfig {
-  const appIdRaw = process.env.GITHUB_APP_ID;
-  const privateKeyRaw = process.env.GITHUB_APP_PRIVATE_KEY;
+  const { appId: appIdRaw, privateKey: privateKeyRaw } =
+    getGitHubAppEnvConfig();
 
   if (!appIdRaw || !privateKeyRaw) {
     throw new Error("GitHub App is not configured");
@@ -71,9 +72,8 @@ function getGitHubAppConfig(): GitHubAppConfig {
 }
 
 export function isGitHubAppConfigured(): boolean {
-  return Boolean(
-    process.env.GITHUB_APP_ID && process.env.GITHUB_APP_PRIVATE_KEY,
-  );
+  const { appId, privateKey } = getGitHubAppEnvConfig();
+  return Boolean(appId && privateKey);
 }
 
 async function getAppJwt(): Promise<string> {

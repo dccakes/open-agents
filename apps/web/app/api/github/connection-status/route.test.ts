@@ -19,6 +19,12 @@ let syncErrorIsAuth = false;
 
 mock.module("@/lib/session/get-server-session", () => ({
   getServerSession: async () => authSession,
+  // The chokepoint's membership-aware export. This suite covers an
+  // approved member; the pending case is covered where the gate lives.
+  getSessionWithMembership: async () => ({
+    session: authSession ?? undefined,
+    approved: Boolean(authSession),
+  }),
 }));
 
 mock.module("@/lib/github/token", () => ({
@@ -31,8 +37,8 @@ mock.module("@/lib/github/users", () => ({
   getGitHubAccountId: async () => null,
 }));
 
-mock.module("@/lib/db/installations", () => ({
-  getInstallationsByUserId: async () => installations,
+mock.module("@/lib/github/visible-installations", () => ({
+  getVisibleInstallations: async () => installations,
 }));
 
 mock.module("@/lib/github/sync", () => ({

@@ -1,5 +1,5 @@
 import "server-only";
-import { getInstallationsByUserId } from "@/lib/db/installations";
+import { getVisibleInstallations } from "@/lib/github/visible-installations";
 import { hasGitHubAccount } from "@/lib/github/users";
 
 /**
@@ -9,7 +9,7 @@ import { hasGitHubAccount } from "@/lib/github/users";
 export async function needsOnboarding(userId: string): Promise<boolean> {
   const [linked, installations] = await Promise.all([
     hasGitHubAccount(userId),
-    getInstallationsByUserId(userId),
+    getVisibleInstallations(userId),
   ]);
 
   return !linked || installations.length === 0;

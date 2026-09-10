@@ -18,7 +18,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.2.14"
+          bun-version: "1.3.14"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -28,6 +28,11 @@ jobs:
 
       - name: Typecheck
         run: bun run typecheck
+
+      # This job duplicates the steps in the root `ci` script rather than
+      # invoking it, so anything added there must be added here too.
+      - name: Env boundary
+        run: bun run lint:env-boundary
 
       - name: Test
         run: bun run test:isolated

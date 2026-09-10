@@ -1,10 +1,14 @@
 import { describe, expect, mock, test } from "bun:test";
 
+const testSession = { user: { id: "user-1" } };
+
 mock.module("@/lib/session/get-server-session", () => ({
-  getServerSession: async () => ({
-    user: {
-      id: "user-1",
-    },
+  getServerSession: async () => testSession,
+  // The chokepoint's membership-aware export. This suite covers an approved
+  // member; the pending case is covered where the gate lives.
+  getSessionWithMembership: async () => ({
+    session: testSession,
+    approved: true,
   }),
 }));
 

@@ -1,6 +1,8 @@
 "use server";
 
 import { cookies } from "next/headers";
+import { getGitHubOAuthCredentials } from "@/lib/config/auth";
+import { getDeploymentConfig } from "@/lib/config/deployment";
 import { deleteInstallationsByUserId } from "@/lib/db/installations";
 import { deleteGitHubAccountLink, hasGitHubAccount } from "@/lib/github/users";
 import { getUserGitHubToken } from "@/lib/github/token";
@@ -26,8 +28,7 @@ export async function unlinkGitHub(): Promise<{
     try {
       const token = await getUserGitHubToken(session.user.id);
       if (token) {
-        const clientId = process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID;
-        const clientSecret = process.env.GITHUB_CLIENT_SECRET;
+        const { clientId, clientSecret } = getGitHubOAuthCredentials();
         if (clientId && clientSecret) {
           await fetch(`https://api.github.com/applications/${clientId}/token`, {
             method: "DELETE",
@@ -51,7 +52,7 @@ export async function unlinkGitHub(): Promise<{
     const cookieStore = await cookies();
     cookieStore.set("github_reconnect", "1", {
       path: "/",
-      secure: process.env.NODE_ENV === "production",
+      secure: getDeploymentConfig().isProduction,
       httpOnly: true,
       maxAge: 60 * 60,
       sameSite: "lax",

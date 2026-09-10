@@ -9,12 +9,60 @@ This file provides guidance for AI coding agents working in this repository.
 - [Architecture & Workspace Structure](docs/agents/architecture.md)
 - [Code Style & Patterns](docs/agents/code-style.md)
 - [Lessons Learned](docs/agents/lessons-learned.md)
+- [Policy and Postures](docs/policy-and-postures.md) · [Security](SECURITY.md)
 
 ## Authentication
 
 Authentication uses [Better Auth](https://www.better-auth.com/) with Vercel OAuth (sign-in) and GitHub OAuth (repo access). Config lives in `apps/web/lib/auth/config.ts`. Sessions are managed by better-auth's built-in session system — there is no manual JWE/encryption layer.
 
 Key env vars: `BETTER_AUTH_SECRET` (session signing), `NEXT_PUBLIC_VERCEL_APP_CLIENT_ID` + `VERCEL_APP_CLIENT_SECRET` (Vercel OAuth), plus GitHub App credentials for repo access. See `apps/web/.env.example` for the full list.
+
+### Membership, roles, and permissions
+
+Better Auth's **organization** and **admin** plugins are enabled (single seeded org; teams and dynamic access control off). Two role concepts, deliberately distinct:
+
+- **`users.role`** (admin plugin) — the *platform* role, for instance-level operations that are not org-scoped: bulk OAuth token revocation, ban, impersonation, session revocation.
+- **`org_members.role`** (organization plugin) — the *org* role (`owner | admin | member`), governing shared configuration.
+
+**`pending` is the absence of an `org_members` row, not a role value** — that fails closed, whereas a "pending" role would appear as a member-with-no-permissions and fail open. `getServerSession()` returns `undefined` for a pending user, so every route's no-session branch already denies them; `getSessionWithMembership()` is the narrow escape hatch for the approval screen and auth info. Paths without a cookie (the Linear webhook resolves a user by actor email) need their own explicit membership check.
+
+Permissions live in `apps/web/lib/auth/permissions.ts` as one `createAccessControl` statement set that **spreads both plugins' `defaultStatements`** before adding QuackOps resources. This is load-bearing: the org plugin's built-in `removeMember`/`updateMemberRole` authorize `member.delete`/`member.update` against the roles you supply, so a custom-only set denies them even for owners. Check permissions with `requirePermission()`; check membership with `requireApprovedMember()`. Client-side `checkRolePermission` is for hiding affordances only — never the sole enforcement.
+
+Do **not** enable session cookie caching while permission checks resolve from the session; a cached session serves a stale role after demotion. A test pins this.
+
+`ADMIN_EMAILS` is `required-prod`, so a production deploy fails at build time unless it is set — set it in the Vercel project environment before deploying. Both it and `ALLOWED_EMAIL_DOMAINS` require a *verified* email to match, and an unset allowlist auto-approves nobody.
+
+### Integration ownership
+
+Shared integrations belong to the **organization**; OAuth identities stay **personal** and only authorize the human. Concretely: a resolver for a shared resource takes no `userId`. If you find yourself adding one, that is a scoping bug in waiting — it is exactly what made GitHub installations per-person.
+
+Ownership is discriminated by a nullable `organizationId` column: non-NULL means the organization owns the row, NULL means it is personal. On an org-owned row the `userId` is **provenance** (who set it up), never authority.
+
+- **GitHub.** `github_installations` rows become org-owned only when an admin claims the GitHub account in `/settings/admin/integrations`. The allowlist (`org_github_accounts`) is keyed by GitHub's immutable numeric `account.id` — not the login (rename-able) and not the installation id (a reinstall issues a new one). Resolve with `getOrgInstallationByAccountLogin()`; list with `getVisibleInstallations()`.
+- **Authorization did not move.** `verifyRepoAccess` step 1 checks the *caller's own* GitHub credentials and is the authorization; step 2 resolves the installation and is not. That order is why org ownership widens nothing, and `lib/github/access.test.ts` pins it. Do not reorder those steps or let step 2's result satisfy step 1.
+- **Never prune org-owned rows from one user's view.** `GET /user/installations` answers "what can this user see". Removal comes from the `installation.deleted` webhook or `reconcileOrgInstallations()` (authenticated as the App). `deleteInstallationsNotInList` is scoped to `organization_id IS NULL` for this reason.
+- **Linear.** The connection is resolved by organization. Actors resolve by *verified* email or an admin-recorded `linear_actor_links` mapping — never a fallback identity.
+- **Vercel is the sharpest case, because it is also the sign-in provider.** Three separate things, deliberately: the OAuth *identity* is personal and untouched; every Vercel API *call* uses the acting member's own token; only the repo→project *mapping* is org-owned, keyed `(organization_id, repo_owner, repo_name)`. A mapping is a fact about a repository, not an identity.
+- **An org-owned mapping must be intersected with the member's own provider access.** `resolveUsableVercelProjectLink()` returns the org's link only if that member's Vercel token can see the project — the same shape as `verifyRepoAccess` step 1. Skip it and a session records a project the member cannot query, and they get no deployment URL with nothing explaining why.
+- **Personal rows are permanent for GitHub, absent for Vercel.** An installation on someone's own GitHub account is never promotable, so `github_installations.organization_id` stays nullable and `verifyRepoAccess` keeps its org-then-personal fallback for good. `vercel_project_links.organization_id` is NOT NULL because no such category exists there. `lib/db/ownership-schema.test.ts` pins both shapes.
+- **Running reconciliation.** `reconcileOrgInstallations()` is deliberately not on a route or a cron — run it with `bun run --cwd apps/web org:ownership <status|reconcile-installations>`. Dry run unless `--apply`, and it prints the target database host first, because it deletes rows and preview databases are Neon forks pointing at real external resources.
+
+## Configuration
+
+**Never read `process.env` outside a config module.** `bun run ci` fails if you do (`scripts/check-env-boundary.ts`).
+
+- Web app: declare the variable in `apps/web/lib/config/<concern>.ts` and read it through that module's accessor.
+- Packages: declare it in `packages/<name>/config.ts`; the rest of the package takes explicit options.
+
+Each variable declares a schema, a one-line description, and an environment axis (`required-prod` / `optional` / `dev-only`), plus `requiredWith` when it is only required once a related integration is configured. `validateServerConfig()` enforces the axes on production deployments — at server start (`instrumentation.ts`) and during `build` (`apps/web/scripts/check-env.ts`).
+
+After adding or changing a variable, regenerate the example file and commit it:
+
+```bash
+bun run --cwd apps/web env:example   # rewrites apps/web/.env.example from the schemas
+```
+
+`NEXT_PUBLIC_*` variables live in `lib/config/public.ts` and must be written as literal `process.env.NEXT_PUBLIC_X` reads there — that is the only form Next.js inlines into client bundles.
 
 ## Database & Migrations
 
@@ -52,12 +100,21 @@ bun run fix                                # Lint fix and format all files
 turbo typecheck --filter=web # Type check web app only
 
 # Testing
-bun test                                              # Run all tests
+bun run test:isolated                                 # Run all tests (one process per file) -- this is what CI runs
 bun test path/to/file.test.ts                         # Run single test file
-bun test --watch                                      # Watch mode
-bun run test:verbose                                  # Run tests with JUnit reporter streamed to stdout (useful in non-interactive shells)
-bun run test:verbose path/to/file.test.ts             # Same verbose output for a single test file
+bun test --watch path/to/file.test.ts                 # Watch mode for a single test file
+bun run test:verbose path/to/file.test.ts             # Single file with JUnit reporter on stdout (useful in non-interactive shells)
 ```
+
+**Never run bare `bun test` (or `bun run test:verbose`) across the whole suite.** Bun runs every
+file in one process, and `mock.module()` registrations leak across files -- a partial mock
+installed by one test replaces the real module for every file loaded afterwards, producing
+hundreds of bogus failures like `SyntaxError: Export named 'x' not found in module '...'`.
+
+Tests in this repo lean heavily on `mock.module()`, so they are only valid in isolation.
+`bun run test:isolated` (`scripts/test-isolated.ts`) spawns a separate `bun test` process per
+file, which is why it is the command wired into `bun run ci` and `.github/workflows/ci.yml`.
+Passing an explicit file path to `bun test` is fine -- that is already a single-file process.
 
 **CI/script execution rules:**
 
@@ -83,9 +140,47 @@ git add "apps/web/app/tasks/[id]/page.tsx"
 
 ```
 Web -> Agent (packages/agent) -> Sandbox (packages/sandbox)
+                 ^
+                 └─ Command policy (packages/agent/policy + apps/web/lib/policy)
 ```
 
 See [Architecture & Workspace Structure](docs/agents/architecture.md) for details.
+
+### Command policy and postures
+
+Every side-effecting tool call is evaluated against a `CommandPolicy` under the
+session's posture before it runs. Full reference:
+[Policy and Postures](docs/policy-and-postures.md).
+
+- **Enforcement lives in the tool factories** (`packages/agent/tools/policy-enforcement.ts`),
+  not in a wrapper around the agent loop — three of the four `ToolLoopAgent`s
+  build their own tools. `needsApproval` can only pause; `execute` is
+  authoritative and re-evaluates the policy before any side effect. A refusal is
+  a structured tool result, never a thrown error.
+- **Precedence is deny → ask → allow**, first match within a class, most
+  restrictive segment of a compound command wins, posture applied last.
+- **Three postures** on `sessions.posture`: `strict`, `auto` (default),
+  `dangerous`. `dangerous` collapses `ask` → `allow`, never `deny`, requires the
+  `posture: ["setDangerous"]` permission, and is refused for non-interactive
+  triggers.
+- **Fail closed.** A side-effecting tool with no policy on `experimental_context`
+  refuses; `read`/`grep`/`glob` proceed. Add a tool that can mutate state or
+  reach the network, and wire policy into it in the same PR.
+- **Approvals are server-side records** (`approval` table), single-use and
+  expiring — the approval state in a client-supplied message body is an
+  assertion, not authorization. Every `ask`/`deny` is written to the append-only
+  `policy_event`.
+- **Runs are budgeted** (tokens, steps, org daily tokens); a breach halts in a
+  distinct `budget-exceeded` state.
+- **Changing the shipped baseline requires corpus entries.**
+  `packages/agent/policy/golden-corpus.ts` must cover every rule id, and a new
+  rule needs both the commands it should catch and a near-miss it must not.
+- Workflow modules must not statically import `@open-agents/agent`,
+  `@/lib/org/settings`, `@/lib/auth/require-permission`, or `next/headers` —
+  `workflow-import-boundary.test.ts` enforces this.
+
+[`SECURITY.md`](SECURITY.md) states plainly what this system does not protect
+against. Read it before describing the agent as sandboxed or contained.
 
 ## File Organization & Separation of Concerns
 

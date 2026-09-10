@@ -9,6 +9,10 @@ const userInstallationSchema = z.object({
   repository_selection: z.enum(["all", "selected"]),
   html_url: z.string().url().nullable().optional(),
   account: z.object({
+    // GitHub's immutable numeric account id. Optional so an unexpected payload
+    // degrades to "this installation stays personal" rather than failing the
+    // whole sync — the allowlist simply never matches it.
+    id: z.number().optional(),
     login: z.string(),
     type: z.string(),
   }),
@@ -158,6 +162,7 @@ export async function syncUserInstallations(
     await upsertInstallation({
       userId,
       installationId: installation.id,
+      accountId: installation.account.id ?? null,
       accountLogin: installation.account.login,
       accountType: normalizeAccountType(installation.account.type),
       repositorySelection: installation.repository_selection,
@@ -165,6 +170,11 @@ export async function syncUserInstallations(
     });
   }
 
+  // Prunes this user's *personal* records only — `deleteInstallationsNotInList`
+  // filters on `organization_id IS NULL`. `GET /user/installations` answers
+  // "what can this user see", which is not a safe basis for deleting a record
+  // the whole organization depends on: a member who leaves the GitHub
+  // organization would otherwise remove it for everyone on their next sync.
   await deleteInstallationsNotInList(
     userId,
     syncableInstallations.map((installation) => installation.id),

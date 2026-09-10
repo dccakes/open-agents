@@ -18,6 +18,7 @@ import {
   revokeAllGitHubTokens,
   revokeAllVercelTokens,
 } from "@/lib/admin/actions";
+import { OrgSettingsSection } from "./org-settings-section";
 
 function NotFoundState() {
   return (
@@ -75,6 +76,8 @@ function AdminPageContent() {
   return (
     <>
       <h1 className="text-2xl font-semibold">Admin</h1>
+
+      <OrgSettingsSection />
 
       <div className="rounded-lg border border-red-500/30 bg-red-500/5">
         <div className="border-b border-red-500/20 px-5 py-4">

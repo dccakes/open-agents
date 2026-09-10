@@ -1,5 +1,6 @@
 import "server-only";
 import { randomBytes } from "crypto";
+import { getPublicConfig } from "@/lib/config/public";
 import { linearGraphQL } from "@/lib/linear/client";
 
 const WEBHOOK_CREATE_MUTATION = `
@@ -39,7 +40,7 @@ interface WebhookDeleteResponse {
 export async function registerLinearWebhook(
   token: string,
 ): Promise<{ webhookId: string; webhookSecret: string }> {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  const { appUrl } = getPublicConfig();
   if (!appUrl) {
     throw new Error(
       "NEXT_PUBLIC_APP_URL is not set — cannot register Linear webhook",

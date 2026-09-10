@@ -1,6 +1,11 @@
 "use client";
 
 import type { AskUserQuestionInput } from "@open-agents/agent";
+import { BudgetHaltCard } from "./budget-halt-card";
+import { ApprovalRequestCard } from "./approval-request-card";
+import { useAppSideEffectApproval } from "./hooks/use-app-side-effect-approval";
+import { useSessionPosture } from "@/app/sessions/[sessionId]/session-posture-context";
+import { ApprovalPolicyProvider } from "@/components/tool-call/approval-policy-context";
 import { formatTokens } from "@open-agents/shared";
 import {
   isReasoningUIPart,
@@ -114,6 +119,7 @@ import {
   shouldShowThinkingIndicator,
   shouldUseChatListStreamingState,
 } from "@/lib/chat-streaming-state";
+import { getPublicConfig } from "@/lib/config/public";
 import { ACCEPT_IMAGE_TYPES, isValidImageType } from "@/lib/image-utils";
 import { isLargeText } from "@/lib/text-attachment-utils";
 import {
@@ -816,11 +822,10 @@ function ShareDialog({
   const [isLoading, setIsLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [baseUrl, setBaseUrl] = useState<string | null>(
-    process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL
-      ? `https://${process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL}`
-      : null,
-  );
+  const [baseUrl, setBaseUrl] = useState<string | null>(() => {
+    const productionUrl = getPublicConfig().productionUrl;
+    return productionUrl ? `https://${productionUrl}` : null;
+  });
 
   useEffect(() => {
     if (!baseUrl) {
@@ -1257,6 +1262,19 @@ export function SessionChatContent({
       void checkBranchAndPr().catch(() => undefined);
     },
   );
+  // The posture in force, shared with the header control.
+  const sessionPosture = useSessionPosture();
+  // Mounted here rather than inside the card: an answer in flight must survive
+  // the transcript re-rendering underneath it.
+  const appSideEffectApprovals = useAppSideEffectApproval({
+    sessionId: session.id,
+    onExecuted: () => {
+      void refreshGitStatus().catch(() => undefined);
+      void refreshDiff().catch(() => undefined);
+      void refreshFiles().catch(() => undefined);
+      void checkBranchAndPr().catch(() => undefined);
+    },
+  });
   const {
     messages,
     error,
@@ -3052,7 +3070,8 @@ export function SessionChatContent({
   ) : null;
 
   return (
-    <>
+    // One mount for the whole transcript; ToolLayout reads it at any depth.
+    <ApprovalPolicyProvider posture={sessionPosture.posture}>
       {/* Git panel portaled to layout-level for full page height */}
       {gitPanelOpen &&
         panelPortalRef.current &&
@@ -3581,6 +3600,31 @@ export function SessionChatContent({
                                             reason,
                                           })
                                         }
+                                      />
+                                    </div>
+                                  );
+                                }
+
+                                if (p.type === "data-budget-halt") {
+                                  return (
+                                    <div
+                                      key={`${m.id}-${group.renderKey}`}
+                                      className="max-w-full"
+                                    >
+                                      <BudgetHaltCard data={p.data} />
+                                    </div>
+                                  );
+                                }
+
+                                if (p.type === "data-approval-request") {
+                                  return (
+                                    <div
+                                      key={`${m.id}-${group.renderKey}`}
+                                      className="max-w-full"
+                                    >
+                                      <ApprovalRequestCard
+                                        data={p.data}
+                                        approvals={appSideEffectApprovals}
                                       />
                                     </div>
                                   );
@@ -4398,6 +4442,6 @@ export function SessionChatContent({
           }, 100);
         }}
       />
-    </>
+    </ApprovalPolicyProvider>
   );
 }

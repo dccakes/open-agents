@@ -1,13 +1,16 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { getLinearConfig } from "@/lib/config/linear";
+import { getPublicConfig } from "@/lib/config/public";
 import { upsertLinearWorkspace } from "@/lib/db/linear-workspaces";
 import { linearGraphQL } from "@/lib/linear/client";
 import { encryptLinearToken } from "@/lib/linear/token";
+import { requireSeededOrganizationId } from "@/lib/org/seeded-organization";
 import { getServerSession } from "@/lib/session/get-server-session";
 
 function getAppUrl(req: Request): string {
-  return process.env.NEXT_PUBLIC_APP_URL ?? new URL(req.url).origin;
+  return getPublicConfig().appUrl ?? new URL(req.url).origin;
 }
 
 function errorRedirect(url: URL): NextResponse {
@@ -62,8 +65,7 @@ export async function GET(req: Request): Promise<Response> {
     const appUrl = getAppUrl(req);
     const redirectUri = `${appUrl}/api/linear/callback`;
 
-    const clientId = process.env.LINEAR_CLIENT_ID;
-    const clientSecret = process.env.LINEAR_CLIENT_SECRET;
+    const { clientId, clientSecret } = getLinearConfig();
     if (!clientId || !clientSecret) {
       throw new Error("LINEAR_CLIENT_ID or LINEAR_CLIENT_SECRET is not set");
     }
@@ -120,11 +122,15 @@ export async function GET(req: Request): Promise<Response> {
 
     // Encrypt token and upsert workspace
     const encryptedToken = encryptLinearToken(token);
+    // Owned by the organization from the moment it is created, rather than
+    // created ownerless and claimed later — there is no window in which the
+    // connection belongs to nobody.
     await upsertLinearWorkspace({
       workspaceId,
       workspaceName,
       accessToken: encryptedToken,
       installedByUserId: session.user.id,
+      organizationId: await requireSeededOrganizationId(),
     });
 
     const response = NextResponse.redirect(

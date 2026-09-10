@@ -3,7 +3,8 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth/config";
-import { getServerSession } from "@/lib/session/get-server-session";
+import { getVercelOAuthCredentials } from "@/lib/config/auth";
+import { getSessionWithMembership } from "@/lib/session/get-server-session";
 import { getUserVercelToken } from "@/lib/vercel/token";
 
 const VERCEL_REVOKE_URL = "https://api.vercel.com/login/oauth/token/revoke";
@@ -33,12 +34,13 @@ async function getRevocableVercelToken(userId: string): Promise<string | null> {
 }
 
 export async function signOut(): Promise<void> {
-  const session = await getServerSession();
+  // Membership-aware, so a pending user signing out still gets their Vercel
+  // token revoked rather than silently skipping revocation.
+  const { session } = await getSessionWithMembership();
 
   if (session?.user?.id) {
     try {
-      const clientId = process.env.NEXT_PUBLIC_VERCEL_APP_CLIENT_ID;
-      const clientSecret = process.env.VERCEL_APP_CLIENT_SECRET;
+      const { clientId, clientSecret } = getVercelOAuthCredentials();
       if (clientId && clientSecret) {
         const token = await getRevocableVercelToken(session.user.id);
         if (token) {

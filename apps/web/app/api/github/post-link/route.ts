@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
-import {
-  deleteInstallationsByUserId,
-  getInstallationsByUserId,
-} from "@/lib/db/installations";
+import { deleteInstallationsByUserId } from "@/lib/db/installations";
+import { getVisibleInstallations } from "@/lib/github/visible-installations";
 import { getUserGitHubToken } from "@/lib/github/token";
 import { deleteGitHubAccountLink, getGitHubUsername } from "@/lib/github/users";
 import { syncUserInstallations } from "@/lib/github/sync";
@@ -63,7 +61,7 @@ export async function GET(req: Request): Promise<Response> {
   }
 
   // no installations found — check if any exist in DB from a previous install
-  const existingInstallations = await getInstallationsByUserId(session.user.id);
+  const existingInstallations = await getVisibleInstallations(session.user.id);
   if (existingInstallations.length > 0) {
     redirectUrl.searchParams.set("github", "account_connected");
     return NextResponse.redirect(redirectUrl);

@@ -16,7 +16,7 @@ This directory contains the provider implementations for the pluggable sandbox s
 
 All sandbox images/environments **must** provide the following tools on `PATH`. The platform calls these via `sandbox.exec()` — missing tools cause 500 errors or silent failures.
 
-The canonical reference is `scripts/create-base-snapshot.ts`, which builds the Vercel base snapshot. The Docker `Dockerfile` mirrors that tool set.
+The canonical tool recipe is `scripts/vercel-sandbox-base-setup.sh`, invoked by `scripts/vercel-refresh-base-snapshot.ts --setup-base`. The Docker `Dockerfile` mirrors that tool set.
 
 ### Mandatory
 
@@ -57,10 +57,31 @@ The canonical reference is `scripts/create-base-snapshot.ts`, which builds the V
 ### Building the dev image
 
 ```bash
-docker build -t open-agents/sandbox-dev:latest packages/sandbox/providers/docker/
+rtk docker build -t open-agents/sandbox-dev:latest packages/sandbox/providers/docker/
 ```
 
-> The image includes Chromium (via `agent-browser install chromium`) and code-server, so the build takes several minutes and produces a ~2 GB image.
+> The image includes Chromium and code-server, so the build takes several minutes and produces a ~2 GB image. On Linux ARM64 builds, Chromium comes from Debian's `chromium` package because Chrome for Testing is not published for Linux ARM64.
+
+Start Docker Desktop or OrbStack before building. To inspect the image interactively:
+
+```bash
+rtk docker run --rm -it open-agents/sandbox-dev:latest bash
+```
+
+Inside the container, run these checks directly:
+
+```bash
+git --version
+bun --version
+rtk --version
+code-server --version
+agent-browser --version
+agent-browser open 'data:text/html,<title>Sandbox Working</title><main>Browser ready</main>'
+agent-browser get title
+agent-browser close
+```
+
+The browser title should be `Sandbox Working`. Run `exit` to stop and remove this test container.
 
 ### Configuring the image
 
@@ -74,9 +95,9 @@ If unset, the provider falls back to `ghcr.io/open-agents/sandbox:latest` (the p
 
 ### Keeping in sync with the Vercel snapshot
 
-When `scripts/create-base-snapshot.ts` adds or updates a tool, mirror that change in the `Dockerfile`. The two sources of truth are:
+When `scripts/vercel-sandbox-base-setup.sh` adds or updates a tool, mirror that change in the `Dockerfile`. The two sources of truth are:
 
-- **Vercel base snapshot**: `scripts/create-base-snapshot.ts`
+- **Vercel base snapshot tools**: `scripts/vercel-sandbox-base-setup.sh`
 - **Docker dev image**: `packages/sandbox/providers/docker/Dockerfile`
 
 ### Notes
@@ -95,7 +116,97 @@ Uses [Vercel Sandbox](https://vercel.com/docs/sandbox) (Firecracker microVMs). R
 - Sandboxes auto-expire; `expiresAt` is authoritative.
 - Persistent sandboxes are identified by `sandboxName` (session-scoped).
 - Lifecycle hibernation is handled by the durable workflow in `apps/web/app/workflows/`.
-- Base snapshot is configured via `VERCEL_SANDBOX_BASE_SNAPSHOT_ID`. See `apps/web/lib/sandbox/config.ts` for the current default. To rebuild the snapshot, run `scripts/create-base-snapshot.ts`.
+- Base snapshot is configured via `VERCEL_SANDBOX_BASE_SNAPSHOT_ID`. See `apps/web/lib/sandbox/config.ts` for the current default. To rebuild the snapshot, run `scripts/vercel-refresh-base-snapshot.ts`.
+
+### Building the base snapshot
+
+Run from the repository root after `rtk bun install --frozen-lockfile`. The setup recipe uses `dnf` for the `node22` runtime and installs Bun, code-server, agent-browser, Chromium, and RTK. It runs the requested RTK installer and compiles from source when the published ARM64 binary requires a newer glibc than the runtime provides. It tests browser startup and leaves the workspace clone-ready. Base snapshots do not expire.
+
+If a project-scoped `VERCEL_OIDC_TOKEN` is already available in your environment:
+
+```bash
+rtk bun run sandbox:snapshot-base --setup-base --sandbox-timeout-ms 1200000
+```
+
+Otherwise, use your existing Vercel CLI login without linking this checkout. Confirm the account with `rtk proxy vercel whoami` (run `rtk proxy vercel login` only when logged out). This command obtains a short-lived token in memory and passes it only to the build process; it does not print or save the token:
+
+```bash
+rtk proxy bun -e '
+const auth = Bun.spawn([
+  "rtk", "proxy", "vercel", "api",
+  "/v1/projects/prj_2CqgIIipE2rtsQ2OYyS6691dGPUM/token?source=vercel-oidc-refresh",
+  "--method", "POST", "--scope", "next-degree", "--raw"
+], { stdout: "pipe", stderr: "inherit" });
+const response = await new Response(auth.stdout).text();
+if (await auth.exited !== 0) throw new Error("Vercel authentication failed");
+const { token } = JSON.parse(response);
+if (typeof token !== "string") throw new Error("Missing project token");
+const build = Bun.spawn([
+  "rtk", "bun", "run", "sandbox:snapshot-base",
+  "--setup-base", "--sandbox-timeout-ms", "1200000"
+], {
+  env: { ...process.env, VERCEL_OIDC_TOKEN: token },
+  stdout: "inherit", stderr: "inherit"
+});
+process.exit(await build.exited);
+'
+```
+
+The project ID above is `quack-ops-web`; forks must substitute their own project ID and team. Find the ID with `rtk proxy vercel project inspect <project-name> --scope <team>`. To refresh an existing image, add `--from <snapshot-id>` and optional repeated `--command` arguments. Without `--setup-base`, the script only runs supplied commands before snapshotting.
+
+Set the resulting `VERCEL_SANDBOX_BASE_SNAPSHOT_ID` in the application's environment and redeploy to activate it. Do not hardcode a private snapshot in shared TypeScript config. Building a snapshot does not update the project environment or deploy the app.
+
+### Opening a test shell
+
+The base snapshot built and restore-tested on 2026-09-10 belongs to `next-degree / quack-ops-web`:
+
+```env
+VERCEL_SANDBOX_BASE_SNAPSHOT_ID=snap_72AvnIK3Rz9Deda6eqLNCXBiw10G
+```
+
+Create a separate test sandbox and open its interactive shell:
+
+```bash
+rtk proxy vercel sandbox sh \
+  --scope next-degree \
+  --project quack-ops-web \
+  --snapshot snap_72AvnIK3Rz9Deda6eqLNCXBiw10G \
+  --timeout 30m \
+  --non-persistent
+```
+
+The CLI prints the sandbox name. If it returns to your local prompt, or you need to reconnect, replace `<sandbox-name>` below with that name:
+
+```bash
+rtk proxy vercel sandbox connect <sandbox-name> \
+  --scope next-degree --project quack-ops-web
+```
+
+Inside the sandbox, run these checks directly:
+
+```bash
+pwd
+ls -la /vercel/sandbox
+git --version
+bun --version
+rtk --version
+code-server --version
+agent-browser --version
+agent-browser open 'data:text/html,<title>Sandbox Working</title><main>Browser ready</main>'
+agent-browser get title
+agent-browser snapshot
+agent-browser close
+curl -I https://github.com
+```
+
+The workspace should initially be empty, with no `.git`. This snapshot contains Bun `1.3.14`, RTK, code-server `4.136.2`, and agent-browser `0.37.1`. Expect title `Sandbox Working`, browser content `Browser ready`, and a successful HTTP response from GitHub. Changes in this test sandbox do not modify the base snapshot.
+
+Run `exit` to leave the shell, then stop the test sandbox from your local terminal rather than waiting for its 30-minute timeout:
+
+```bash
+rtk proxy vercel sandbox stop <sandbox-name> \
+  --scope next-degree --project quack-ops-web
+```
 
 ---
 

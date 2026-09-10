@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { APP_DEFAULT_MODEL_ID } from "@/lib/models";
 
 let currentSession: {
   authProvider?: "vercel" | "github";
@@ -26,6 +27,12 @@ const updateCalls: Array<Record<string, unknown>> = [];
 
 mock.module("@/lib/session/get-server-session", () => ({
   getServerSession: async () => currentSession,
+  // The chokepoint's membership-aware export. This suite covers an
+  // approved member; the pending case is covered where the gate lives.
+  getSessionWithMembership: async () => ({
+    session: currentSession ?? undefined,
+    approved: Boolean(currentSession),
+  }),
 }));
 
 mock.module("@/lib/db/user-preferences", () => ({
@@ -114,8 +121,8 @@ describe("/api/settings/preferences", () => {
       preferences: typeof preferencesState;
     };
 
-    expect(body.preferences.defaultModelId).toBe("openai/gpt-5.4");
-    expect(body.preferences.defaultSubagentModelId).toBe("openai/gpt-5.4");
+    expect(body.preferences.defaultModelId).toBe(APP_DEFAULT_MODEL_ID);
+    expect(body.preferences.defaultSubagentModelId).toBe(APP_DEFAULT_MODEL_ID);
     expect(body.preferences.modelVariants).toEqual([]);
   });
 

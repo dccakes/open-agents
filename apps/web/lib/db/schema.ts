@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import type { SandboxProviderType, SandboxState } from "@open-agents/sandbox";
 import type { ModelVariant } from "@/lib/model-variants";
 import type { DbTeardownMetadata } from "@/lib/sandbox/db-provisioner";
@@ -22,7 +23,15 @@ export const users = pgTable("users", {
   emailVerified: boolean("email_verified").notNull().default(false),
   name: text("name"),
   avatarUrl: text("avatar_url"),
+  // Superseded by `role` (better-auth admin plugin). Kept for one deploy so a
+  // rolling release's previous code can still read it; dropped in a later PR.
   isAdmin: boolean("is_admin").notNull().default(false),
+  // better-auth admin plugin. Every declared field must exist as a column:
+  // the adapter rejects an insert naming a column the Drizzle schema lacks.
+  role: text("role").notNull().default("user"),
+  banned: boolean("banned").notNull().default(false),
+  banReason: text("ban_reason"),
+  banExpires: timestamp("ban_expires"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   lastLoginAt: timestamp("last_login_at").defaultNow().notNull(),
@@ -59,6 +68,12 @@ export const authSessions = pgTable("auth_sessions", {
   userId: text("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
+  // better-auth organization plugin. NULL on sessions issued before the
+  // organization existed, which is why `requirePermission()` resolves the
+  // seeded organization explicitly instead of trusting this field.
+  activeOrganizationId: text("active_organization_id"),
+  // better-auth admin plugin.
+  impersonatedBy: text("impersonated_by"),
 });
 
 // better-auth verification tokens
@@ -71,6 +86,164 @@ export const verification = pgTable("verification", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// better-auth organization plugin — `organization` model.
+// `metadata` is a plugin column and must exist even though nothing in this
+// change stores anything in it: org settings live in their own typed table.
+export const organizations = pgTable(
+  "organizations",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    logo: text("logo"),
+    metadata: text("metadata"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  // The seeder's concurrency guard: two boots racing to insert converge on one
+  // row through this constraint rather than through check-then-insert.
+  (table) => [uniqueIndex("organizations_slug_idx").on(table.slug)],
+);
+
+// better-auth organization plugin — `member` model.
+export const orgMembers = pgTable(
+  "org_members",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role").notNull().default("member"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("org_members_org_user_idx").on(
+      table.organizationId,
+      table.userId,
+    ),
+    index("org_members_user_id_idx").on(table.userId),
+  ],
+);
+
+// better-auth organization plugin — `invitation` model.
+export const orgInvitations = pgTable(
+  "org_invitations",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    role: text("role"),
+    status: text("status").notNull().default("pending"),
+    expiresAt: timestamp("expires_at").notNull(),
+    inviterId: text("inviter_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("org_invitations_organization_id_idx").on(table.organizationId),
+    index("org_invitations_email_idx").on(table.email),
+  ],
+);
+
+// Organization-wide settings.
+//
+// Keyed by a unique `organizationId` rather than a fixed singleton id, so the
+// Phase 2 multi-org migration is a no-op for this table. The columns are typed
+// rather than living in the organization plugin's `metadata` JSON: the kill
+// switch is read before every run start, and a malformed blob must not be able
+// to fail open into "runs allowed".
+//
+// The row itself is created by the runtime seeder (`lib/org/seed.ts`), not by a
+// migration — migrations are static SQL and cannot read configuration.
+export const orgSettings = pgTable(
+  "org_settings",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    // Stops *new* runs in this deployment. In-flight runs are unaffected;
+    // terminating those is WS-1.5's per-run stop.
+    agentRunsPaused: boolean("agent_runs_paused").notNull().default(false),
+    // NULL means unlimited. Stored and gated here; enforcement is WS-1.1's.
+    dailyTokenBudget: integer("daily_token_budget"),
+    // The Vercel team the organization's projects live under — the org's
+    // tie-in to Vercel, as distinct from the per-user Vercel OAuth identity
+    // that actually performs API calls. NULL means "not recorded yet".
+    vercelTeamId: text("vercel_team_id"),
+    vercelTeamSlug: text("vercel_team_slug"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("org_settings_organization_id_idx").on(table.organizationId),
+  ],
+);
+
+export type Organization = typeof organizations.$inferSelect;
+export type NewOrganization = typeof organizations.$inferInsert;
+export type OrgMember = typeof orgMembers.$inferSelect;
+export type NewOrgMember = typeof orgMembers.$inferInsert;
+export type OrgInvitation = typeof orgInvitations.$inferSelect;
+export type NewOrgInvitation = typeof orgInvitations.$inferInsert;
+export type OrgSettingsRow = typeof orgSettings.$inferSelect;
+export type NewOrgSettingsRow = typeof orgSettings.$inferInsert;
+
+// GitHub accounts the organization claims as its own.
+//
+// The promotion key is `accountId` — GitHub's immutable numeric account id —
+// not the login and not the installation id. Logins are rename-able, and an
+// uninstall/reinstall cycle issues a *new* installation id, so an allowlist
+// keyed by either would silently stop applying at exactly the moment nobody is
+// watching. `accountLogin` is carried for display only.
+//
+// `accountType` is constrained to `Organization` at the type level because a
+// personal GitHub account is never promotable: sharing one would hand the
+// whole organization access to a member's private repositories.
+export const orgGitHubAccounts = pgTable(
+  "org_github_accounts",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    accountId: integer("account_id").notNull(),
+    accountLogin: text("account_login").notNull(),
+    accountType: text("account_type", { enum: ["Organization"] })
+      .notNull()
+      .default("Organization"),
+    addedByUserId: text("added_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("org_github_accounts_org_account_idx").on(
+      table.organizationId,
+      table.accountId,
+    ),
+  ],
+);
+
+// GitHub App installations.
+//
+// Ownership is discriminated by `organizationId`: non-NULL means the
+// organization owns this installation and exactly one row represents it;
+// NULL means the row is personal to `userId`.
+//
+// `userId` stays NOT NULL in both modes, but its *meaning* changes with
+// ownership — on an org-owned row it is provenance ("who installed it"), not
+// authority. Nothing resolves an org-owned installation through it. The column
+// keeps its name rather than being renamed to `installed_by_user_id`: a rename
+// during the expand step risks drizzle-kit emitting drop-and-add instead of
+// `ALTER ... RENAME`, and the semantic point is carried by the resolver
+// signatures, which take no user id at all.
 export const githubInstallations = pgTable(
   "github_installations",
   {
@@ -78,7 +251,15 @@ export const githubInstallations = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Non-NULL ⇒ organization-owned. See the ownership note above.
+    organizationId: text("organization_id").references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     installationId: integer("installation_id").notNull(),
+    // GitHub's immutable numeric account id, matched against the allowlist.
+    // Nullable because rows written before this column existed have none; the
+    // backfill fills what it can resolve and leaves the rest personal.
+    accountId: integer("account_id"),
     accountLogin: text("account_login").notNull(),
     accountType: text("account_type", {
       enum: ["User", "Organization"],
@@ -99,17 +280,35 @@ export const githubInstallations = pgTable(
       table.userId,
       table.accountLogin,
     ),
+    // "Exactly one organization-owned row per installation", enforced by the
+    // database rather than by the promotion routine remembering. Partial, so
+    // the personal rows this does not govern are unaffected.
+    uniqueIndex("github_installations_org_installation_idx")
+      .on(table.organizationId, table.installationId)
+      .where(sql`${table.organizationId} IS NOT NULL`),
   ],
 );
 
+// Repository → Vercel project links.
+//
+// Keyed by the *repository*, not by the person: which project a repo deploys
+// to is a fact about the repo, and the primary key is what makes "one answer
+// per repository" true rather than a rule someone has to remember. `userId` is
+// provenance — who set it — and carries no authority.
+//
+// Deleting a user leaves the link standing (`set null`): the organization's
+// deployment target must not disappear because the person who recorded it did.
 export const vercelProjectLinks = pgTable(
   "vercel_project_links",
   {
-    userId: text("user_id")
+    organizationId: text("organization_id")
       .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+      .references(() => organizations.id, { onDelete: "cascade" }),
     repoOwner: text("repo_owner").notNull(),
     repoName: text("repo_name").notNull(),
+    userId: text("user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     projectId: text("project_id").notNull(),
     projectName: text("project_name").notNull(),
     teamId: text("team_id"),
@@ -119,7 +318,7 @@ export const vercelProjectLinks = pgTable(
   },
   (table) => [
     primaryKey({
-      columns: [table.userId, table.repoOwner, table.repoName],
+      columns: [table.organizationId, table.repoOwner, table.repoName],
     }),
   ],
 );
@@ -154,6 +353,15 @@ export const sessions = pgTable(
     // Optional per-session override for auto PR creation after auto-commit.
     // null means "use the user's default preference".
     autoCreatePrOverride: boolean("auto_create_pr_override"),
+    // Security posture. Lives on the session rather than the chat so a user
+    // cannot escape a `strict` posture by opening a second chat. `auto` is the
+    // default precisely because it is what every session did before the column
+    // existed, so the migration changes no behaviour.
+    posture: text("posture", {
+      enum: ["strict", "auto", "dangerous"],
+    })
+      .notNull()
+      .default("auto"),
     globalSkillRefs: jsonb("global_skill_refs")
       .$type<GlobalSkillRef[]>()
       .notNull()
@@ -285,12 +493,25 @@ export const workflowRuns = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     modelId: text("model_id"),
+    // `running` exists because the row is now written at run start. A budget
+    // breach is `budget-exceeded` rather than `failed`: the run did what it was
+    // asked to do and then hit a ceiling, which is not the same as an error.
     status: text("status", {
-      enum: ["completed", "aborted", "failed"],
+      enum: ["running", "completed", "aborted", "failed", "budget-exceeded"],
     }).notNull(),
     startedAt: timestamp("started_at").notNull(),
-    finishedAt: timestamp("finished_at").notNull(),
-    totalDurationMs: integer("total_duration_ms").notNull(),
+    // NULL while the run is in flight. A row no longer implies a finished run,
+    // so every reader that means "finished" must say so — see
+    // `finishedWorkflowRuns()` in `lib/db/workflow-runs.ts`.
+    finishedAt: timestamp("finished_at"),
+    totalDurationMs: integer("total_duration_ms"),
+    // Running totals, written each step so spend is observable mid-run and a
+    // resumed run does not restart its budget at zero.
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    stepCount: integer("step_count").notNull().default(0),
+    /** Why the run stopped early, when it did. Names the budget and the totals. */
+    haltReason: text("halt_reason"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
@@ -323,6 +544,112 @@ export const workflowRunSteps = pgTable(
     ),
   ],
 );
+
+// Approvals — the server-side record behind a policy `ask`.
+//
+// This table exists because the approval decision otherwise travels inside the
+// client-supplied `messages[].parts` of the resume request, which makes it an
+// assertion by whoever can send that request rather than an authorization.
+// The row is what `execute` verifies, what `expiresAt` times out, what
+// `decidedBy` attributes, and what `consumedAt` makes single-use.
+//
+// `workflowRunId` carries no foreign key on purpose: the `workflow_runs` row is
+// not written until the run finishes, so an approval requested mid-run has a
+// run id that does not exist as a row yet.
+export const approvals = pgTable(
+  "approval",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    // NULL for an application-level side effect, which has no chat turn.
+    chatId: text("chat_id").references(() => chats.id, {
+      onDelete: "cascade",
+    }),
+    workflowRunId: text("workflow_run_id"),
+    kind: text("kind", {
+      enum: ["tool-call", "app-side-effect"],
+    }).notNull(),
+    // NULL for an application-level side effect, which has no tool dispatch.
+    toolName: text("tool_name"),
+    toolCallId: text("tool_call_id"),
+    // Redacted: credential-shaped values never reach this column.
+    inputSummary: jsonb("input_summary")
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    decision: text("decision", {
+      enum: ["pending", "approved", "denied", "expired"],
+    })
+      .notNull()
+      .default("pending"),
+    decidedBy: text("decided_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    // Set the first time an execution spends this approval. Single-use: a
+    // replayed message body finds it already set and is refused.
+    consumedAt: timestamp("consumed_at"),
+    expiresAt: timestamp("expires_at").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    decidedAt: timestamp("decided_at"),
+  },
+  (table) => [
+    // Listing a session's pending approvals.
+    index("approval_session_decision_idx").on(table.sessionId, table.decision),
+    // Execute-time lookup, and the guarantee that one tool call cannot be
+    // gated by two competing approvals. NULLs are distinct in Postgres, so
+    // application-side-effect rows are unaffected.
+    uniqueIndex("approval_tool_call_id_idx").on(table.toolCallId),
+    // The sweeper's scan: pending rows past their expiry.
+    index("approval_decision_expires_at_idx").on(
+      table.decision,
+      table.expiresAt,
+    ),
+  ],
+);
+
+// Policy events — append-only.
+//
+// Insert-only by design: there is no update or delete path anywhere in the
+// app, so the record of what the policy decided cannot be edited after the
+// fact. That is the whole value of it.
+export const policyEvents = pgTable(
+  "policy_event",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    workflowRunId: text("workflow_run_id"),
+    toolName: text("tool_name"),
+    // Redacted, same rule as `approval.input_summary`.
+    inputSummary: jsonb("input_summary")
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    // `expired` is the sweeper materializing a timeout; `downgraded` is a
+    // posture resolution refusing `dangerous` for a non-interactive trigger.
+    decision: text("decision", {
+      enum: ["allow", "ask", "deny", "expired", "downgraded"],
+    }).notNull(),
+    matchedRule: text("matched_rule"),
+    posture: text("posture", {
+      enum: ["strict", "auto", "dangerous"],
+    }).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("policy_event_session_created_at_idx").on(
+      table.sessionId,
+      table.createdAt,
+    ),
+    index("policy_event_workflow_run_id_idx").on(table.workflowRunId),
+  ],
+);
+
+export type Approval = typeof approvals.$inferSelect;
+export type NewApproval = typeof approvals.$inferInsert;
+export type PolicyEvent = typeof policyEvents.$inferSelect;
+export type NewPolicyEvent = typeof policyEvents.$inferInsert;
 
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
@@ -417,34 +744,62 @@ export type UserSandboxConfig = typeof userSandboxConfigs.$inferSelect;
 export type NewUserSandboxConfig = typeof userSandboxConfigs.$inferInsert;
 
 // Usage tracking — one row per assistant turn (append-only)
-export const usageEvents = pgTable("usage_events", {
-  id: text("id").primaryKey(),
-  userId: text("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  source: text("source", { enum: ["web"] })
-    .notNull()
-    .default("web"),
-  agentType: text("agent_type", { enum: ["main", "subagent"] })
-    .notNull()
-    .default("main"),
-  provider: text("provider"),
-  modelId: text("model_id"),
-  inputTokens: integer("input_tokens").notNull().default(0),
-  cachedInputTokens: integer("cached_input_tokens").notNull().default(0),
-  outputTokens: integer("output_tokens").notNull().default(0),
-  toolCallCount: integer("tool_call_count").notNull().default(0),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+export const usageEvents = pgTable(
+  "usage_events",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // Run attribution. Nullable because rows written before attribution
+    // existed have neither, and because usage can be recorded outside a
+    // workflow run.
+    sessionId: text("session_id"),
+    workflowRunId: text("workflow_run_id"),
+    source: text("source", { enum: ["web"] })
+      .notNull()
+      .default("web"),
+    agentType: text("agent_type", { enum: ["main", "subagent"] })
+      .notNull()
+      .default("main"),
+    provider: text("provider"),
+    modelId: text("model_id"),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    cachedInputTokens: integer("cached_input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    toolCallCount: integer("tool_call_count").notNull().default(0),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("usage_events_user_id_created_at_idx").on(
+      table.userId,
+      table.createdAt,
+    ),
+    index("usage_events_workflow_run_id_idx").on(table.workflowRunId),
+  ],
+);
 
 export type UsageEvent = typeof usageEvents.$inferSelect;
 export type NewUsageEvent = typeof usageEvents.$inferInsert;
 
-// Linear workspace connection (one per deployment)
+// The Linear workspace connection.
+//
+// `organizationId` is what the connection is resolved by — previously it was
+// whichever row happened to be oldest, which is only correct while exactly one
+// row exists. `installedByUserId` is provenance: the connection survives that
+// user leaving, and the OAuth grant is taken with `actor=app`, so the stored
+// token is the application's rather than any person's.
+//
+// Backfilled at runtime by the seeder rather than by the migration, for the
+// same reason `org_settings`' row is: migrations are static SQL and cannot
+// know the seeded organization's id.
 export const linearWorkspaces = pgTable(
   "linear_workspaces",
   {
     id: text("id").primaryKey(),
+    organizationId: text("organization_id").references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     workspaceId: text("workspace_id").notNull(),
     workspaceName: text("workspace_name").notNull(),
     accessToken: text("access_token").notNull(),
@@ -456,8 +811,52 @@ export const linearWorkspaces = pgTable(
   },
   (table) => [
     uniqueIndex("linear_workspaces_workspace_id_idx").on(table.workspaceId),
+    // At most one active connection per organization.
+    uniqueIndex("linear_workspaces_organization_id_idx")
+      .on(table.organizationId)
+      .where(sql`${table.organizationId} IS NOT NULL`),
+  ],
+);
+
+// Linear identities mapped to QuackOps users by an administrator.
+//
+// The webhook carries no cookie, so an actor is otherwise matched by email
+// string. `accountLinking.allowDifferentEmails` is enabled, which makes a
+// Linear address differing from a sign-in address an ordinary state rather
+// than a misconfiguration — so it needs a deliberate resolution path. This is
+// that path. It is emphatically *not* a fallback identity: an actor with
+// neither a verified-email match nor a row here does not resolve at all.
+export const linearActorLinks = pgTable(
+  "linear_actor_links",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** The actor's Linear user id, as it appears on the webhook payload. */
+    linearUserId: text("linear_user_id").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdByUserId: text("created_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    // One Linear identity resolves to exactly one QuackOps user.
+    uniqueIndex("linear_actor_links_org_linear_user_idx").on(
+      table.organizationId,
+      table.linearUserId,
+    ),
+    index("linear_actor_links_user_id_idx").on(table.userId),
   ],
 );
 
 export type LinearWorkspace = typeof linearWorkspaces.$inferSelect;
 export type NewLinearWorkspace = typeof linearWorkspaces.$inferInsert;
+export type LinearActorLink = typeof linearActorLinks.$inferSelect;
+export type NewLinearActorLink = typeof linearActorLinks.$inferInsert;
+export type OrgGitHubAccount = typeof orgGitHubAccounts.$inferSelect;
+export type NewOrgGitHubAccount = typeof orgGitHubAccounts.$inferInsert;

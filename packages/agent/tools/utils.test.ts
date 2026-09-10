@@ -14,12 +14,14 @@ mock.module("@open-agents/sandbox", () => ({
 }));
 
 const {
+  getPolicy,
   getSandbox,
   getSandboxContext,
   isPathWithinDirectory,
   shellEscape,
   toDisplayPath,
 } = await import("./utils");
+const { defaultCommandPolicy } = await import("../policy");
 
 beforeEach(() => {
   connectSandboxCalls.length = 0;
@@ -73,6 +75,40 @@ describe("tools/utils", () => {
     expect(connectSandboxCalls).toEqual([
       [{ type: "vercel", sandboxId: "sbx-456" }],
     ]);
+  });
+
+  test("getPolicy returns the policy context when one is wired", () => {
+    const policy = getPolicy({
+      sandbox: { state: { type: "vercel" }, workingDirectory: "/repo" },
+      model: "test-model",
+      policy: {
+        policy: defaultCommandPolicy,
+        posture: "strict",
+        interactive: false,
+      },
+    });
+
+    expect(policy?.posture).toBe("strict");
+    expect(policy?.interactive).toBe(false);
+    expect(policy?.policy.id).toBe(defaultCommandPolicy.id);
+  });
+
+  test("getPolicy returns undefined when no policy is wired", () => {
+    expect(
+      getPolicy({
+        sandbox: { state: { type: "vercel" }, workingDirectory: "/repo" },
+        model: "test-model",
+      }),
+    ).toBeUndefined();
+    expect(getPolicy(undefined)).toBeUndefined();
+    expect(getPolicy({ policy: { posture: "auto" } })).toBeUndefined();
+  });
+
+  test("getPolicy does not require a sandbox or a model in context", () => {
+    expect(
+      getPolicy({ policy: { policy: defaultCommandPolicy, posture: "auto" } })
+        ?.posture,
+    ).toBe("auto");
   });
 
   test("shellEscape safely escapes single quotes", () => {

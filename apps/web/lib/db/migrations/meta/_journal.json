@@ -267,6 +267,55 @@
       "when": 1784655357701,
       "tag": "0037_smiling_tyger_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1785772669995,
+      "tag": "0038_thick_nightshade",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1785789484338,
+      "tag": "0039_superb_captain_universe",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1785795529602,
+      "tag": "0040_flat_excalibur",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1785797458010,
+      "tag": "0041_absent_cerebro",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1785799698330,
+      "tag": "0042_sour_blur",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1785858509573,
+      "tag": "0043_safe_xavin",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1785923964484,
+      "tag": "0044_moaning_grim_reaper",
+      "breakpoints": true
     }
   ]
 }

@@ -34,6 +34,14 @@ export {
   type SandboxConnectConfig,
 } from "./factory";
 
+// env-driven provider defaults (the package's single config boundary)
+export {
+  getDaytonaProviderConfig,
+  getDockerProviderConfig,
+  type DaytonaProviderConfig,
+  type DockerProviderConfig,
+} from "./config";
+
 // git helpers (used by many app-level callers)
 export {
   hasUncommittedChanges,

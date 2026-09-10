@@ -1,6 +1,8 @@
 import { generateState } from "arctic";
 import { NextResponse, type NextRequest } from "next/server";
-import { getInstallationsByUserId } from "@/lib/db/installations";
+import { getDeploymentConfig } from "@/lib/config/deployment";
+import { getPublicConfig } from "@/lib/config/public";
+import { getVisibleInstallations } from "@/lib/github/visible-installations";
 import { syncUserInstallations } from "@/lib/github/sync";
 import { getUserGitHubToken } from "@/lib/github/token";
 import {
@@ -14,7 +16,7 @@ import { getServerSession } from "@/lib/session/get-server-session";
 
 const COOKIE_OPTIONS = {
   path: "/",
-  secure: process.env.NODE_ENV === "production",
+  secure: getDeploymentConfig().isProduction,
   httpOnly: true,
   maxAge: 60 * 15,
   sameSite: "lax" as const,
@@ -53,7 +55,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     return NextResponse.redirect(fallbackUrl);
   }
 
-  const appSlug = process.env.NEXT_PUBLIC_GITHUB_APP_SLUG;
+  const { githubAppSlug: appSlug } = getPublicConfig();
   if (!appSlug) {
     const fallbackUrl = new URL(redirectTo, req.url);
     fallbackUrl.searchParams.set("github", "app_not_configured");
@@ -97,7 +99,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   }
 
   // try to sync installations
-  let installations = await getInstallationsByUserId(session.user.id);
+  let installations = await getVisibleInstallations(session.user.id);
 
   if (installations.length === 0) {
     try {
@@ -105,7 +107,7 @@ export async function GET(req: NextRequest): Promise<Response> {
       const username = await getGitHubUsername(session.user.id);
       if (token && username) {
         await syncUserInstallations(session.user.id, token, username);
-        installations = await getInstallationsByUserId(session.user.id);
+        installations = await getVisibleInstallations(session.user.id);
       }
     } catch (error) {
       console.error("Failed to sync GitHub installations in install flow:", {

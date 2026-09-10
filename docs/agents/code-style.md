@@ -5,7 +5,8 @@ Detailed coding conventions, tool implementation patterns, and common patterns f
 ## Package Manager
 
 - Use **Bun exclusively** (not Node/npm/pnpm)
-- The monorepo uses `bun@1.2.14` as the package manager
+- The monorepo uses `bun@1.3.14` as the package manager (pinned in root `package.json`
+  `packageManager` and in `.github/workflows/ci.yml`; keep the two in sync)
 
 ## TypeScript Configuration
 

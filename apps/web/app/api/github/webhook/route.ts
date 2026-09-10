@@ -2,12 +2,14 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { after } from "next/server";
 import { z } from "zod";
+import { getGitHubAppEnvConfig } from "@/lib/config/github";
 import {
   deleteInstallationByInstallationId,
   getInstallationsByInstallationId,
   updateInstallationsByInstallationId,
   upsertInstallation,
 } from "@/lib/db/installations";
+import { renameOrgGitHubAccount } from "@/lib/db/org-github-accounts";
 import { updateSession } from "@/lib/db/sessions";
 import { db } from "@/lib/db/client";
 import { sessions } from "@/lib/db/schema";
@@ -21,6 +23,10 @@ const installationWebhookSchema = z.object({
     html_url: z.string().url().nullable().optional(),
     account: z
       .object({
+        // GitHub's immutable numeric account id — what the organization
+        // allowlist matches on. Optional so an unexpected payload degrades to
+        // "stays personal" rather than rejecting the delivery.
+        id: z.number().optional(),
         login: z.string(),
         type: z.string(),
       })
@@ -149,7 +155,7 @@ async function handlePullRequestWebhook(
 }
 
 export async function POST(req: Request): Promise<Response> {
-  const webhookSecret = process.env.GITHUB_WEBHOOK_SECRET;
+  const { webhookSecret } = getGitHubAppEnvConfig();
   if (!webhookSecret) {
     return Response.json(
       { error: "GITHUB_WEBHOOK_SECRET is not configured" },
@@ -209,6 +215,10 @@ export async function POST(req: Request): Promise<Response> {
   const account = parsed.data.installation.account;
   const installationUrl = parsed.data.installation.html_url ?? null;
 
+  // GitHub saying the App was uninstalled is one of the two authoritative
+  // removal signals for an organization-owned record (the other is
+  // reconciliation against `GET /app/installations`). Unlike a member's sync,
+  // it is a statement about the installation itself, so it removes every row.
   if (event === "installation" && parsed.data.action === "deleted") {
     const deleted = await deleteInstallationByInstallationId(installationId);
     return Response.json({ ok: true, deleted });
@@ -216,12 +226,23 @@ export async function POST(req: Request): Promise<Response> {
 
   const existing = await getInstallationsByInstallationId(installationId);
 
+  // A renamed account keeps its numeric id and its ownership; only the stored
+  // display login is stale. Refreshing it here is why the allowlist survives a
+  // rename that a login-keyed allowlist would silently stop matching.
+  if (account && typeof account.id === "number") {
+    await renameOrgGitHubAccount({
+      accountId: account.id,
+      accountLogin: account.login,
+    });
+  }
+
   // full upsert when we have account info and existing rows to update
   if (existing.length > 0 && account) {
     for (const row of existing) {
       await upsertInstallation({
         userId: row.userId,
         installationId,
+        accountId: account.id ?? row.accountId,
         accountLogin: account.login,
         accountType: normalizeAccountType(account.type),
         repositorySelection: repositorySelection ?? row.repositorySelection,

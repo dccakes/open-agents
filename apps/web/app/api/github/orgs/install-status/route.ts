@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getInstallationsByUserId } from "@/lib/db/installations";
+import { getVisibleInstallations } from "@/lib/github/visible-installations";
 import { isGitHubAppConfigured } from "@/lib/github/app";
 import { getInstallationManageUrl } from "@/lib/github/urls";
 import { syncUserInstallations } from "@/lib/github/sync";
@@ -71,7 +71,7 @@ export async function GET() {
       );
     }
 
-    const installations = await getInstallationsByUserId(session.user.id);
+    const installations = await getVisibleInstallations(session.user.id);
 
     // without a token we can't fetch the user profile, so build from installations
     const orgs: OrgInstallStatus[] = installations.map((i) => ({
@@ -128,7 +128,7 @@ export async function GET() {
         orgsResponse.status === 403;
 
       if (isAuthError) {
-        const installations = await getInstallationsByUserId(session.user.id);
+        const installations = await getVisibleInstallations(session.user.id);
         const orgs: OrgInstallStatus[] = installations.map((i) => ({
           githubId: 0,
           login: i.accountLogin,
@@ -188,7 +188,7 @@ export async function GET() {
     );
 
     // Get all installations from DB
-    const installations = await getInstallationsByUserId(session.user.id);
+    const installations = await getVisibleInstallations(session.user.id);
     const installationsByLogin = new Map(
       installations.map((i) => [i.accountLogin.toLowerCase(), i]),
     );

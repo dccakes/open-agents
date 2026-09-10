@@ -2,6 +2,10 @@
 
 import { eq } from "drizzle-orm";
 import { auth } from "@/lib/auth/config";
+import {
+  getGitHubOAuthCredentials,
+  getVercelOAuthCredentials,
+} from "@/lib/config/auth";
 import { db } from "@/lib/db/client";
 import { accounts, authSessions, githubInstallations } from "@/lib/db/schema";
 import { isUserAdmin } from "@/lib/db/users";
@@ -28,8 +32,7 @@ async function requireAdmin(): Promise<string> {
  * Uses HTTP Basic auth with clientId:clientSecret.
  */
 async function revokeGitHubToken(token: string): Promise<boolean> {
-  const clientId = process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID;
-  const clientSecret = process.env.GITHUB_CLIENT_SECRET;
+  const { clientId, clientSecret } = getGitHubOAuthCredentials();
   if (!clientId || !clientSecret) return false;
 
   try {
@@ -62,8 +65,7 @@ const VERCEL_REVOKE_URL = "https://api.vercel.com/login/oauth/token/revoke";
  * Revoke a single Vercel OAuth token via the Vercel revocation endpoint.
  */
 async function revokeVercelToken(token: string): Promise<boolean> {
-  const clientId = process.env.NEXT_PUBLIC_VERCEL_APP_CLIENT_ID;
-  const clientSecret = process.env.VERCEL_APP_CLIENT_SECRET;
+  const { clientId, clientSecret } = getVercelOAuthCredentials();
   if (!clientId || !clientSecret) return false;
 
   try {

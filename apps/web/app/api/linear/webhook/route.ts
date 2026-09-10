@@ -2,16 +2,21 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { desc, eq } from "drizzle-orm";
 import { after } from "next/server";
 import { z } from "zod";
+import { getLinearConfig } from "@/lib/config/linear";
+import { getPublicConfig } from "@/lib/config/public";
 import { db } from "@/lib/db/client";
-import { sessions, users } from "@/lib/db/schema";
+import { sessions } from "@/lib/db/schema";
 import { createSessionWithInitialChat } from "@/lib/db/sessions";
 import {
   postLinearComment,
   postLinearThoughtActivity,
 } from "@/lib/linear/activities";
 import { buildIssueContextBlock, getLinearIssue } from "@/lib/linear/issues";
+import { refusalMessage } from "@/lib/linear/actor-refusal-message";
+import { resolveApprovedLinearActor } from "@/lib/linear/resolve-actor";
 import { getLinearWorkspaceToken } from "@/lib/linear/token";
 import { APP_DEFAULT_MODEL_ID } from "@/lib/models";
+import { checkAgentRunStartAllowed } from "@/lib/org/agent-runs-gate";
 import { nanoid } from "nanoid";
 
 const agentSessionEventSchema = z.object({
@@ -27,6 +32,9 @@ const agentSessionEventSchema = z.object({
       .optional(),
     actor: z
       .object({
+        // The actor's Linear user id — the key an administrator maps when a
+        // member's Linear address differs from their sign-in address.
+        id: z.string().optional(),
         email: z.string().optional(),
         name: z.string().optional(),
       })
@@ -47,7 +55,7 @@ function verifySignature(
 }
 
 export async function POST(req: Request): Promise<Response> {
-  const webhookSecret = process.env.LINEAR_WEBHOOK_SECRET;
+  const { webhookSecret } = getLinearConfig();
   if (!webhookSecret) {
     return Response.json(
       { error: "LINEAR_WEBHOOK_SECRET is not configured" },
@@ -87,6 +95,7 @@ export async function POST(req: Request): Promise<Response> {
   const issueUrl = data.issue.url;
   const actorEmail = data.actor?.email;
   const actorName = data.actor?.name;
+  const actorLinearUserId = data.actor?.id;
 
   after(async () => {
     try {
@@ -96,6 +105,7 @@ export async function POST(req: Request): Promise<Response> {
         issueUrl,
         actorEmail,
         actorName,
+        actorLinearUserId,
       });
     } catch (err) {
       console.error(
@@ -114,12 +124,14 @@ async function handleAgentSession({
   issueUrl,
   actorEmail,
   actorName,
+  actorLinearUserId,
 }: {
   agentSessionId: string;
   issueId: string;
   issueUrl: string;
   actorEmail?: string;
   actorName?: string;
+  actorLinearUserId?: string;
 }): Promise<void> {
   const token = await getLinearWorkspaceToken();
   if (!token) {
@@ -137,32 +149,48 @@ async function handleAgentSession({
     console.error("[Linear webhook] Failed to post thought activity:", err);
   }
 
-  if (!actorEmail) {
-    console.warn("[Linear webhook] No actor email in payload");
-    return;
-  }
-
-  const [user] = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.email, actorEmail))
-    .limit(1);
-
-  if (!user) {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
-    const handle = actorName ? `@${actorName}` : actorEmail;
-    await postLinearComment(
-      token,
-      issueId,
-      `Hey ${handle}, ${actorEmail} isn't connected to Open Agents yet. Sign in at ${appUrl} to run sessions from Linear.`,
-    ).catch((err) =>
-      console.error(
-        "[Linear webhook] Failed to post not-connected comment:",
-        err,
-      ),
+  // Kill switch. This is a run-start path with no browser session, so it
+  // checks the switch itself; the refusal is reported back into the Linear
+  // thread rather than only logged, because a log line is invisible to whoever
+  // delegated the issue.
+  const runStart = await checkAgentRunStartAllowed();
+  if (!runStart.allowed) {
+    await postLinearComment(token, issueId, runStart.message).catch((err) =>
+      console.error("[Linear webhook] Failed to post paused comment:", err),
     );
     return;
   }
+
+  // This path has no browser session, so the membership chokepoint in
+  // `lib/session/` never runs here. The matched user's membership is therefore
+  // checked explicitly, before anything is created.
+  const actor = await resolveApprovedLinearActor(actorEmail, actorLinearUserId);
+
+  if (!actor.ok) {
+    if (actor.reason === "no-identity") {
+      console.warn("[Linear webhook] No actor identity in payload");
+      return;
+    }
+
+    const appUrl = getPublicConfig().appUrl ?? "";
+    const handle = actorName ? `@${actorName}` : actorEmail;
+    // Each refusal names the actual obstacle. "Not connected" sent to someone
+    // who *is* connected — under a different address, or with an unverified
+    // one — reads as a bug and gives them nothing to act on.
+    const message = refusalMessage({
+      reason: actor.reason,
+      handle,
+      actorEmail,
+      appUrl,
+    });
+
+    await postLinearComment(token, issueId, message).catch((err) =>
+      console.error("[Linear webhook] Failed to post refusal comment:", err),
+    );
+    return;
+  }
+
+  const user = { id: actor.userId };
 
   const [existingSession] = await db
     .select({ id: sessions.id })

@@ -75,11 +75,7 @@ export default async function RepoPage({ params }: RepoPageProps) {
   }
 
   const preferencesPromise = getUserPreferences(session.user.id);
-  const savedVercelProjectPromise = getVercelProjectLinkByRepo(
-    session.user.id,
-    username,
-    repo,
-  );
+  const savedVercelProjectPromise = getVercelProjectLinkByRepo(username, repo);
 
   // Get a GitHub token (if available) for private repo access
   const token = await getUserGitHubToken(session.user.id)

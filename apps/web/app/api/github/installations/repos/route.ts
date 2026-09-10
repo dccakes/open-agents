@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getInstallationByUserAndId } from "@/lib/db/installations";
+import { getVisibleInstallationById } from "@/lib/github/visible-installations";
 import { listUserInstallationRepositories } from "@/lib/github/repos";
 import { getUserGitHubToken } from "@/lib/github/token";
 import { getServerSession } from "@/lib/session/get-server-session";
@@ -43,7 +43,12 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const installation = await getInstallationByUserAndId(
+  // Visibility, not ownership: an approved member may list the repositories
+  // of an organization-owned installation. What they actually get back is
+  // still filtered by their own token — `listUserInstallationRepositories`
+  // asks GitHub as the user, so this cannot surface a repository they could
+  // not already see.
+  const installation = await getVisibleInstallationById(
     session.user.id,
     installationId,
   );

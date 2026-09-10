@@ -37,6 +37,9 @@ describe("NeonProvisioner", () => {
 
     await provisioner.teardown({ provider: "neon", identifier: "br-test-123" });
 
-    expect(deleteBranch).toHaveBeenCalledWith("proj-123", "br-test-123");
+    expect(deleteBranch).toHaveBeenCalledWith({
+      projectId: "proj-123",
+      branchId: "br-test-123",
+    });
   });
 });

@@ -1,3 +1,4 @@
+import { getDockerProviderConfig } from "../../config";
 import type { SandboxProviderDef } from "../../provider";
 import { defaultRegistry } from "../../registry";
 import { DockerSandbox } from "./sandbox";
@@ -21,11 +22,11 @@ export const dockerProvider: SandboxProviderDef<DockerState> = {
       placeholder: "open-agents/sandbox-dev:latest",
     },
   ],
-  isAvailable: () => process.env.NODE_ENV === "development",
+  isAvailable: () => getDockerProviderConfig().isDevelopment,
   reasonUnavailable: () =>
-    process.env.NODE_ENV !== "development"
-      ? "Docker sandbox is only available in local development"
-      : undefined,
+    getDockerProviderConfig().isDevelopment
+      ? undefined
+      : "Docker sandbox is only available in local development",
   create: (state, options) => DockerSandbox.create(state, options),
   connect: (state, options) =>
     state.containerId

@@ -4,6 +4,8 @@ import {
   type InferUIMessageChunk,
 } from "ai";
 import { checkBotProtection } from "@/lib/botid";
+import { checkOrgDailyBudgetAllowed } from "@/lib/budget/daily-budget";
+import { getRunStepBudget } from "@/lib/config/agent-policy";
 import { start } from "workflow/api";
 import type { WebAgentUIMessage } from "@/app/types";
 import {
@@ -18,6 +20,10 @@ import {
   updateChat,
 } from "@/lib/db/sessions";
 import { createCancelableReadableStream } from "@/lib/chat/create-cancelable-readable-stream";
+import {
+  agentRunBlockedResponse,
+  checkAgentRunStartAllowed,
+} from "@/lib/org/agent-runs-gate";
 import { getServerSession } from "@/lib/session/get-server-session";
 import {
   isManagedTemplateTrialUser,
@@ -28,11 +34,12 @@ import {
   requireAuthenticatedUser,
   requireOwnedSessionChat,
 } from "./_lib/chat-context";
+import { checkApprovalAdmission } from "./_lib/approval-admission";
 import { parseChatRequestBody, requireChatIdentifiers } from "./_lib/request";
 import { runAgentWorkflow } from "@/app/workflows/chat";
 import { persistAssistantMessagesWithToolResults } from "./_lib/persist-tool-results";
 
-export const maxDuration = 300;
+export const maxDuration = 800;
 
 type WebAgentUIMessageChunk = InferUIMessageChunk<WebAgentUIMessage>;
 
@@ -135,6 +142,39 @@ export async function POST(req: Request) {
     }
   }
 
+  // Kill switch. Checked here rather than earlier so that reconnecting to a
+  // run already in flight keeps working while paused — the switch stops new
+  // runs, it does not terminate running ones.
+  const runStart = await checkAgentRunStartAllowed();
+  if (!runStart.allowed) {
+    return agentRunBlockedResponse(runStart);
+  }
+
+  // The organization daily budget, checked in the same place and for the same
+  // reason: it stops *new* runs. A reconnect has already returned above, so a
+  // run in flight keeps streaming while the organization is over budget. Fails
+  // closed — an unreadable budget refuses rather than defaults to permitted.
+  const dailyBudget = await checkOrgDailyBudgetAllowed();
+  if (!dailyBudget.allowed) {
+    return agentRunBlockedResponse(dailyBudget);
+  }
+
+  // Every approval claim in this body is an assertion by whoever sent it.
+  // Recorded and checked before anything is persisted or started, so a forged
+  // claim never becomes a persisted tool result. `userId` is the authenticated
+  // caller and `requireOwnedSessionChat` above has already established that
+  // this session is theirs — that is the authorization the decision is
+  // attributed to, and it is not re-derived from the body.
+  const approvalAdmission = await checkApprovalAdmission({
+    sessionId,
+    actorUserId: userId,
+    posture: sessionRecord.posture,
+    messages,
+  });
+  if (!approvalAdmission.ok) {
+    return approvalAdmission.response;
+  }
+
   await Promise.all([
     persistLatestUserMessage(chatId, messages),
     persistAssistantMessagesWithToolResults(chatId, messages),
@@ -150,7 +190,7 @@ export async function POST(req: Request) {
       requestUrl: req.url,
       authSession: session ?? null,
       assistantId: generateId(),
-      maxSteps: 500,
+      maxSteps: getRunStepBudget(),
     },
   ]);
 

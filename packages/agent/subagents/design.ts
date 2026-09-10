@@ -1,12 +1,9 @@
-import type { LanguageModel } from "ai";
 import { gateway, stepCountIs, ToolLoopAgent } from "ai";
-import { z } from "zod";
 import { bashTool } from "../tools/bash";
 import { globTool } from "../tools/glob";
 import { grepTool } from "../tools/grep";
 import { readFileTool } from "../tools/read";
 import { editFileTool, writeFileTool } from "../tools/write";
-import type { SandboxExecutionContext } from "../types";
 import {
   SUBAGENT_BASH_RULES,
   SUBAGENT_COMPLETE_TASK_RULES,
@@ -15,8 +12,12 @@ import {
   SUBAGENT_RESPONSE_FORMAT,
   SUBAGENT_STEP_LIMIT,
   SUBAGENT_VALIDATE_RULES,
-  SUBAGENT_WORKING_DIR,
 } from "./constants";
+import {
+  createSubagentPrepareCall,
+  type SubagentCallOptions,
+  subagentCallOptionsSchema,
+} from "./prepare-call";
 
 const DESIGN_SYSTEM_PROMPT = `You are a design agent — a specialized subagent that creates distinctive, production-grade frontend interfaces with exceptional design quality. You avoid generic "AI slop" aesthetics and implement real working code with extraordinary attention to aesthetic details and creative choices.
 
@@ -77,16 +78,13 @@ You have full access to file operations (read, write, edit, grep, glob) and bash
 
 ${SUBAGENT_BASH_RULES}`;
 
-const callOptionsSchema = z.object({
-  task: z.string().describe("Short description of the task"),
-  instructions: z.string().describe("Detailed instructions for the task"),
-  sandbox: z
-    .custom<SandboxExecutionContext["sandbox"]>()
-    .describe("Sandbox for file system and shell operations"),
-  model: z.custom<LanguageModel>().describe("Language model for this subagent"),
-});
+export type DesignCallOptions = SubagentCallOptions;
 
-export type DesignCallOptions = z.infer<typeof callOptionsSchema>;
+export const prepareDesignCall = createSubagentPrepareCall({
+  name: "Design",
+  systemPrompt: DESIGN_SYSTEM_PROMPT,
+  reminder: SUBAGENT_REMINDER,
+});
 
 export const designSubagent = new ToolLoopAgent({
   model: gateway("anthropic/claude-opus-4.6"),
@@ -100,32 +98,6 @@ export const designSubagent = new ToolLoopAgent({
     bash: bashTool(),
   },
   stopWhen: stepCountIs(SUBAGENT_STEP_LIMIT),
-  callOptionsSchema,
-  prepareCall: ({ options, ...settings }) => {
-    if (!options) {
-      throw new Error("Design subagent requires task call options.");
-    }
-
-    const sandbox = options.sandbox;
-    const model = options.model ?? settings.model;
-    return {
-      ...settings,
-      model,
-      instructions: `${DESIGN_SYSTEM_PROMPT}
-
-${SUBAGENT_WORKING_DIR}
-
-## Your Task
-${options.task}
-
-## Detailed Instructions
-${options.instructions}
-
-${SUBAGENT_REMINDER}`,
-      experimental_context: {
-        sandbox,
-        model,
-      },
-    };
-  },
+  callOptionsSchema: subagentCallOptionsSchema,
+  prepareCall: prepareDesignCall,
 });

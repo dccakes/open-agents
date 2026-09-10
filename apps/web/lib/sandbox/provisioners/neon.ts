@@ -4,6 +4,7 @@ import type {
   DbTeardownMetadata,
 } from "../db-provisioner";
 import { EndpointType, createApiClient } from "@neondatabase/api-client";
+import { getSandboxDbProvisionerConfig } from "@/lib/config/sandbox";
 
 type NeonClient = ReturnType<typeof createApiClient>;
 
@@ -17,14 +18,15 @@ export class NeonProvisioner implements DbProvisioner {
   private readonly projectId: string;
 
   constructor(deps?: NeonProvisionerDeps) {
-    this.projectId = deps?.projectId ?? process.env.NEON_PROJECT_ID ?? "";
+    const config = getSandboxDbProvisionerConfig();
+    this.projectId = deps?.projectId ?? config.neonProjectId ?? "";
 
     if (deps?.neonClient) {
       this.client = deps.neonClient;
       return;
     }
 
-    const apiKey = process.env.NEON_API_KEY;
+    const apiKey = config.neonApiKey;
     if (!apiKey) {
       this.client = undefined;
       return;
@@ -71,10 +73,10 @@ export class NeonProvisioner implements DbProvisioner {
     }
 
     try {
-      await this.client.deleteProjectBranch(
-        this.projectId,
-        metadata.identifier,
-      );
+      await this.client.deleteProjectBranch({
+        projectId: this.projectId,
+        branchId: metadata.identifier,
+      });
     } catch (error) {
       console.error(
         `Failed to delete Neon branch ${metadata.identifier}:`,

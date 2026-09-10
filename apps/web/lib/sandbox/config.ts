@@ -3,7 +3,9 @@
  * All timeout values are in milliseconds.
  */
 
+import { getSandboxRuntimeConfig } from "@/lib/config/sandbox";
 import { isHobbyResourceProfile } from "@/lib/deployment/resource-profile";
+import { getSandboxTimeoutOverrideMs } from "@/lib/sandbox/timeout-override";
 
 /** SDK safety buffer reserved for sandbox before-stop hooks (30 seconds) */
 const VERCEL_SANDBOX_TIMEOUT_BUFFER_MS = 30 * 1000;
@@ -16,10 +18,15 @@ const STANDARD_SANDBOX_TIMEOUT_MS =
 const HOBBY_SANDBOX_TIMEOUT_MS =
   40 * 60 * 1000 - VERCEL_SANDBOX_TIMEOUT_BUFFER_MS;
 
-/** Default timeout for new cloud sandboxes */
-export const DEFAULT_SANDBOX_TIMEOUT_MS = isHobbyResourceProfile()
+/** Profile default before any `VERCEL_SANDBOX_TIMEOUT_MS` override */
+const PROFILE_SANDBOX_TIMEOUT_MS = isHobbyResourceProfile()
   ? HOBBY_SANDBOX_TIMEOUT_MS
   : STANDARD_SANDBOX_TIMEOUT_MS;
+
+/** Default timeout for new cloud sandboxes */
+export const DEFAULT_SANDBOX_TIMEOUT_MS =
+  getSandboxTimeoutOverrideMs(STANDARD_SANDBOX_TIMEOUT_MS) ??
+  PROFILE_SANDBOX_TIMEOUT_MS;
 
 /** Default vCPU count for new cloud sandboxes */
 export const DEFAULT_SANDBOX_VCPUS = isHobbyResourceProfile() ? 1 : 4;
@@ -62,4 +69,4 @@ export const DEFAULT_WORKING_DIRECTORY = "/vercel/sandbox";
  * runtime so deployments are not tied to a private snapshot in another scope.
  */
 export const DEFAULT_SANDBOX_BASE_SNAPSHOT_ID =
-  process.env.VERCEL_SANDBOX_BASE_SNAPSHOT_ID;
+  getSandboxRuntimeConfig().baseSnapshotId;

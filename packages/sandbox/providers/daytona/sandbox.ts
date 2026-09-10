@@ -1,4 +1,8 @@
 import type { Dirent } from "fs";
+import {
+  type DaytonaProviderConfig,
+  getDaytonaProviderConfig,
+} from "../../config";
 import type { ConnectOptions } from "../../factory";
 import type {
   ExecResult,
@@ -61,8 +65,11 @@ function quoteForShell(value: string): string {
 function getRequiredEnv(
   name: "DAYTONA_API_KEY" | "DAYTONA_SERVER_URL",
   env?: Record<string, string>,
+  config: DaytonaProviderConfig = getDaytonaProviderConfig(),
 ): string {
-  const value = env?.[name] ?? process.env[name];
+  const fallback =
+    name === "DAYTONA_API_KEY" ? config.apiKey : config.serverUrl;
+  const value = env?.[name] ?? fallback;
   if (!value) {
     throw new Error(`${name} environment variable is not set`);
   }
@@ -204,10 +211,32 @@ function toDaytonaWorkspace(value: unknown): DaytonaWorkspace {
   };
 }
 
+/**
+ * Held indirectly so bundlers and `tsc` do not resolve the specifier.
+ *
+ * The Daytona provider is a stub and `@daytonaio/sdk` is intentionally not
+ * installed, but `providers/daytona` is registered eagerly from
+ * `packages/sandbox/index.ts`. A literal specifier therefore fails every
+ * consumer's build and typecheck, even though the import only runs when a
+ * Daytona sandbox is actually created.
+ */
+const DAYTONA_SDK_SPECIFIER = "@daytonaio/sdk";
+
+async function importDaytonaSdk(): Promise<unknown> {
+  try {
+    return await import(DAYTONA_SDK_SPECIFIER);
+  } catch (error) {
+    throw new Error(
+      "@daytonaio/sdk is not installed. Add it to use Daytona sandboxes.",
+      { cause: error },
+    );
+  }
+}
+
 async function loadDaytonaClient(
   options?: ConnectOptions,
 ): Promise<DaytonaClient> {
-  const daytonaModule: unknown = await import("@daytonaio/sdk");
+  const daytonaModule: unknown = await importDaytonaSdk();
 
   const ctorCandidate =
     isRecord(daytonaModule) && "Daytona" in daytonaModule

@@ -15,6 +15,7 @@ type ChatRecord = {
 };
 
 let authSession: AuthSession = { user: { id: "user-1" } };
+let approved = true;
 let sessionRecord: SessionRecord | null = {
   id: "session-1",
   userId: "user-1",
@@ -27,7 +28,11 @@ let chatRecord: ChatRecord | null = {
 };
 
 mock.module("@/lib/session/get-server-session", () => ({
-  getServerSession: async () => authSession,
+  getServerSession: async () => (approved ? authSession : undefined),
+  getSessionWithMembership: async () => ({
+    session: authSession ?? undefined,
+    approved: authSession ? approved : false,
+  }),
 }));
 
 mock.module("@/lib/db/sessions", () => ({
@@ -47,6 +52,7 @@ async function getErrorMessage(
 describe("session context guards", () => {
   beforeEach(() => {
     authSession = { user: { id: "user-1" } };
+    approved = true;
     sessionRecord = {
       id: "session-1",
       userId: "user-1",
@@ -78,6 +84,24 @@ describe("session context guards", () => {
     const result = await requireAuthenticatedUser();
 
     expect(result).toEqual({ ok: true, userId: "user-1" });
+  });
+
+  // Every route reaching for a session goes through this helper, so a pending
+  // user is refused on all of them without any route knowing the gate exists.
+  test("requireAuthenticatedUser returns 403 for a pending user", async () => {
+    approved = false;
+    const { requireAuthenticatedUser, PENDING_APPROVAL_MESSAGE } =
+      await sessionContextModulePromise;
+
+    const result = await requireAuthenticatedUser();
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.response.status).toBe(403);
+      expect(await getErrorMessage(result.response)).toBe(
+        PENDING_APPROVAL_MESSAGE,
+      );
+    }
   });
 
   test("requireOwnedSession returns 404 when session is missing", async () => {

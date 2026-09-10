@@ -98,6 +98,12 @@ mock.module("@/lib/db/user-preferences", () => ({
 
 mock.module("@/lib/session/get-server-session", () => ({
   getServerSession: async () => viewerSession,
+  // The chokepoint's membership-aware export. This suite covers an
+  // approved member; the pending case is covered where the gate lives.
+  getSessionWithMembership: async () => ({
+    session: viewerSession ?? undefined,
+    approved: Boolean(viewerSession),
+  }),
 }));
 
 mock.module("./shared-chat-content", () => ({
